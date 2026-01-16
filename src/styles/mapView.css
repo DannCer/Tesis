@@ -1,0 +1,183 @@
+/* Contenedor principal del mapa - pantalla completa */
+.map-view-container-full {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Mapa Leaflet - pantalla completa */
+.leaflet-map-full {
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+/* Personalización de controles de Leaflet */
+.leaflet-control-zoom {
+    border: 2px solid var(--color-gray) !important;
+    border-radius: 6px !important;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+}
+
+.leaflet-control-zoom a {
+    background-color: white !important;
+    color: var(--color-primary-dark) !important;
+    font-size: 18px !important;
+    font-weight: bold !important;
+    border-bottom: 1px solid var(--color-gray) !important;
+    width: 30px !important;
+    height: 30px !important;
+    line-height: 30px !important;
+}
+
+.leaflet-control-zoom a:hover {
+    background-color: var(--color-primary) !important;
+    color: white !important;
+}
+
+.leaflet-control-zoom a:last-child {
+    border-bottom: none !important;
+}
+
+/* Control de capas base */
+.leaflet-control-layers {
+    border: 2px solid var(--color-gray) !important;
+    border-radius: 6px !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+}
+
+.leaflet-control-layers-toggle {
+    background-image:url(/node_modules/leaflet/dist/images/layers.png);;
+    width: 36px !important;
+    height: 36px !important;
+}
+
+.leaflet-control-layers-toggle::before {
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+}
+
+.leaflet-control-layers-expanded {
+    padding: 10px !important;
+    background-color: white !important;
+}
+
+.leaflet-control-layers-base label {
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+    color: var(--color-text-dark);
+    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+}
+
+.leaflet-control-layers-base input {
+    margin-right: 8px;
+}
+
+/* Escala del mapa */
+.leaflet-control-scale {
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    border: 2px solid var(--color-gray) !important;
+    border-radius: 4px !important;
+    padding: 3px 6px !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1) !important;
+}
+
+.leaflet-control-scale-line {
+    border: 2px solid var(--color-primary-dark) !important;
+    border-top: none !important;
+    color: var(--color-primary-dark) !important;
+    font-weight: 600 !important;
+    font-size: 11px !important;
+    line-height: 1.2 !important;
+    padding: 2px 5px !important;
+}
+
+/* Popups personalizados */
+.leaflet-popup-content-wrapper {
+    border-radius: 8px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+.leaflet-popup-content {
+    font-family: var(--font-body);
+    font-size: 0.95rem;
+    line-height: 1.5;
+    margin: 14px !important;
+}
+
+.leaflet-popup-tip {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+}
+
+.leaflet-popup-close-button {
+    color: var(--color-primary) !important;
+    font-size: 20px !important;
+    font-weight: bold !important;
+}
+
+.leaflet-popup-close-button:hover {
+    color: var(--color-primary-dark) !important;
+}
+
+/* Mejoras de rendimiento */
+.leaflet-tile-container {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+}
+
+/* Cursores personalizados */
+.leaflet-container {
+    cursor: default;
+    font-family: var(--font-body);
+}
+
+.leaflet-grab {
+    cursor: grab;
+}
+
+.leaflet-grabbing {
+    cursor: grabbing;
+}
+
+.leaflet-clickable {
+    cursor: pointer;
+}
+
+/* Loading de tiles */
+.leaflet-tile {
+    transition: opacity 0.2s;
+}
+
+/* Atribución del mapa */
+.leaflet-control-attribution {
+    background-color: rgba(255, 255, 255, 0.8) !important;
+    font-size: 10px !important;
+    padding: 2px 5px !important;
+    border-radius: 3px !important;
+}
+
+.leaflet-control-attribution a {
+    color: var(--color-primary) !important;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .leaflet-control-zoom a {
+        width: 26px !important;
+        height: 26px !important;
+        line-height: 26px !important;
+        font-size: 16px !important;
+    }
+
+    .leaflet-control-scale-line {
+        font-size: 10px !important;
+    }
+}

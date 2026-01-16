@@ -1,0 +1,87 @@
+/* Contenedor principal de la página 404 */
+.notfound-container {
+    min-height: 70vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1rem;
+}
+
+/* Número 404 grande */
+.error-code {
+    font-size: 8rem;
+    font-weight: 700;
+    font-family: var(--font-heading);
+    color: var(--color-primary);
+    line-height: 1;
+    margin-bottom: 1rem;
+    animation: fadeInScale 0.8s ease-out;
+}
+
+/* Título del error */
+.error-title {
+    font-family: var(--font-heading);
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--color-primary-dark);
+    margin-bottom: 1rem;
+    animation: fadeInUp 1s ease-out 0.3s backwards;
+}
+
+/* Mensaje descriptivo */
+.error-message {
+    font-size: 1.1rem;
+    color: var(--color-text-muted);
+    margin-bottom: 2rem;
+    line-height: 1.6;
+    animation: fadeInUp 1s ease-out 0.6s backwards;
+}
+
+/* Botón con animación */
+.notfound-container .btn {
+    animation: fadeInUp 1s ease-out 0.9s backwards;
+}
+
+/* Animación de aparición con escala */
+@keyframes fadeInScale {
+    from {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Animación de aparición desde abajo */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Responsive para móviles */
+@media (max-width: 768px) {
+    .error-code {
+        font-size: 5rem;
+    }
+
+    .error-title {
+        font-size: 1.5rem;
+    }
+
+    .error-message {
+        font-size: 1rem;
+    }
+
+    .notfound-container {
+        min-height: 60vh;
+        padding: 2rem 1rem;
+    }
+}

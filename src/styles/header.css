@@ -1,0 +1,48 @@
+.main-header {
+    position: relative;
+    z-index: 1000;
+    background-color: var(--color-gray);
+    color: #fff;
+    border-bottom: var(--color-primary) 2px solid;
+}
+
+.container-max {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 1rem;
+}
+
+.site-nav {
+    padding: 0.5rem 0;
+}
+
+.logoL img {
+    height: 100px;
+    width: auto;
+    transition: transform 0.2s ease;
+    display: block;
+}
+
+.logoL img:hover {
+    transform: scale(1.05);
+}
+
+.logoR img {
+    height: 100px;
+    width: auto;
+    transition: transform 0.2s ease;
+    display: block;
+}
+
+.logoR img:hover {
+    transform: scale(1.05);
+}
+
+
+@media (max-width: 768px) {
+
+    .logoL img,
+    .logoR img {
+        height: 40px;
+    }
+}
