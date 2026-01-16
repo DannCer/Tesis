@@ -6,26 +6,87 @@ import '../../styles/layerMenu.css';
  * Configuración de capas disponibles
  */
 const AVAILABLE_LAYERS = [
+    // CAPAS VECTORIALES
     {
-        id: 'vw_estados',  // Cambié wv_ por vw_
+        id: 'vw_estados',
         name: 'Estados',
         description: 'Límites estatales',
         icon: '🗺',
-        color: '#cd171e'
+        color: '#cd171e',
+        type: 'vector'
     },
     {
-        id: 'vw_municipios',  // Cambié wv_ por vw_
+        id: 'vw_municipios',
         name: 'Municipios',
         description: 'Límites municipales',
         icon: '📍',
-        color: '#BC955B'
+        color: '#BC955B',
+        type: 'vector'
     },
     {
-        id: 'vw_localidades',  // Cambié wv_ por vw_
+        id: 'vw_localidades',
         name: 'Localidades',
         description: 'Localidades urbanas y rurales',
         icon: '🏘',
-        color: '#691B31'
+        color: '#691B31',
+        type: 'vector'
+    },
+    // CAPAS RÁSTER (las que tienes configuradas en MapView.jsx)
+    {
+        id: 'usvserie1',  // Cambia serie1 por usvserie1
+        name: 'Serie 1',
+        description: 'Uso de suelo serie 1',
+        icon: '📊',
+        color: '#2E8B57',
+        type: 'raster'
+    },
+    {
+        id: 'usvserie2',  // Cambia serie2 por usvserie2
+        name: 'Serie 2',
+        description: 'Uso de suelo serie 2',
+        icon: '📊',
+        color: '#4682B4',
+        type: 'raster'
+    },
+    {
+        id: 'serie3',
+        name: 'Serie 3',
+        description: 'Uso de suelo serie 3',
+        icon: '📊',
+        color: '#FF6347',
+        type: 'raster'
+    },
+    {
+        id: 'serie4',
+        name: 'Serie 4',
+        description: 'Uso de suelo serie 4',
+        icon: '📊',
+        color: '#9370DB',
+        type: 'raster'
+    },
+    {
+        id: 'serie5',
+        name: 'Serie 5',
+        description: 'Uso de suelo serie 5',
+        icon: '📊',
+        color: '#20B2AA',
+        type: 'raster'
+    },
+    {
+        id: 'serie6',
+        name: 'Serie 6',
+        description: 'Uso de suelo serie 6',
+        icon: '📊',
+        color: '#FFD700',
+        type: 'raster'
+    },
+    {
+        id: 'serie7',
+        name: 'Serie 7',
+        description: 'Uso de suelo serie 7',
+        icon: '📊',
+        color: '#FF69B4',
+        type: 'raster'
     }
 ];
 
@@ -43,8 +104,8 @@ const LayerMenu = ({
     /**
      * Maneja el cambio de estado de un checkbox
      */
-    const handleCheckboxChange = (layerId, isChecked) => {
-        onLayerToggle(layerId, isChecked);
+    const handleCheckboxChange = (layer, isChecked) => {
+        onLayerToggle(layer.id, isChecked, layer.type);
     };
 
     /**
@@ -104,70 +165,115 @@ const LayerMenu = ({
 
                     {/* Lista de capas */}
                     <div className="layers-list">
-                        {AVAILABLE_LAYERS.map(layer => {
-                            const isActive = isLayerActive(layer.id);
-                            const isLoading = isLayerLoading(layer.id);
-                            const error = getLayerError(layer.id);
-                            const featureCount = layers[layer.id]?.data?.features?.length;
+                        {/* Capas Vectoriales */}
+                        <div className="layer-group">
+                            <h6 className="layer-group-title">Capas Vectoriales</h6>
+                            {AVAILABLE_LAYERS.filter(l => l.type === 'vector').map(layer => {
+                                const isActive = isLayerActive(layer.id);
+                                const isLoading = isLayerLoading(layer.id);
+                                const error = getLayerError(layer.id);
+                                const featureCount = layers[layer.id]?.data?.features?.length;
 
-                            return (
-                                <div 
-                                    key={layer.id} 
-                                    className={`layer-item ${isActive ? 'active' : ''}`}
-                                >
-                                    <div className="layer-checkbox-wrapper">
-                                        <input
-                                            type="checkbox"
-                                            id={layer.id}
-                                            className="layer-checkbox"
-                                            checked={isActive}
-                                            onChange={(e) => handleCheckboxChange(layer.id, e.target.checked)}
-                                            disabled={isLoading}
-                                        />
-                                        <label htmlFor={layer.id} className="layer-label">
-                                            <span className="layer-icon">{layer.icon}</span>
-                                            <div className="layer-info">
-                                                <span className="layer-name">{layer.name}</span>
-                                                <span className="layer-description">
-                                                    {layer.description}
-                                                </span>
-                                                {featureCount && (
-                                                    <span className="feature-count">
-                                                        {featureCount} elementos
+                                return (
+                                    <div 
+                                        key={layer.id} 
+                                        className={`layer-item ${isActive ? 'active' : ''}`}
+                                    >
+                                        <div className="layer-checkbox-wrapper">
+                                            <input
+                                                type="checkbox"
+                                                id={layer.id}
+                                                className="layer-checkbox"
+                                                checked={isActive}
+                                                onChange={(e) => handleCheckboxChange(layer, e.target.checked)}
+                                                disabled={isLoading}
+                                            />
+                                            <label htmlFor={layer.id} className="layer-label">
+                                                <span className="layer-icon">{layer.icon}</span>
+                                                <div className="layer-info">
+                                                    <span className="layer-name">{layer.name}</span>
+                                                    <span className="layer-description">
+                                                        {layer.description}
                                                     </span>
-                                                )}
+                                                    {featureCount && (
+                                                        <span className="feature-count">
+                                                            {featureCount} elementos
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </label>
+                                        </div>
+
+                                        {isActive && (
+                                            <div 
+                                                className="layer-color-indicator"
+                                                style={{ backgroundColor: layer.color }}
+                                            />
+                                        )}
+
+                                        {isLoading && (
+                                            <div className="layer-status">
+                                                <div className="spinner-border spinner-border-sm" role="status">
+                                                    <span className="visually-hidden">Cargando...</span>
+                                                </div>
                                             </div>
-                                        </label>
+                                        )}
+
+                                        {error && (
+                                            <div className="layer-error">
+                                                <small className="text-danger">
+                                                    ⚠️ {error}
+                                                </small>
+                                            </div>
+                                        )}
                                     </div>
+                                );
+                            })}
+                        </div>
 
-                                    {/* Color indicator */}
-                                    {isActive && (
-                                        <div 
-                                            className="layer-color-indicator"
-                                            style={{ backgroundColor: layer.color }}
-                                        />
-                                    )}
+                        {/* Capas Ráster */}
+                        <div className="layer-group">
+                            <h6 className="layer-group-title">Capas Ráster</h6>
+                            {AVAILABLE_LAYERS.filter(l => l.type === 'raster').map(layer => {
+                                const isActive = isLayerActive(layer.id);
 
-                                    {/* Estado de carga */}
-                                    {isLoading && (
-                                        <div className="layer-status">
-                                            <div className="spinner-border spinner-border-sm" role="status">
-                                                <span className="visually-hidden">Cargando...</span>
-                                            </div>
+                                return (
+                                    <div 
+                                        key={layer.id} 
+                                        className={`layer-item ${isActive ? 'active' : ''}`}
+                                    >
+                                        <div className="layer-checkbox-wrapper">
+                                            <input
+                                                type="checkbox"
+                                                id={layer.id}
+                                                className="layer-checkbox"
+                                                checked={isActive}
+                                                onChange={(e) => handleCheckboxChange(layer, e.target.checked)}
+                                            />
+                                            <label htmlFor={layer.id} className="layer-label">
+                                                <span className="layer-icon">{layer.icon}</span>
+                                                <div className="layer-info">
+                                                    <span className="layer-name">{layer.name}</span>
+                                                    <span className="layer-description">
+                                                        {layer.description}
+                                                    </span>
+                                                    <span className="feature-count raster-hint">
+                                                        Haz clic para consultar valores
+                                                    </span>
+                                                </div>
+                                            </label>
                                         </div>
-                                    )}
 
-                                    {/* Error */}
-                                    {error && (
-                                        <div className="layer-error">
-                                            <small className="text-danger">
-                                                ⚠️ {error}
-                                            </small>
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
+                                        {isActive && (
+                                            <div 
+                                                className="layer-color-indicator"
+                                                style={{ backgroundColor: layer.color }}
+                                            />
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
 
                     {/* Acciones rápidas */}

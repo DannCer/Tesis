@@ -90,6 +90,27 @@
     flex: 1;
 }
 
+.layer-group {
+    margin-bottom: 1.5rem;
+}
+
+.layer-group-title {
+    font-family: var(--font-heading);
+    color: var(--color-primary-dark);
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--color-gray);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.raster-hint {
+    color: var(--color-accent-1) !important;
+    font-style: italic;
+}
+
 .layer-item {
     background: white;
     border: 2px solid var(--color-gray);
