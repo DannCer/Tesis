@@ -1,0 +1,179 @@
+.time-controller {
+  position: absolute;
+  bottom: clamp(20px, 4vh, 40px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255,255,255,0.95);
+  padding: clamp(10px, 1.5vh, 14px) clamp(14px, 2vw, 18px);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: clamp(10px, 1.5vw, 15px);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+  z-index: 1000;
+  min-width: min(320px, 85vw);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(0,0,0,0.1);
+}
+
+.time-controller input[type="range"] {
+  width: clamp(180px, 30vw, 300px);
+  min-width: 150px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-gray);
+  outline: none;
+  -webkit-appearance: none;
+}
+
+.time-controller input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+.time-controller button {
+  border: none;
+  background: var(--color-primary);
+  color: white;
+  border-radius: 8px;
+  padding: clamp(6px, 1vh, 8px) clamp(12px, 1.5vw, 16px);
+  cursor: pointer;
+  font-size: clamp(0.9rem, 1.5vw, 1.1rem);
+  min-width: 36px;
+  transition: all 0.3s;
+  font-weight: bold;
+}
+
+.time-controller button:hover {
+  background: var(--color-primary-dark);
+  transform: translateY(-2px);
+}
+
+.time-label {
+  font-weight: bold;
+  min-width: clamp(40px, 6vw, 60px);
+  text-align: center;
+  font-size: clamp(0.9rem, 1.5vw, 1.1rem);
+  color: var(--color-primary-dark);
+  font-family: var(--font-heading);
+}
+
+/* Tableta */
+@media (max-width: 768px) {
+  .time-controller {
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 8px 12px;
+    bottom: 15px;
+    min-width: 90vw;
+  }
+  
+  .time-controller input[type="range"] {
+    order: 2;
+    width: 100%;
+    max-width: 240px;
+    margin: 5px 0;
+  }
+  
+  .time-controller button {
+    min-width: 32px;
+    padding: 4px 8px;
+  }
+}
+
+/* Móvil pequeño */
+@media (max-width: 480px) {
+  .time-controller {
+    padding: 6px 10px;
+    gap: 6px;
+    bottom: 10px;
+    border-radius: 10px;
+  }
+  
+  .time-controller input[type="range"] {
+    min-width: 120px;
+    height: 4px;
+  }
+  
+  .time-controller input[type="range"]::-webkit-slider-thumb {
+    width: 16px;
+    height: 16px;
+  }
+  
+  .time-label {
+    font-size: 0.85rem;
+    min-width: 35px;
+  }
+}
+
+/* Pantallas grandes */
+@media (min-width: 1920px) {
+  .time-controller {
+    padding: 15px 25px;
+    gap: 18px;
+    border-radius: 15px;
+    bottom: 50px;
+  }
+  
+  .time-controller input[type="range"] {
+    width: 350px;
+    height: 8px;
+  }
+  
+  .time-controller input[type="range"]::-webkit-slider-thumb {
+    width: 24px;
+    height: 24px;
+  }
+  
+  .time-controller button {
+    padding: 10px 20px;
+    font-size: 1.2rem;
+    min-width: 45px;
+  }
+}
+
+@media (min-width: 2560px) {
+  .time-controller {
+    padding: 18px 30px;
+    bottom: 60px;
+  }
+  
+  .time-controller input[type="range"] {
+    width: 400px;
+  }
+}
+
+@media (min-width: 3840px) {
+  .time-controller {
+    padding: 22px 40px;
+    bottom: 80px;
+    border-radius: 20px;
+  }
+  
+  .time-controller input[type="range"] {
+    width: 500px;
+    height: 10px;
+  }
+  
+  .time-controller input[type="range"]::-webkit-slider-thumb {
+    width: 30px;
+    height: 30px;
+  }
+  
+  .time-controller button {
+    font-size: 1.4rem;
+    min-width: 55px;
+    padding: 12px 24px;
+  }
+  
+  .time-label {
+    font-size: 1.4rem;
+    min-width: 80px;
+  }
+}

@@ -1,5 +1,6 @@
 import React from 'react';
 import Header from './Header';
+import '../../styles/global.css';
 
 /**
  * Layout para el Geovisor
@@ -7,19 +8,9 @@ import Header from './Header';
  */
 const LayoutGeovisor = ({ children }) => {
   return (
-    <div style={{ 
-      height: '100vh', 
-      display: 'flex', 
-      flexDirection: 'column',
-      overflow: 'hidden' 
-    }}>
+    <div className="layout-geovisor">
       <Header />
-      <main style={{ 
-        flex: 1, 
-        padding: 0, 
-        margin: 0,
-        overflow: 'hidden'
-      }}>
+      <main className="geovisor-content">
         {children}
       </main>
     </div>

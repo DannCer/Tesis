@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
-import '../../styles/layerMenu.css';
+import '../../styles/LayerMenu.css';
 
 /**
  * Configuración de capas disponibles
@@ -31,62 +31,69 @@ const AVAILABLE_LAYERS = [
         color: '#691B31',
         type: 'vector'
     },
-    // CAPAS RÁSTER (las que tienes configuradas en MapView.jsx)
+    // CAPAS RÁSTER - Serie de Uso de Suelo
     {
-        id: 'usvserie1',  // Cambia serie1 por usvserie1
-        name: 'Serie 1',
-        description: 'Uso de suelo serie 1',
+        id: 'usvserie1',
+        name: 'USV Serie I',
+        description: 'Uso de Suelo y Vegetación 1985',
         icon: '📊',
         color: '#2E8B57',
-        type: 'raster'
+        type: 'raster',
+        year: 1985
     },
     {
-        id: 'usvserie2',  // Cambia serie2 por usvserie2
-        name: 'Serie 2',
-        description: 'Uso de suelo serie 2',
+        id: 'usvserie2',
+        name: 'USV Serie II',
+        description: 'Uso de Suelo y Vegetación 1993',
         icon: '📊',
         color: '#4682B4',
-        type: 'raster'
+        type: 'raster',
+        year: 1993
     },
     {
         id: 'serie3',
-        name: 'Serie 3',
-        description: 'Uso de suelo serie 3',
+        name: 'USV Serie III',
+        description: 'Uso de Suelo y Vegetación 2002',
         icon: '📊',
         color: '#FF6347',
-        type: 'raster'
+        type: 'raster',
+        year: 2002
     },
     {
         id: 'serie4',
-        name: 'Serie 4',
-        description: 'Uso de suelo serie 4',
+        name: 'USV Serie IV',
+        description: 'Uso de Suelo y Vegetación 2007',
         icon: '📊',
         color: '#9370DB',
-        type: 'raster'
+        type: 'raster',
+        year: 2007
     },
     {
         id: 'serie5',
-        name: 'Serie 5',
-        description: 'Uso de suelo serie 5',
+        name: 'USV Serie V',
+        description: 'Uso de Suelo y Vegetación 2011',
         icon: '📊',
         color: '#20B2AA',
-        type: 'raster'
+        type: 'raster',
+        year: 2011
     },
     {
         id: 'serie6',
-        name: 'Serie 6',
-        description: 'Uso de suelo serie 6',
+        name: 'USV Serie VI',
+        description: 'Uso de Suelo y Vegetación 2014',
         icon: '📊',
         color: '#FFD700',
-        type: 'raster'
+        type: 'raster',
+        year: 2014
     },
     {
         id: 'serie7',
-        name: 'Serie 7',
-        description: 'Uso de suelo serie 7',
+        name: 'USV Serie VII',
+        description: 'Uso de Suelo y Vegetación 2018',
         icon: '📊',
         color: '#FF69B4',
-        type: 'raster'
+        type: 'raster',
+        year: 2018
     }
 ];
 
@@ -233,7 +240,10 @@ const LayerMenu = ({
 
                         {/* Capas Ráster */}
                         <div className="layer-group">
-                            <h6 className="layer-group-title">Capas Ráster</h6>
+                            <h6 className="layer-group-title">Uso de Suelo y Vegetación</h6>
+                            <p className="text-muted small mb-2" style={{ paddingLeft: '10px', fontSize: '11px' }}>
+                                Series temporales INEGI
+                            </p>
                             {AVAILABLE_LAYERS.filter(l => l.type === 'raster').map(layer => {
                                 const isActive = isLayerActive(layer.id);
 
@@ -253,12 +263,27 @@ const LayerMenu = ({
                                             <label htmlFor={layer.id} className="layer-label">
                                                 <span className="layer-icon">{layer.icon}</span>
                                                 <div className="layer-info">
-                                                    <span className="layer-name">{layer.name}</span>
+                                                    <span className="layer-name">
+                                                        {layer.name}
+                                                        {layer.year && (
+                                                            <span style={{
+                                                                marginLeft: '8px',
+                                                                fontSize: '12px',
+                                                                fontWeight: 'bold',
+                                                                color: '#666',
+                                                                background: '#f0f0f0',
+                                                                padding: '2px 8px',
+                                                                borderRadius: '10px'
+                                                            }}>
+                                                                {layer.year}
+                                                            </span>
+                                                        )}
+                                                    </span>
                                                     <span className="layer-description">
                                                         {layer.description}
                                                     </span>
                                                     <span className="feature-count raster-hint">
-                                                        Haz clic para consultar valores
+                                                        Haz clic en el mapa para consultar valores
                                                     </span>
                                                 </div>
                                             </label>
@@ -283,7 +308,7 @@ const LayerMenu = ({
                             onClick={() => {
                                 AVAILABLE_LAYERS.forEach(layer => {
                                     if (!isLayerActive(layer.id)) {
-                                        handleCheckboxChange(layer.id, true);
+                                        handleCheckboxChange(layer, true);
                                     }
                                 });
                             }}
@@ -295,7 +320,7 @@ const LayerMenu = ({
                             onClick={() => {
                                 AVAILABLE_LAYERS.forEach(layer => {
                                     if (isLayerActive(layer.id)) {
-                                        handleCheckboxChange(layer.id, false);
+                                        handleCheckboxChange(layer, false);
                                     }
                                 });
                             }}
@@ -319,6 +344,12 @@ const LayerMenu = ({
                             </p>
                             <p className="text-muted small">
                                 Valle de México
+                            </p>
+                            <p className="text-muted small mb-1 mt-2">
+                                <strong>Series disponibles:</strong>
+                            </p>
+                            <p className="text-muted small">
+                                7 series temporales (1985-2018)
                             </p>
                         </div>
                     </div>

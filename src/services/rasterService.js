@@ -1,5 +1,5 @@
 /**
- * @fileoverview Servicio para consultar valores de capas ráster
+ * @fileoverview Servicio para consultar valores de capas ráster (con soporte para mosaicos TIME)
  * @module services/rasterService
  */
 
@@ -25,6 +25,7 @@ class RasterService {
      * @param {number} params.height - Alto del mapa en píxeles
      * @param {Array<number>} params.clickPoint - [x, y] coordenadas del clic en píxeles
      * @param {string} params.srs - Sistema de referencia (default: EPSG:4326)
+     * @param {string} params.time - Parámetro TIME para mosaicos (opcional)
      * @returns {Promise<Object>} Información del píxel
      */
     async getPixelValue(layerName, params) {
@@ -34,7 +35,8 @@ class RasterService {
                 width,
                 height,
                 clickPoint,
-                srs = 'EPSG:4326'
+                srs = 'EPSG:4326',
+                time = null
             } = params;
 
             // Construir parámetros GetFeatureInfo
@@ -56,6 +58,12 @@ class RasterService {
                 FEATURE_COUNT: 1
             });
 
+            // Añadir parámetro TIME si existe (para mosaicos)
+            if (time) {
+                requestParams.append('TIME', time);
+                logger.debug(`Consultando píxel con TIME=${time}`);
+            }
+
             const url = `${this.baseUrl}?${requestParams.toString()}`;
             
             logger.debug('GetFeatureInfo request:', url);
@@ -70,7 +78,7 @@ class RasterService {
 
             logger.debug('Pixel value response:', data);
 
-            return this.parseRasterResponse(data, layerName);
+            return this.parseRasterResponse(data, layerName, time);
 
         } catch (error) {
             logger.error('Error en getPixelValue:', error);
@@ -83,12 +91,14 @@ class RasterService {
      * 
      * @param {Object} data - Respuesta JSON de GeoServer
      * @param {string} layerName - Nombre de la capa
+     * @param {string} time - Valor TIME usado (opcional)
      * @returns {Object} Datos parseados del píxel
      */
-    parseRasterResponse(data, layerName) {
+    parseRasterResponse(data, layerName, time = null) {
         if (!data.features || data.features.length === 0) {
             return {
                 layerName,
+                time,
                 value: null,
                 message: 'No hay datos en esta ubicación'
             };
@@ -97,16 +107,50 @@ class RasterService {
         const feature = data.features[0];
         const properties = feature.properties;
 
-        // El valor del ráster suele venir en una propiedad llamada GRAY_INDEX, value, o el nombre de la banda
-        const rasterValue = properties.GRAY_INDEX || 
-                           properties.value || 
-                           properties.band_1 || 
-                           properties[Object.keys(properties)[0]];
+        // ESTRATEGIA DE EXTRACCIÓN PARA MOSAICOS:
+        
+        // 1. Intenta encontrar una propiedad que coincida exactamente con el nombre de la capa
+        // (Comportamiento por defecto de ImageMosaic)
+        let rasterValue = properties[layerName];
+
+        // 2. Si no existe, intenta buscar ignorando mayúsculas/minúsculas
+        if (rasterValue === undefined) {
+            const keyMatch = Object.keys(properties).find(
+                key => key.toLowerCase() === layerName.toLowerCase()
+            );
+            if (keyMatch) rasterValue = properties[keyMatch];
+        }
+
+        // 3. Fallbacks estándar para capas simples (GeoTIFF único)
+        if (rasterValue === undefined) {
+            rasterValue = properties.GRAY_INDEX ?? 
+                          properties.value ?? 
+                          properties.band_1 ??
+                          properties.Band1; // A veces GeoServer usa Band1
+        }
+
+        // 4. Último recurso: buscar el primer valor numérico disponible
+        // (Evita tomar strings como nombres de archivo o IDs del mosaico)
+        if (rasterValue === undefined) {
+            const numericValue = Object.values(properties).find(val => typeof val === 'number');
+            if (numericValue !== undefined) {
+                rasterValue = numericValue;
+            } else {
+                // Si todo falla, tomamos el primero como tenías antes
+                rasterValue = properties[Object.keys(properties)[0]];
+            }
+        }
+
+        // Formateo del valor (opcional: limitar decimales si es float)
+        const formattedValue = (typeof rasterValue === 'number' && !Number.isInteger(rasterValue))
+            ? parseFloat(rasterValue.toFixed(4)) // Ajusta la precisión según necesites
+            : rasterValue;
 
         return {
             layerName,
-            value: rasterValue,
-            rawProperties: properties,
+            time,
+            value: formattedValue,
+            rawProperties: properties, // Mantenemos esto para depuración
             coordinates: feature.geometry?.coordinates || null
         };
     }
@@ -114,14 +158,13 @@ class RasterService {
     /**
      * Obtiene información de múltiples capas ráster en un punto
      * 
-     * @param {Array<string>} layerNames - Nombres de las capas
-     * @param {Object} params - Parámetros de la consulta
+     * @param {Array<Object>} queries - Array de objetos con {layerName, params}
      * @returns {Promise<Array<Object>>} Array con valores de cada capa
      */
-    async getMultiplePixelValues(layerNames, params) {
+    async getMultiplePixelValues(queries) {
         try {
-            const promises = layerNames.map(layerName => 
-                this.getPixelValue(layerName, params)
+            const promises = queries.map(query => 
+                this.getPixelValue(query.layerName, query.params)
             );
 
             const results = await Promise.allSettled(promises);
@@ -130,9 +173,10 @@ class RasterService {
                 if (result.status === 'fulfilled') {
                     return result.value;
                 } else {
-                    logger.error(`Error en capa ${layerNames[index]}:`, result.reason);
+                    logger.error(`Error en consulta ${index}:`, result.reason);
                     return {
-                        layerName: layerNames[index],
+                        layerName: queries[index].layerName,
+                        time: queries[index].params.time,
                         value: null,
                         error: result.reason.message
                     };

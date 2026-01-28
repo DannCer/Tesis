@@ -1,11 +1,24 @@
 /**
- * @fileoverview Hook para manejar capas ráster con WMS
- * @module hooks/useRasterLayers
+ * @fileoverview Hook para manejar capas ráster WMS con soporte para mosaicos TIME
  */
 
 import { useState, useCallback } from 'react';
 import { rasterService } from '../services/rasterService';
 import { logger } from '../config/env';
+
+/**
+ * Mapeo de series activas a sus valores TIME
+ * Usado para consultas GetFeatureInfo del mosaico
+ */
+const SERIES_TIME_MAP = {
+    'usvserie1': '1985-01-01',
+    'usvserie2': '1993-01-01',
+    'serie3': '2002-01-01',
+    'serie4': '2007-01-01',
+    'serie5': '2011-01-01',
+    'serie6': '2014-01-01',
+    'serie7': '2018-01-01'
+};
 
 /**
  * Hook para gestionar capas ráster
@@ -27,34 +40,30 @@ export const useRasterLayers = () => {
 
     /**
      * Consulta el valor de un píxel en las capas activas
-     * 
-     * @param {Object} event - Evento de clic de Leaflet
-     * @param {Object} map - Instancia del mapa de Leaflet
+     * Ahora soporta mosaicos con parámetro TIME
      */
     const queryPixelValue = useCallback(async (event, map) => {
         try {
             setLoading(true);
             setPixelInfo(null);
 
-            // Obtener capas ráster activas
-            const activeRasterLayers = Object.entries(activeLayers)
+            // Obtener series activas
+            const activeSeriesIds = Object.entries(activeLayers)
                 .filter(([_, isActive]) => isActive)
-                .map(([layerName]) => layerName);
+                .map(([serieId]) => serieId);
 
-            if (activeRasterLayers.length === 0) {
-                logger.debug('No hay capas ráster activas');
+            if (activeSeriesIds.length === 0) {
+                logger.warn('No hay capas ráster activas para consultar');
                 return;
             }
 
-            // Obtener parámetros del mapa
             const bounds = map.getBounds();
             const size = map.getSize();
             const latlng = event.latlng;
-
-            // Convertir coordenadas del clic a píxeles
             const point = map.latLngToContainerPoint(latlng);
 
-            const params = {
+            // Parámetros base para GetFeatureInfo
+            const baseParams = {
                 latlng: [latlng.lat, latlng.lng],
                 bbox: [
                     bounds.getWest(),
@@ -68,21 +77,39 @@ export const useRasterLayers = () => {
                 srs: 'EPSG:4326'
             };
 
-            logger.debug('Consultando píxel:', params);
+            logger.debug('Consultando píxeles en:', {
+                coordenadas: [latlng.lat, latlng.lng],
+                seriesActivas: activeSeriesIds
+            });
 
-            // Consultar todas las capas activas
-            const results = await rasterService.getMultiplePixelValues(
-                activeRasterLayers,
-                params
-            );
+            // Crear queries para cada serie activa
+            // Todas usan el mismo mosaico pero con diferentes TIME
+            const queries = activeSeriesIds.map(serieId => ({
+                layerName: 'usv_mosaico',  // Mismo mosaico para todas
+                params: {
+                    ...baseParams,
+                    time: SERIES_TIME_MAP[serieId]  // TIME específico de cada serie
+                }
+            }));
+
+            // Ejecutar consultas en paralelo
+            const results = await rasterService.getMultiplePixelValues(queries);
+
+            // Añadir información de la serie a cada resultado
+            const enrichedResults = results.map((result, index) => ({
+                ...result,
+                serieId: activeSeriesIds[index],
+                serieName: getSerieName(activeSeriesIds[index]),
+                year: getSerieYear(activeSeriesIds[index])
+            }));
 
             setPixelInfo({
                 coordinates: [latlng.lat, latlng.lng],
-                layers: results,
+                layers: enrichedResults,
                 timestamp: Date.now()
             });
 
-            logger.debug('Resultados de píxel:', results);
+            logger.debug('Resultados de consulta:', enrichedResults);
 
         } catch (error) {
             logger.error('Error consultando píxel:', error);
@@ -95,9 +122,6 @@ export const useRasterLayers = () => {
         }
     }, [activeLayers]);
 
-    /**
-     * Limpia la información del píxel
-     */
     const clearPixelInfo = useCallback(() => {
         setPixelInfo(null);
     }, []);
@@ -111,3 +135,32 @@ export const useRasterLayers = () => {
         clearPixelInfo
     };
 };
+
+/**
+ * Helpers para obtener información de las series
+ */
+function getSerieName(serieId) {
+    const names = {
+        'usvserie1': 'Serie I',
+        'usvserie2': 'Serie II',
+        'serie3': 'Serie III',
+        'serie4': 'Serie IV',
+        'serie5': 'Serie V',
+        'serie6': 'Serie VI',
+        'serie7': 'Serie VII'
+    };
+    return names[serieId] || serieId;
+}
+
+function getSerieYear(serieId) {
+    const years = {
+        'usvserie1': 1985,
+        'usvserie2': 1993,
+        'serie3': 2002,
+        'serie4': 2007,
+        'serie5': 2011,
+        'serie6': 2014,
+        'serie7': 2018
+    };
+    return years[serieId] || '?';
+}

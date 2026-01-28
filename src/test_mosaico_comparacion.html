@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test de Mosaico USV - Comparación de Series</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            color: #333;
+            border-bottom: 4px solid #667eea;
+            padding-bottom: 15px;
+            margin-bottom: 25px;
+            font-size: 2rem;
+        }
+        
+        .config-section {
+            background: #f8f9fa;
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 25px;
+        }
+        
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        label {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #555;
+            font-size: 14px;
+        }
+        
+        input, select {
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .results {
+            margin-top: 30px;
+        }
+        
+        .test-section {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .test-section h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 6px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: auto;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .status.pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .serie-card {
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 15px;
+            background: #fafafa;
+            transition: all 0.3s;
+        }
+        
+        .serie-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+        
+        .serie-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .serie-name {
+            font-weight: bold;
+            color: #333;
+            font-size: 16px;
+        }
+        
+        .serie-year {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 13px;
+            font-weight: bold;
+        }
+        
+        .serie-image {
+            width: 100%;
+            height: 200px;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+            object-fit: cover;
+            background: #f0f0f0;
+        }
+        
+        .serie-url {
+            margin-top: 10px;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            font-size: 11px;
+            word-break: break-all;
+            color: #666;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        
+        .success-box {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+        }
+        
+        .error-box {
+            background: #f8d7da;
+            border-left: 4px solid #dc3545;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        pre {
+            background: #f4f4f4;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 12px;
+            border: 1px solid #ddd;
+        }
+        
+        @media (max-width: 768px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+            
+            .comparison-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Test de Mosaico USV - Comparación de 7 Series</h1>
+        
+        <div class="info-box">
+            <strong>📋 Propósito:</strong> Verificar que el mosaico <code>usv_mosaico</code> tiene las 7 series temporales funcionando correctamente y comparar las imágenes visualmente.
+        </div>
+        
+        <div class="config-section">
+            <h3 style="margin-bottom: 15px; color: #333;">⚙️ Configuración</h3>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="geoserverUrl">URL de GeoServer:</label>
+                    <input type="text" id="geoserverUrl" value="http://localhost:8080" placeholder="http://localhost:8080">
+                </div>
+                
+                <div class="form-group">
+                    <label for="workspace">Workspace:</label>
+                    <input type="text" id="workspace" value="Tesis" placeholder="Tesis">
+                </div>
+                
+                <div class="form-group">
+                    <label for="layerName">Nombre del Mosaico:</label>
+                    <input type="text" id="layerName" value="usv_mosaico" placeholder="usv_mosaico">
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="bboxMinX">BBOX - Min X (Oeste):</label>
+                    <input type="number" id="bboxMinX" value="-99.5" step="0.1">
+                </div>
+                
+                <div class="form-group">
+                    <label for="bboxMinY">BBOX - Min Y (Sur):</label>
+                    <input type="number" id="bboxMinY" value="19.0" step="0.1">
+                </div>
+                
+                <div class="form-group">
+                    <label for="bboxMaxX">BBOX - Max X (Este):</label>
+                    <input type="number" id="bboxMaxX" value="-99.0" step="0.1">
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="bboxMaxY">BBOX - Max Y (Norte):</label>
+                    <input type="number" id="bboxMaxY" value="19.5" step="0.1">
+                </div>
+                
+                <div class="form-group">
+                    <label for="imageWidth">Ancho de Imagen:</label>
+                    <input type="number" id="imageWidth" value="400" min="100" max="800">
+                </div>
+                
+                <div class="form-group">
+                    <label for="imageHeight">Alto de Imagen:</label>
+                    <input type="number" id="imageHeight" value="400" min="100" max="800">
+                </div>
+            </div>
+            
+            <button id="testBtn" onclick="runTests()">▶️ Ejecutar Pruebas y Comparar Series</button>
+        </div>
+
+        <div id="results" class="results"></div>
+    </div>
+
+    <script>
+        const SERIES = [
+            { id: 'serie1', name: 'Serie I', year: 1985, time: '1985-01-01' },
+            { id: 'serie2', name: 'Serie II', year: 1993, time: '1993-01-01' },
+            { id: 'serie3', name: 'Serie III', year: 2002, time: '2002-01-01' },
+            { id: 'serie4', name: 'Serie IV', year: 2007, time: '2007-01-01' },
+            { id: 'serie5', name: 'Serie V', year: 2011, time: '2011-01-01' },
+            { id: 'serie6', name: 'Serie VI', year: 2014, time: '2014-01-01' },
+            { id: 'serie7', name: 'Serie VII', year: 2018, time: '2018-01-01' }
+        ];
+
+        let resultsDiv = document.getElementById('results');
+
+        async function runTests() {
+            resultsDiv.innerHTML = '';
+            const testBtn = document.getElementById('testBtn');
+            testBtn.disabled = true;
+
+            const geoserverUrl = document.getElementById('geoserverUrl').value.trim();
+            const workspace = document.getElementById('workspace').value.trim();
+            const layerName = document.getElementById('layerName').value.trim();
+            
+            const bbox = [
+                parseFloat(document.getElementById('bboxMinX').value),
+                parseFloat(document.getElementById('bboxMinY').value),
+                parseFloat(document.getElementById('bboxMaxX').value),
+                parseFloat(document.getElementById('bboxMaxY').value)
+            ].join(',');
+            
+            const width = document.getElementById('imageWidth').value;
+            const height = document.getElementById('imageHeight').value;
+
+            // Test 1: GetCapabilities
+            await testGetCapabilities(geoserverUrl, workspace, layerName);
+            
+            // Test 2: Comparar todas las series
+            await compareAllSeries(geoserverUrl, workspace, layerName, bbox, width, height);
+            
+            testBtn.disabled = false;
+        }
+
+        async function testGetCapabilities(geoserverUrl, workspace, layerName) {
+            const section = document.createElement('div');
+            section.className = 'test-section';
+            section.innerHTML = `
+                <h3>
+                    1️⃣ Verificando GetCapabilities
+                    <span class="status pending">Ejecutando...</span>
+                </h3>
+                <div class="spinner"></div>
+            `;
+            resultsDiv.appendChild(section);
+
+            try {
+                const capUrl = `${geoserverUrl}/geoserver/${workspace}/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities`;
+                const response = await fetch(capUrl);
+                
+                if (response.ok) {
+                    const xml = await response.text();
+                    
+                    const hasLayer = xml.includes(layerName);
+                    const hasTimeDimension = xml.includes('<Dimension name="time"') || xml.includes('<Dimension name="TIME"');
+                    
+                    // Extraer valores TIME si existen
+                    let timeValues = [];
+                    const timeMatch = xml.match(/<Dimension name="time"[^>]*>(.*?)<\/Dimension>/i) ||
+                                     xml.match(/<Dimension name="TIME"[^>]*>(.*?)<\/Dimension>/i);
+                    if (timeMatch) {
+                        timeValues = timeMatch[1].split(',').map(t => t.trim());
+                    }
+                    
+                    let html = `<h3>1️⃣ Verificando GetCapabilities <span class="status ${hasLayer && hasTimeDimension ? 'success' : 'error'}">${hasLayer && hasTimeDimension ? '✅ OK' : '❌ Error'}</span></h3>`;
+                    
+                    if (hasLayer) {
+                        html += `<div class="success-box">✅ Capa <code>${layerName}</code> encontrada</div>`;
+                    } else {
+                        html += `<div class="error-box">❌ Capa <code>${layerName}</code> NO encontrada</div>`;
+                    }
+                    
+                    if (hasTimeDimension) {
+                        html += `<div class="success-box">✅ Dimensión TIME configurada<br><br><strong>Fechas disponibles:</strong><pre>${timeValues.join('\n')}</pre></div>`;
+                    } else {
+                        html += `<div class="error-box">❌ Dimensión TIME NO configurada</div>`;
+                    }
+                    
+                    section.innerHTML = html;
+                } else {
+                    section.innerHTML = `<h3>1️⃣ Verificando GetCapabilities <span class="status error">❌ Error</span></h3>
+                        <div class="error-box">Error ${response.status}: ${response.statusText}</div>`;
+                }
+            } catch (error) {
+                section.innerHTML = `<h3>1️⃣ Verificando GetCapabilities <span class="status error">❌ Error</span></h3>
+                    <div class="error-box">No se puede conectar: ${error.message}</div>`;
+            }
+        }
+
+        async function compareAllSeries(geoserverUrl, workspace, layerName, bbox, width, height) {
+            const section = document.createElement('div');
+            section.className = 'test-section';
+            section.innerHTML = `
+                <h3>
+                    2️⃣ Comparando las 7 Series del Mosaico
+                    <span class="status pending">Cargando...</span>
+                </h3>
+                <div class="comparison-grid" id="comparison-grid">
+                    ${SERIES.map(serie => `
+                        <div class="serie-card" id="card-${serie.id}">
+                            <div class="serie-header">
+                                <span class="serie-name">${serie.name}</span>
+                                <span class="serie-year">${serie.year}</span>
+                            </div>
+                            <div style="text-align: center; padding: 80px 0;">
+                                <div class="spinner"></div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            resultsDiv.appendChild(section);
+
+            let successCount = 0;
+            let errorCount = 0;
+
+            for (const serie of SERIES) {
+                try {
+                    const mapUrl = `${geoserverUrl}/geoserver/${workspace}/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${workspace}:${layerName}&TIME=${serie.time}&FORMAT=image/png&TRANSPARENT=true&HEIGHT=${height}&WIDTH=${width}&SRS=EPSG:4326&BBOX=${bbox}`;
+                    
+                    const card = document.getElementById(`card-${serie.id}`);
+                    
+                    const img = new Image();
+                    
+                    img.onload = () => {
+                        successCount++;
+                        card.innerHTML = `
+                            <div class="serie-header">
+                                <span class="serie-name">${serie.name}</span>
+                                <span class="serie-year">${serie.year}</span>
+                            </div>
+                            <img src="${mapUrl}" class="serie-image" alt="${serie.name}">
+                            <div class="serie-url">
+                                <strong>TIME:</strong> ${serie.time}<br>
+                                <strong>URL:</strong> ${mapUrl}
+                            </div>
+                            <div class="success-box" style="margin-top: 10px; padding: 8px; font-size: 12px;">
+                                ✅ Imagen cargada correctamente
+                            </div>
+                        `;
+                        
+                        updateSummary(section, successCount, errorCount);
+                    };
+                    
+                    img.onerror = () => {
+                        errorCount++;
+                        card.innerHTML = `
+                            <div class="serie-header">
+                                <span class="serie-name">${serie.name}</span>
+                                <span class="serie-year">${serie.year}</span>
+                            </div>
+                            <div class="error-box">
+                                ❌ Error al cargar imagen<br><br>
+                                <strong>TIME:</strong> ${serie.time}<br><br>
+                                <strong>Posibles causas:</strong><br>
+                                • No hay datos para esta fecha<br>
+                                • Formato de TIME incorrecto<br>
+                                • BBOX fuera de cobertura
+                            </div>
+                            <details style="margin-top: 10px;">
+                                <summary style="cursor: pointer; font-weight: bold;">Ver URL</summary>
+                                <div class="serie-url" style="margin-top: 5px;">${mapUrl}</div>
+                            </details>
+                        `;
+                        
+                        updateSummary(section, successCount, errorCount);
+                    };
+                    
+                    img.src = mapUrl;
+                    
+                } catch (error) {
+                    errorCount++;
+                    updateSummary(section, successCount, errorCount);
+                }
+            }
+        }
+
+        function updateSummary(section, successCount, errorCount) {
+            const total = SERIES.length;
+            const isComplete = (successCount + errorCount) === total;
+            const allSuccess = successCount === total;
+            
+            if (isComplete) {
+                const h3 = section.querySelector('h3');
+                if (allSuccess) {
+                    h3.innerHTML = `2️⃣ Comparando las 7 Series del Mosaico <span class="status success">✅ ${successCount}/${total} OK</span>`;
+                    
+                    const finalMessage = document.createElement('div');
+                    finalMessage.className = 'success-box';
+                    finalMessage.style.marginTop = '20px';
+                    finalMessage.innerHTML = `
+                        <strong>🎉 ¡Perfecto!</strong> Las 7 series están funcionando correctamente.<br><br>
+                        <strong>✅ Puedes comparar visualmente:</strong><br>
+                        • Cambios urbanos entre años<br>
+                        • Expansión de zonas agrícolas<br>
+                        • Pérdida de vegetación<br>
+                        • Evolución del uso de suelo<br><br>
+                        <strong>💡 En tu aplicación:</strong> Activa múltiples series y usa el panel de consulta de píxel para ver valores específicos.
+                    `;
+                    section.appendChild(finalMessage);
+                } else {
+                    h3.innerHTML = `2️⃣ Comparando las 7 Series del Mosaico <span class="status ${errorCount > 0 ? 'error' : 'success'}">✅ ${successCount}/${total} | ❌ ${errorCount}/${total}</span>`;
+                    
+                    if (errorCount > 0) {
+                        const warningMessage = document.createElement('div');
+                        warningMessage.className = 'error-box';
+                        warningMessage.style.marginTop = '20px';
+                        warningMessage.innerHTML = `
+                            <strong>⚠️ Algunas series tienen problemas</strong><br><br>
+                            <strong>Series exitosas:</strong> ${successCount}/${total}<br>
+                            <strong>Series con error:</strong> ${errorCount}/${total}<br><br>
+                            <strong>Revisa:</strong><br>
+                            • El formato de las fechas TIME<br>
+                            • Que todas las fechas existen en el mosaico<br>
+                            • Que el BBOX cubra el área de datos<br>
+                            • Los logs de GeoServer
+                        `;
+                        section.appendChild(warningMessage);
+                    }
+                }
+            }
+        }
+
+        // Ejecutar automáticamente al cargar
+        window.addEventListener('load', () => {
+            setTimeout(runTests, 500);
+        });
+    </script>
+</body>
+</html>

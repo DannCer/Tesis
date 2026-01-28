@@ -1,0 +1,102 @@
+/**
+ * Utilidades CSS para responsividad
+ * Se puede importar en cualquier componente
+ */
+
+/* Ocultar/mostrar elementos según breakpoint */
+.hidden-xs { display: none; }
+.visible-xs { display: block; }
+
+@media (min-width: 576px) {
+  .hidden-sm { display: none; }
+  .visible-sm { display: block; }
+}
+
+@media (min-width: 768px) {
+  .hidden-md { display: none; }
+  .visible-md { display: block; }
+}
+
+@media (min-width: 992px) {
+  .hidden-lg { display: none; }
+  .visible-lg { display: block; }
+}
+
+@media (min-width: 1200px) {
+  .hidden-xl { display: none; }
+  .visible-xl { display: block; }
+}
+
+/* Anchuras responsivas */
+.w-responsive {
+  width: clamp(300px, 90vw, 1200px);
+}
+
+.min-w-responsive {
+  min-width: clamp(280px, 85vw, 400px);
+}
+
+.max-w-responsive {
+  max-width: min(1400px, 95vw);
+}
+
+/* Alturas responsivas */
+.h-responsive {
+  height: clamp(400px, 70vh, 800px);
+}
+
+.min-h-responsive {
+  min-height: clamp(300px, 60vh, 600px);
+}
+
+.max-h-responsive {
+  max-height: min(800px, 90vh);
+}
+
+/* Flexbox responsivo */
+.flex-responsive {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+@media (min-width: 768px) {
+  .flex-responsive {
+    flex-wrap: nowrap;
+    gap: var(--spacing-md);
+  }
+}
+
+/* Grid responsivo */
+.grid-responsive {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: var(--spacing-md);
+}
+
+/* Texto responsivo */
+.text-responsive-xs { font-size: var(--font-size-sm); }
+.text-responsive-sm { font-size: var(--font-size-base); }
+.text-responsive-md { font-size: var(--font-size-lg); }
+.text-responsive-lg { font-size: var(--font-size-xl); }
+.text-responsive-xl { font-size: var(--font-size-2xl); }
+
+/* Espaciado responsivo */
+.m-responsive { margin: var(--spacing-md); }
+.p-responsive { padding: var(--spacing-md); }
+.mt-responsive { margin-top: var(--spacing-md); }
+.mb-responsive { margin-bottom: var(--spacing-md); }
+.pt-responsive { padding-top: var(--spacing-md); }
+.pb-responsive { padding-bottom: var(--spacing-md); }
+
+/* Para pantallas pequeñas */
+@media (max-width: 768px) {
+  .m-responsive { margin: var(--spacing-sm); }
+  .p-responsive { padding: var(--spacing-sm); }
+}
+
+/* Para pantallas grandes */
+@media (min-width: 1920px) {
+  .m-responsive { margin: var(--spacing-lg); }
+  .p-responsive { padding: var(--spacing-lg); }
+}
