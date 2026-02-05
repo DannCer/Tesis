@@ -296,3 +296,92 @@
         font-size: 16px;
     }
 }
+/* Debug panel */
+.debug-panel {
+    position: absolute;
+    top: 10px;
+    right: 420px;
+    background: rgba(0, 0, 0, 0.85);
+    color: white;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    z-index: 1001;
+    max-width: 300px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    font-family: monospace;
+}
+
+.debug-panel div {
+    margin: 4px 0;
+}
+
+.debug-panel strong {
+    color: #4CAF50;
+}
+
+/* WMS Error Alert */
+.wms-error-alert {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #ff6b6b;
+    color: white;
+    padding: 12px 24px;
+    border-radius: 8px;
+    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    max-width: 80%;
+    text-align: center;
+    font-weight: 600;
+    animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .debug-panel {
+        right: 10px;
+        top: 70px;
+        font-size: 11px;
+        padding: 8px 12px;
+        max-width: 200px;
+    }
+
+    .wms-error-alert {
+        max-width: 90%;
+        font-size: 14px;
+        padding: 10px 16px;
+    }
+}
+
+/* Animación para el resaltado del píxel */
+.pixel-highlight-pulse {
+    animation: marker-pulse 1.5s infinite ease-out;
+}
+
+@keyframes marker-pulse {
+    0% {
+        stroke-width: 2;
+        fill-opacity: 0.8;
+    }
+    50% {
+        stroke-width: 5;
+        fill-opacity: 0.4;
+    }
+    100% {
+        stroke-width: 2;
+        fill-opacity: 0.8;
+    }
+}

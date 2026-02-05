@@ -306,3 +306,65 @@
 .g-4 {
   gap: 1.5rem;
 }
+
+/* Thesis Index Styles */
+.thesis-index-section {
+  background-color: white;
+}
+
+.index-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 2rem;
+  margin-top: 2rem;
+}
+
+.index-item {
+  background: #fdfdfd;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+}
+
+.index-item:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.index-item h3 {
+  color: var(--color-primary-dark);
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  border-bottom: 2px solid var(--color-accent-1);
+  padding-bottom: 0.5rem;
+}
+
+.index-item ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.index-item li {
+  font-size: 0.95rem;
+  color: var(--color-text-dark);
+  margin-bottom: 0.5rem;
+  position: relative;
+  padding-left: 1.25rem;
+}
+
+.index-item li::before {
+  content: '•';
+  color: var(--color-primary);
+  position: absolute;
+  left: 0;
+  font-weight: bold;
+}
+
+@media (max-width: 768px) {
+  .index-container {
+    grid-template-columns: 1fr;
+  }
+}
