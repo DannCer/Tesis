@@ -1,10 +1,31 @@
 :root {
+  /* Paleta Institucional Refinada */
   --color-primary-dark: #691B31;
   --color-primary: #cd171e;
   --color-accent-1: #BC955B;
   --color-accent-2: #DDC9A3;
   --color-gray-dark: #6F7271;
   --color-gray: #d8d8d8;
+
+  /* Nuevos Tokens de Diseño */
+  --color-white: #ffffff;
+  --color-bg-light: #f8f9fa;
+  --color-gray-100: #f1f3f5;
+  --color-gray-200: #e9ecef;
+  --color-gray-300: #dee2e6;
+  --color-gray-400: #ced4da;
+  --color-gray-600: #6c757d;
+  --color-gray-800: #343a40;
+
+  /* Sombras y Elevación */
+  --shadow-sm: 0 2px 4px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.15);
+  
+  /* Bordes */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
 
   --color-text-light: #ffffff;
   --color-text-dark: #495057;
