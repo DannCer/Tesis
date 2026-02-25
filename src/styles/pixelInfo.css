@@ -119,3 +119,16 @@
         max-height: 40vh;
     }
 }
+
+/* ── Drag handle ─────────────────────────────── */
+.pixel-info-header {
+    cursor: grab;
+    user-select: none;
+}
+.pixel-info-header:active {
+    cursor: grabbing;
+}
+.pixel-header-left {
+    display: flex;
+    align-items: center;
+}

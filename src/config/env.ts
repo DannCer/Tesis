@@ -36,6 +36,7 @@ export interface Config {
         maxFeatures: number;
         wfsUrl: string;
         wmsUrl: string;
+        wcsUrl: string;
     };
     map: {
         center: [number, number];
@@ -71,6 +72,10 @@ export const config: Config = {
         
         get wmsUrl() {
             return `${this.url}/geoserver/${this.workspace}/wms`;
+        },
+
+        get wcsUrl() {
+            return `${this.url}/geoserver/${this.workspace}/wcs`;
         },
     },
 
