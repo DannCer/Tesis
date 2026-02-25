@@ -144,6 +144,7 @@
     flex: 1;
     display: flex;
     align-items: flex-start;
+    gap: 0.6rem;
 }
 
 .layer-actions {
@@ -258,4 +259,149 @@
     background: var(--color-primary);
     color: white;
     border-color: var(--color-primary);
+}
+
+
+/* =========================================
+   Download Dropdown
+   ========================================= */
+
+.dl-dropdown {
+    position: relative;
+}
+
+.dl-trigger {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 5px 7px;
+    background: var(--color-gray-100, #f5f5f5);
+    border: 1px solid var(--color-gray-200, #e8e8e8);
+    border-radius: var(--radius-sm, 4px);
+    color: var(--color-gray-500, #888);
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 600;
+    transition: all 0.18s ease;
+    line-height: 1;
+}
+
+.dl-trigger:hover {
+    color: var(--color-primary, #8d1c3d);
+    background: rgba(141, 28, 61, 0.08);
+    border-color: rgba(141, 28, 61, 0.25);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+
+.dl-caret {
+    transition: transform 0.2s ease;
+    opacity: 0.6;
+}
+
+.dl-caret.open {
+    transform: rotate(180deg);
+}
+
+/* Menú desplegable */
+.dl-menu {
+    /* position, top, left y z-index se inyectan inline desde el portal */
+    background: #fff;
+    border: 1px solid var(--color-gray-200, #e0e0e0);
+    border-radius: 10px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.1);
+    overflow: hidden;
+    animation: dlFadeIn 0.15s cubic-bezier(0.4,0,0.2,1);
+}
+
+@keyframes dlFadeIn {
+    from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.dl-menu-header {
+    padding: 8px 12px 6px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--color-gray-500, #999);
+    border-bottom: 1px solid var(--color-gray-100, #f0f0f0);
+    background: var(--color-bg-light, #fafafa);
+}
+
+.dl-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    text-decoration: none;
+    color: var(--color-gray-800, #333);
+    transition: background 0.12s ease;
+    cursor: pointer;
+    border-bottom: 1px solid var(--color-gray-100, #f5f5f5);
+}
+
+.dl-item:last-child {
+    border-bottom: none;
+}
+
+.dl-item:hover {
+    background: var(--color-bg-light, #f8f6fb);
+}
+
+.dl-item:hover .dl-item-label {
+    color: var(--color-primary, #8d1c3d);
+}
+
+.dl-item-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 700;
+    flex-shrink: 0;
+    letter-spacing: -0.5px;
+}
+
+.dl-item-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.dl-item-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--color-gray-800, #333);
+    transition: color 0.12s;
+}
+
+.dl-item-desc {
+    font-size: 0.72rem;
+    color: var(--color-gray-500, #999);
+    line-height: 1.2;
+}
+
+.dl-item-ext {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--color-gray-400, #bbb);
+    font-family: monospace;
+    flex-shrink: 0;
+}
+
+/* dl-item como botón (GeoJSON descarga programática) */
+.dl-item-btn {
+    width: 100%;
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
 }

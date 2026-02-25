@@ -254,3 +254,67 @@ html, body {
   overflow: hidden;
   position: relative;
 }
+/* =========================================
+   Legend con minimizar
+   ========================================= */
+.legend-control {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+    min-width: 200px;
+    max-width: 280px;
+    border: none;
+    overflow: hidden;
+}
+
+.legend-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: linear-gradient(135deg, #6b0f2a 0%, #8d1c3d 100%);
+    color: white;
+}
+
+.legend-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+}
+
+.legend-toggle-btn {
+    background: rgba(255,255,255,0.2);
+    border: none;
+    border-radius: 4px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: white;
+    transition: background 0.15s;
+    padding: 0;
+}
+
+.legend-toggle-btn:hover {
+    background: rgba(255,255,255,0.35);
+}
+
+.legend-body {
+    padding: 12px;
+    max-height: 400px;
+    overflow-y: auto;
+    transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                padding 0.3s ease,
+                opacity 0.2s ease;
+    opacity: 1;
+}
+
+.legend-body--hidden {
+    max-height: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    opacity: 0;
+    overflow: hidden;
+}
