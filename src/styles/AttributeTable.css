@@ -306,3 +306,193 @@
     transform: translateY(-2px);
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
+
+/* ================================================================
+   PANEL FILTRO SQL
+   ================================================================ */
+
+.attr-sql-panel {
+    background: #f8f6f0;
+    border-bottom: 1px solid #e0d9cc;
+    padding: 0.75rem 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.attr-sql-label {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.8rem;
+}
+
+.attr-sql-label code {
+    background: #6b0f2a;
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.attr-sql-hint {
+    color: #888;
+    font-size: 0.75rem;
+}
+
+.attr-sql-hint em {
+    color: #555;
+    font-style: normal;
+    font-family: monospace;
+    background: #ede8df;
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+
+/* Chips de nombres de campo */
+.attr-sql-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.attr-sql-fields {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.attr-sql-fields-label {
+    font-size: 0.72rem;
+    color: #999;
+    white-space: nowrap;
+    margin-right: 2px;
+}
+
+.attr-sql-chip {
+    background: #fff;
+    border: 1px solid #d0c8bb;
+    border-radius: 12px;
+    padding: 2px 9px;
+    font-size: 0.72rem;
+    font-family: monospace;
+    color: #5a3e2b;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    white-space: nowrap;
+}
+
+.attr-sql-chip:hover {
+    background: #6b0f2a;
+    color: #fff;
+    border-color: #6b0f2a;
+}
+
+/* Input SQL */
+.attr-sql-input {
+    flex: 1;
+    min-width: 0;
+    padding: 0.4rem 0.75rem;
+    border: 1.5px solid #ccc;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 0.82rem;
+    color: #222;
+    background: #fff;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.attr-sql-input:focus {
+    border-color: #6b0f2a;
+    box-shadow: 0 0 0 3px rgba(107,15,42,0.1);
+}
+
+.attr-sql-input.error {
+    border-color: #dc3545;
+    box-shadow: 0 0 0 3px rgba(220,53,69,0.1);
+}
+
+/* Mensaje de error */
+.attr-sql-error {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: #dc3545;
+    font-size: 0.78rem;
+    font-family: monospace;
+    padding: 3px 6px;
+    background: #fff5f5;
+    border-radius: 4px;
+    border: 1px solid #f5c6cb;
+}
+
+/* Badge SQL activo */
+.attr-sql-badge {
+    background: #6b0f2a;
+    color: #fff;
+    font-size: 0.62rem;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 10px;
+    margin-left: 6px;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+}
+
+/* Botones del panel SQL */
+.attr-btn-sql {
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    font-size: 0.78rem;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+
+.attr-btn-sql:hover,
+.attr-btn-sql.active {
+    background: rgba(255,255,255,0.3);
+}
+
+.attr-btn-sql.has-filter {
+    background: #fff;
+    color: #6b0f2a;
+    font-weight: 700;
+}
+
+.attr-btn-apply {
+    background: #6b0f2a;
+    color: #fff;
+    font-size: 0.8rem;
+    padding: 0.4rem 1rem;
+    border-radius: 6px;
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+
+.attr-btn-apply:hover {
+    background: #8d1c3d;
+}
+
+.attr-btn-clear {
+    background: #f0e8e0;
+    color: #6b0f2a;
+    border: 1px solid #d0b8a8;
+    font-size: 0.78rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: 6px;
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+
+.attr-btn-clear:hover {
+    background: #e0d0c0;
+}
