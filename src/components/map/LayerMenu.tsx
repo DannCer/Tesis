@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, memo } from 'react';
 import ReactDOM from 'react-dom';
 import '../../styles/LayerMenu.css';
 import { LayerData } from '../../hooks/useWFSLayers';
-import { AVAILABLE_LAYERS, LayerConfig } from '../../config/layers';
+import { AVAILABLE_LAYERS, LayerConfig, getVectorGroups, getVectorLayers, getRasterLayers } from '../../config/layers';
 import { config } from '../../config/env';
 import AttributeTable from './AttributeTable';
 
@@ -297,11 +297,14 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
 
                         <div className="layers-list">
 
-                            {/* ── Capas Vectoriales ─────────────────────── */}
-                            {filteredLayers.filter(l => l.type === 'vector').length > 0 && (
-                                <div className="layer-group">
-                                    <h6 className="layer-group-title">Capas Vectoriales</h6>
-                                    {filteredLayers.filter(l => l.type === 'vector').map(layer => {
+                            {/* ── Capas Vectoriales agrupadas por legendData ── */}
+                            {getVectorGroups().map(group => {
+                                const groupLayers = filteredLayers.filter(l => l.type === 'vector' && (l.group ?? 'Capas Vectoriales') === group);
+                                if (groupLayers.length === 0) return null;
+                                return (
+                                <div key={group} className="layer-group">
+                                    <h6 className="layer-group-title">{group}</h6>
+                                    {groupLayers.map(layer => {
                                         const isActive = isLayerActive(layer.id);
                                         const isLoading = isLayerLoading(layer.id);
                                         const error = getLayerError(layer.id);
@@ -314,17 +317,23 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
                                                     <label htmlFor={layer.id} className="layer-label">
                                                         <div className="layer-info">
                                                             <span className="layer-name">{layer.name}</span>
-                                                            <span className="layer-description">{layer.description}</span>
-                                                            {featureCount && <span className="feature-count">{featureCount} elementos</span>}
+                                                            <span className="layer-description">
+                                                                {layer.description}
+                                                                {featureCount && (
+                                                                    <span className="feature-count"> · {featureCount} elementos</span>
+                                                                )}
+                                                            </span>
                                                         </div>
                                                     </label>
                                                 </div>
 
                                                 <div className="layer-actions">
-                                                    {/* Tabla de atributos */}
-                                                    <button className="table-btn" title="Ver tabla de atributos" onClick={() => setAttributeTableLayerId(layer.id)}>
-                                                        <TableIcon />
-                                                    </button>
+                                                    {/* Tabla de atributos — solo si la capa está activa */}
+                                                    {isActive && (
+                                                        <button className="table-btn" title="Ver tabla de atributos" onClick={() => setAttributeTableLayerId(layer.id)}>
+                                                            <TableIcon />
+                                                        </button>
+                                                    )}
 
                                                     {/* Descarga desplegable */}
                                                     <DownloadDropdown layer={layer} />
@@ -356,7 +365,8 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
                                         );
                                     })}
                                 </div>
-                            )}
+                                );
+                            })}
 
                             {/* ── Capas Ráster ─────────────────────────── */}
                             {filteredLayers.filter(l => l.type === 'raster').length > 0 && (
@@ -416,7 +426,7 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
                                 <p className="text-muted small mb-1 mt-2"><strong>Área de estudio:</strong></p>
                                 <p className="text-muted small">México</p>
                                 <p className="text-muted small mb-1 mt-2"><strong>Series disponibles:</strong></p>
-                                <p className="text-muted small">7 series temporales (1985-2018)</p>
+                                <p className="text-muted small">{getRasterLayers().length} series temporales ({getRasterLayers()[0]?.year}–{getRasterLayers().at(-1)?.year})</p>
                             </div>
                         </div>
                     </div>

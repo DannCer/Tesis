@@ -129,7 +129,7 @@ const MapView: React.FC = () => {
                 
                 // 3. Extraemos propiedades
                 const props = feature.properties;
-                const nombre = props.NOMBRE || props.NOM_MUN || props.NOM_ENT || props.NAME || 'Elemento sin nombre';
+                const nombre = props.NOMBRE || props.Municipio || props.Localidad || props.NAME || props.Estado|| 'Elemento sin nombre';
                 
                 // 4. Creamos contenido HTML
                 const detalles = Object.entries(props)
