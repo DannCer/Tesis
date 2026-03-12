@@ -7,9 +7,13 @@ import {
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import { GeoJSON } from 'react-leaflet';
 
 import MapContent from './MapContent';
 import LayerMenu from './LayerMenu';
+import type { ExternalLayer } from './LayerMenu';
+import { featureStyle, DEFAULT_SYMBOLOGY } from '../../utils/symbologyUtils';
+import GeoRasterLayerComponent from './GeoRasterLayerComponent';
 import PixelInfoPanel from './PixelInfoPanel';
 import Legend from './Legend';
 import VectorLayer from './VectorLayer';
@@ -51,6 +55,37 @@ const MapView: React.FC = () => {
     const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
     const [wmsError, setWmsError] = useState<string | null>(null);
     const [selectedFeature, setSelectedFeature] = useState<any>(null);
+    const [externalLayers, setExternalLayers] = useState<ExternalLayer[]>([]);
+    const [externalVisible, setExternalVisible] = useState<Record<string, boolean>>({});
+    const [externalOpacity, setExternalOpacity] = useState<Record<string, number>>({});
+
+    const handleAddExternalLayer = useCallback((layer: ExternalLayer) => {
+        setExternalLayers(prev => [...prev, layer]);
+        setExternalVisible(prev => ({ ...prev, [layer.id]: true }));
+        setExternalOpacity(prev => ({ ...prev, [layer.id]: 0.8 }));
+        // Zoom automático a la capa si tiene datos GeoJSON
+        if (layer.geojsonData && mapInstance) {
+            try {
+                const gl = L.geoJSON(layer.geojsonData);
+                const bounds = gl.getBounds();
+                if (bounds.isValid()) mapInstance.fitBounds(bounds, { padding: [30, 30] });
+            } catch { /* sin bounds válidos */ }
+        }
+    }, [mapInstance]);
+
+    const handleRemoveExternalLayer = useCallback((id: string) => {
+        setExternalLayers(prev => prev.filter(l => l.id !== id));
+        setExternalVisible(prev => { const n = { ...prev }; delete n[id]; return n; });
+        setExternalOpacity(prev => { const n = { ...prev }; delete n[id]; return n; });
+    }, []);
+
+    const handleToggleExternalLayer = useCallback((id: string, visible: boolean) => {
+        setExternalVisible(prev => ({ ...prev, [id]: visible }));
+    }, []);
+
+    const handleExternalOpacityChange = useCallback((id: string, opacity: number) => {
+        setExternalOpacity(prev => ({ ...prev, [id]: opacity }));
+    }, []);
 
     // ===== VECTOR (WFS) =====
     const {
@@ -119,39 +154,47 @@ const MapView: React.FC = () => {
 
     // --- MANEJADOR DE CLICS EN VECTORES ---
     const onEachVectorFeature = useCallback((feature: any, layer: L.Layer) => {
+        const props = feature.properties ?? {};
+
+        // Construir filas de la tabla de atributos
+        const SKIP = new Set(['bbox', 'geometry', 'the_geom', 'geom']);
+        const nombre =
+            props.NOMBRE   ?? props.nombre   ??
+            props.Estado   ?? props.estado   ??
+            props.Municipio ?? props.municipio ??
+            props.Localidad ?? props.localidad ??
+            props.NAME     ?? props.name     ?? 'Elemento';
+
+        const rows = Object.entries(props)
+            .filter(([k]) => !SKIP.has(k.toLowerCase()))
+            .map(([k, v]) => `<tr>
+                <td style="padding:5px 12px 5px 0;font-weight:600;color:#555;white-space:nowrap;vertical-align:top;font-size:13px">${k}</td>
+                <td style="padding:5px 0;color:#222;font-size:13px;word-break:break-word">${v ?? '—'}</td>
+            </tr>`).join('');
+
+        const content = `
+            <div style="font-family:'Roboto','Segoe UI',sans-serif;min-width:300px;max-width:440px">
+                <div style="background:#8d1c3d;color:#fff;padding:10px 14px;margin:-13px -20px 10px;border-radius:4px 4px 0 0;font-size:15px;font-weight:600">${nombre}</div>
+                <div style="max-height:260px;overflow-y:auto">
+                    <table style="border-collapse:collapse;width:100%">
+                        <tbody>${rows || '<tr><td style="color:#999;font-size:13px">Sin atributos</td></tr>'}</tbody>
+                    </table>
+                </div>
+            </div>`;
+
+        layer.bindPopup(content, { maxWidth: 460, minWidth: 300, className: 'vector-popup', offset: [0, -4] });
+
         layer.on({
             click: (e: L.LeafletMouseEvent) => {
-                // 1. Detenemos la propagación
                 L.DomEvent.stopPropagation(e);
-                
-                // 2. Marcar como seleccionado
-                setSelectedFeature(feature.id || feature.properties.id || Math.random());
-                
-                // 3. Extraemos propiedades
-                const props = feature.properties;
-                const nombre = props.NOMBRE || props.Municipio || props.Localidad || props.NAME || props.Estado|| 'Elemento sin nombre';
-                
-                // 4. Creamos contenido HTML
-                const detalles = Object.entries(props)
-                    .filter(([key]) => key !== 'bbox' && key !== 'geometry')
-                    .map(([key, val]) => `<b>${key}:</b> ${val}`)
-                    .join('<br/>');
-
-                // 5. Mostramos Popup
-                layer.bindPopup(`
-                    <div style="font-family: Roboto, sans-serif; min-width: 200px;">
-                        <h4 style="margin: 0 0 8px 0; color: #cd171e;">${nombre}</h4>
-                        <div style="max-height: 200px; overflow-y: auto; font-size: 0.9rem;">
-                            ${detalles}
-                        </div>
-                    </div>
-                `).openPopup();
+                const fid = feature.id ?? props.id ?? Math.random();
+                setSelectedFeature(fid);
+                layer.openPopup(e.latlng);
             },
-            popupclose: () => {
-                setSelectedFeature(null);
-            }
+            popupclose: () => setSelectedFeature(null),
         });
     }, []);
+
 
     // --- MANEJO DE CAPAS ---
     const handleLayerToggle = useCallback(async (layerId: string, isActive: boolean, layerType: 'vector' | 'raster') => {
@@ -243,6 +286,13 @@ const MapView: React.FC = () => {
                 errors={vectorErrors}
                 onLayerToggle={handleLayerToggle}
                 onOpacityChange={handleOpacityChange}
+                externalLayers={externalLayers}
+                externalVisible={externalVisible}
+                externalOpacity={externalOpacity}
+                onAddExternalLayer={handleAddExternalLayer}
+                onRemoveExternalLayer={handleRemoveExternalLayer}
+                onToggleExternalLayer={handleToggleExternalLayer}
+                onExternalOpacityChange={handleExternalOpacityChange}
             />
 
             <PixelInfoPanel
@@ -295,18 +345,23 @@ const MapView: React.FC = () => {
                     );
                 })}
 
-                {Object.entries(vectorLayers).map(([id, layer]) => (
-                    <VectorLayer
-                        key={id}
-                        id={id}
-                        data={layer.data}
-                        visible={layer.visible}
-                        timestamp={layer.timestamp}
-                        opacity={layer.opacity}
-                        selectedFeatureId={selectedFeature}
-                        onEachFeature={onEachVectorFeature}
-                    />
-                ))}
+                {Object.entries(vectorLayers).map(([id, layer], index) => {
+                    const cfg = AVAILABLE_LAYERS.find(l => l.id === id);
+                    return (
+                        <VectorLayer
+                            key={id}
+                            id={id}
+                            wmsLayer={cfg?.wmsLayer ?? id}
+                            data={layer.data}
+                            visible={layer.visible}
+                            timestamp={layer.timestamp}
+                            opacity={layer.opacity}
+                            selectedFeatureId={selectedFeature}
+                            onEachFeature={onEachVectorFeature}
+                            zIndex={400 + index}
+                        />
+                    );
+                })}
 
                 {/* Resaltar el píxel seleccionado */}
                 {pixelInfo && pixelInfo.coordinates && (
@@ -322,6 +377,59 @@ const MapView: React.FC = () => {
                         }}
                     />
                 )}
+
+                {/* ── Capas externas (GeoJSON/KML/SHP/WMS/WFS cargadas por usuario) ── */}
+                {externalLayers.map(ext => {
+                    if (!externalVisible[ext.id]) return null;
+
+                    // Vector local (GeoJSON parseado)
+                    if ((ext.type === 'vector') && ext.geojsonData) {
+                        const sym = ext.symbology ?? DEFAULT_SYMBOLOGY;
+                        const opacity = externalOpacity[ext.id] ?? 0.8;
+                        return (
+                            <GeoJSON
+                                key={ext.id}
+                                data={ext.geojsonData}
+                                style={(feature) => ({
+                                    ...featureStyle(feature, sym),
+                                    fillOpacity: sym.fillOpacity * opacity,
+                                    opacity,
+                                })}
+                                onEachFeature={onEachVectorFeature}
+                            />
+                        );
+                    }
+
+                    // GeoTIFF local
+                    if (ext.type === 'raster' && ext.georasterData) {
+                        return (
+                            <GeoRasterLayerComponent
+                                key={ext.id}
+                                layerId={ext.id}
+                                georaster={ext.georasterData}
+                                opacity={externalOpacity[ext.id] ?? 0.8}
+                                resolution={256}
+                            />
+                        );
+                    }
+
+                    // WMS externo
+                    if (ext.type === 'wms' && ext.url && ext.layerName) {
+                        return (
+                            <WMSTileLayer
+                                key={ext.id}
+                                url={ext.url}
+                                layers={ext.layerName}
+                                format="image/png"
+                                transparent={true}
+                                opacity={externalOpacity[ext.id] ?? 0.8}
+                                zIndex={600}
+                            />
+                        );
+                    }
+
+                    return null;
+                })}
 
                 <Legend activeLayers={activeLayers} vectorLayers={vectorLayers as any} />
 

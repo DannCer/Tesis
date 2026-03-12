@@ -13,12 +13,16 @@
   "dependencies": {
     "bootstrap": "^5.3.8",
     "css-polyfills": "^0.0.16",
+    "georaster": "^1.6.0",
+    "georaster-layer-for-leaflet": "^4.1.2",
+    "jszip": "^3.10.1",
     "leaflet": "^1.9.4",
     "prop-types": "^15.8.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-leaflet": "^5.0.0",
-    "react-router-dom": "^7.12.0"
+    "react-router-dom": "^7.12.0",
+    "shpjs": "^6.2.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -27,6 +31,7 @@
     "@types/node": "^25.1.0",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
+    "@types/shpjs": "^3.4.7",
     "@typescript-eslint/eslint-plugin": "^8.54.0",
     "@typescript-eslint/parser": "^8.54.0",
     "@vitejs/plugin-react": "^5.1.1",

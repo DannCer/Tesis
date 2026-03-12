@@ -318,3 +318,34 @@ html, body {
     opacity: 0;
     overflow: hidden;
 }
+
+/* ============================================
+   ESTILOS PARA POPUPS DE CAPAS VECTORIALES
+   ============================================ */
+
+.vector-popup .leaflet-popup-content-wrapper {
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    padding: 0;
+}
+
+.vector-popup .leaflet-popup-content {
+    margin: 12px 14px;
+    line-height: 1.4;
+}
+
+.vector-popup .leaflet-popup-tip {
+    background: white;
+    box-shadow: none;
+}
+
+/* Asegurar que los popups sean interactivos */
+.vector-popup {
+    z-index: 1000 !important;
+}
+
+/* Cursor pointer para elementos clicables en el popup */
+.vector-popup button,
+.vector-popup a {
+    cursor: pointer;
+}
