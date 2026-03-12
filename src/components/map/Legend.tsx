@@ -1,7 +1,7 @@
 /**
  * @fileoverview Leyenda dinámica del mapa.
  *
- * Lee legendData para construir la simbología de las capas activas.
+ * La simbología de todas las capas viene de GeoServer vía WMS GetLegendGraphic.
  * Soporta todos los tipos: polygon, point, ranged-*, categorical-*, variant.
  * Incluye un panel WMS para capas ráster y un botón para minimizar.
  */
@@ -9,9 +9,10 @@
 import React, { useEffect, useRef, useState, useMemo, memo } from 'react';
 import L from 'leaflet';
 import { config } from '../../config/env';
-import { AVAILABLE_LAYERS } from '../../config/layers';
-import { legendData, LayerLegend, LegendItem, VariantLegend } from '../../utils/legendData';
+import { AVAILABLE_LAYERS, LayerConfig } from '../../config/layers';
 import { LayerData } from '../../hooks/useWFSLayers';
+import type { ExternalLayer } from './LayerMenu';
+import { SymbologyStyle, DEFAULT_SYMBOLOGY } from '../../utils/symbologyUtils';
 
 // ============================================================================
 // TIPOS
@@ -21,110 +22,99 @@ interface LegendProps {
     activeLayers: Record<string, boolean | LayerData | any>;
     vectorLayers?: Record<string, LayerData & { color?: string; name?: string }>;
     loadingLayers?: Set<string>;
-    /** Variantes activas por capa { [layerId]: variantKey } */
-    activeVariants?: Record<string, string>;
-    onVariantChange?: (layerId: string, variant: string) => void;
+    /** Capas externas importadas por el usuario */
+    externalLayers?: ExternalLayer[];
+    externalVisible?: Record<string, boolean>;
 }
 
 // ============================================================================
 // HELPERS
 // ============================================================================
 
-/** Determina si una leyenda es de tipo punto (base o variante) */
-const isPointType = (type: string): boolean =>
-    type === 'point' || type === 'categorical-point' || type === 'ranged-point';
-
-/** Swatch visual para un item de leyenda */
-const LegendSwatch: React.FC<{ item: LegendItem; asPoint: boolean }> = ({ item, asPoint }) => {
-    const style: React.CSSProperties = {
-        display: 'inline-block',
-        width:  item.size ? `${item.size}px` : asPoint ? '12px' : '14px',
-        height: item.size ? `${item.size}px` : asPoint ? '12px' : '14px',
-        backgroundColor: item.color === 'transparent' ? 'transparent' : item.color,
-        border: item.borderColor
-            ? `2px solid ${item.borderColor}`
-            : item.color === 'transparent'
-                ? '2px solid #ccc'
-                : '1px solid rgba(0,0,0,0.2)',
-        borderRadius: asPoint ? '50%' : '3px',
-        flexShrink: 0,
-        verticalAlign: 'middle',
-    };
-    return <span style={style} aria-hidden="true" />;
-};
-
-/** Renderiza la lista de items de una leyenda */
-const LegendItems: React.FC<{ items: LegendItem[]; asPoint: boolean }> = ({ items, asPoint }) => (
-    <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: 0 }}>
-        {items.map((item, i) => (
-            <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px', fontSize: '11px', color: '#333' }}>
-                <LegendSwatch item={item} asPoint={asPoint} />
-                <span>{item.label}</span>
-            </li>
-        ))}
-    </ul>
-);
 
 // ============================================================================
-// SECCIÓN DE CAPA VECTORIAL
+// SECCIÓN DE CAPA VECTORIAL — simbología desde WMS GetLegendGraphic
 // ============================================================================
 
 const VectorSection: React.FC<{
-    layerId: string;
-    legend: LayerLegend;
+    layer: LayerConfig;
     isLoading: boolean;
-    activeVariant?: string;
-    onVariantChange?: (layerId: string, v: string) => void;
-}> = ({ layerId, legend, isLoading, activeVariant, onVariantChange }) => {
-
-    // Resolver leyenda actual (con variante si aplica)
-    let currentLegend: { items?: LegendItem[]; type: string; note?: string } = legend as any;
-    let variantKeys: string[] = [];
-    let selectedVariant = activeVariant ?? '';
-
-    if (legend.type === 'variant' && legend.variants) {
-        variantKeys = Object.keys(legend.variants);
-        selectedVariant = activeVariant ?? variantKeys[0] ?? '';
-        currentLegend = legend.variants[selectedVariant] as VariantLegend;
-    }
-
-    if (!currentLegend) return null;
-
-    const asPoint = isPointType(currentLegend.type);
+    getWMSLegendUrl: (layerName: string, time?: string) => string;
+}> = ({ layer, isLoading, getWMSLegendUrl }) => {
+    const wmsName = layer.wmsLayer ?? layer.id;
 
     return (
         <div style={{ marginBottom: '14px', paddingBottom: '12px', borderBottom: '1px solid #f0f0f0' }}>
             {/* Título + spinner */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
                 <strong style={{ fontSize: '11px', color: '#555', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                    {legend.title || layerId}
+                    {layer.name}
                 </strong>
                 {isLoading && (
                     <span style={{ width: 10, height: 10, border: '2px solid #ccc', borderTopColor: '#8d1c3d', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.8s linear infinite' }} />
                 )}
             </div>
+            <img
+                src={getWMSLegendUrl(wmsName)}
+                alt={`Leyenda ${layer.name}`}
+                style={{ maxWidth: '100%', display: 'block' }}
+                onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+        </div>
+    );
+};
 
-            {/* Selector de variante */}
-            {variantKeys.length > 0 && (
-                <select
-                    value={selectedVariant}
-                    onChange={e => onVariantChange?.(layerId, e.target.value)}
-                    style={{ width: '100%', fontSize: '11px', padding: '3px 6px', marginBottom: '6px', borderRadius: '4px', border: '1px solid #ddd', color: '#333' }}
-                >
-                    {variantKeys.map(v => <option key={v} value={v}>{v}</option>)}
-                </select>
+// ============================================================================
+// SECCIÓN CAPA EXTERNA (simbología elegida por el usuario)
+// ============================================================================
+
+const ExternalLayerSection: React.FC<{ layer: ExternalLayer }> = ({ layer }) => {
+    const sym: SymbologyStyle = layer.symbology ?? DEFAULT_SYMBOLOGY;
+    const typeLabel =
+        layer.type === 'wms'    ? 'WMS'    :
+        layer.type === 'wfs'    ? 'WFS'    :
+        layer.type === 'raster' ? 'GeoTIFF' :
+        layer.file ? (layer.file.name.split('.').pop()?.toUpperCase() ?? 'Vectorial') : 'Vectorial';
+
+    return (
+        <div style={{ marginBottom: '14px', paddingBottom: '12px', borderBottom: '1px solid #f0f0f0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <strong style={{ fontSize: '11px', color: '#555', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                    {layer.name}
+                </strong>
+                <span style={{ fontSize: '9px', color: '#aaa', background: '#f5f5f5', borderRadius: '3px', padding: '1px 5px' }}>
+                    {typeLabel}
+                </span>
+            </div>
+
+            {(layer.type === 'wms' || layer.type === 'wfs' || layer.type === 'raster') && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#666' }}>
+                    <span style={{ display: 'inline-block', width: 14, height: 14, background: layer.type === 'raster' ? 'linear-gradient(135deg,#e74c3c,#f39c12,#2ecc71)' : '#6b7280', borderRadius: '2px', flexShrink: 0 }} />
+                    <span>{layer.type === 'raster' ? 'Banda(s) GeoTIFF' : (layer.layerName ?? 'Capa')}</span>
+                </div>
             )}
 
-            {/* Items */}
-            {currentLegend.items && (
-                <LegendItems items={currentLegend.items} asPoint={asPoint} />
+            {layer.type === 'vector' && sym.mode === 'single' && (
+                <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: 0 }}>
+                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#333' }}>
+                        <span style={{ display: 'inline-block', width: 14, height: 14, backgroundColor: sym.fillColor, border: `${sym.strokeWeight}px solid ${sym.strokeColor}`, borderRadius: '3px', flexShrink: 0 }} />
+                        <span style={{ color: '#555' }}>{layer.name}</span>
+                    </li>
+                </ul>
             )}
 
-            {/* Nota */}
-            {currentLegend.note && (
-                <p style={{ fontSize: '10px', color: '#aaa', margin: '4px 0 0', fontStyle: 'italic' }}>
-                    {currentLegend.note}
-                </p>
+            {layer.type === 'vector' && sym.mode === 'categorical' && sym.categories && (
+                <>
+                    {sym.field && <div style={{ fontSize: '10px', color: '#999', marginBottom: '4px', fontStyle: 'italic' }}>Campo: {sym.field}</div>}
+                    <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: 0 }}>
+                        {sym.categories.map((cat, i) => (
+                            <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', fontSize: '11px', color: '#333' }}>
+                                <span style={{ display: 'inline-block', width: 12, height: 12, backgroundColor: cat.color, border: `1.5px solid ${sym.strokeColor}`, borderRadius: '3px', flexShrink: 0 }} />
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{cat.value}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </>
             )}
         </div>
     );
@@ -138,8 +128,8 @@ const Legend: React.FC<LegendProps> = memo(({
     activeLayers,
     vectorLayers = {},
     loadingLayers = new Set(),
-    activeVariants = {},
-    onVariantChange,
+    externalLayers = [],
+    externalVisible = {},
 }) => {
     const legendRef = useRef<HTMLDivElement>(null);
     const [minimized, setMinimized] = useState(false);
@@ -161,8 +151,14 @@ const Legend: React.FC<LegendProps> = memo(({
                 vectorLayers[l.id]?.visible === true
             ))
             .map(l => l.id)
-            .filter(id => !!legendData[id])
     , [activeLayers, vectorLayers]);
+
+    // Resolver objetos LayerConfig completos para las capas vectoriales activas
+    const activeVectorLayers: LayerConfig[] = useMemo(() =>
+        activeVectorIds
+            .map(id => AVAILABLE_LAYERS.find(l => l.id === id))
+            .filter((l): l is LayerConfig => !!l)
+    , [activeVectorIds]);
 
     // ── Capas ráster activas (para WMS legend) ──────────────────────────────
     const activeRasterWmsLayers = useMemo(() =>
@@ -176,7 +172,8 @@ const Legend: React.FC<LegendProps> = memo(({
         ))
     , [activeLayers]);
 
-    const hasContent = activeVectorIds.length > 0 || activeRasterWmsLayers.length > 0;
+    const visibleExternalLayers = externalLayers.filter(l => externalVisible[l.id] !== false);
+    const hasContent = activeVectorIds.length > 0 || activeRasterWmsLayers.length > 0 || visibleExternalLayers.length > 0;
     if (!hasContent) return null;
 
     const getWMSLegendUrl = (layerName: string) => {
@@ -221,15 +218,13 @@ const Legend: React.FC<LegendProps> = memo(({
                 {/* Cuerpo */}
                 <div className={`legend-body ${minimized ? 'legend-body--hidden' : ''}`}>
 
-                    {/* ── Capas vectoriales ── */}
-                    {activeVectorIds.map(id => (
+                    {/* ── Capas vectoriales (simbología desde GeoServer WMS) ── */}
+                    {activeVectorLayers.map(layer => (
                         <VectorSection
-                            key={id}
-                            layerId={id}
-                            legend={legendData[id]}
-                            isLoading={loadingLayers.has(id)}
-                            activeVariant={activeVariants[id]}
-                            onVariantChange={onVariantChange}
+                            key={layer.id}
+                            layer={layer}
+                            isLoading={loadingLayers.has(layer.id)}
+                            getWMSLegendUrl={getWMSLegendUrl}
                         />
                     ))}
 
@@ -246,6 +241,18 @@ const Legend: React.FC<LegendProps> = memo(({
                             />
                         </div>
                     ))}
+
+                    {/* ── Capas externas importadas ── */}
+                    {visibleExternalLayers.length > 0 && (
+                        <>
+                            <div style={{ fontSize: '10px', color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '8px', paddingTop: (activeVectorIds.length > 0 || activeRasterWmsLayers.length > 0) ? '4px' : 0 }}>
+                                Capas importadas
+                            </div>
+                            {visibleExternalLayers.map(layer => (
+                                <ExternalLayerSection key={layer.id} layer={layer} />
+                            ))}
+                        </>
+                    )}
                 </div>
             </div>
 

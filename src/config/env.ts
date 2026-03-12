@@ -64,7 +64,7 @@ export const config: Config = {
         url: getEnv('GEOSERVER_URL', 'http://localhost:8080'),
         workspace: getEnv('GEOSERVER_WORKSPACE', 'Tesis'),
         timeout: getEnvNumber('WFS_TIMEOUT', 30000),
-        maxFeatures: getEnvNumber('MAX_FEATURES', 5000),
+        maxFeatures: getEnvNumber('MAX_FEATURES', 50000),
 
         get wfsUrl() {
             return `${this.url}/geoserver/${this.workspace}/wfs`;
