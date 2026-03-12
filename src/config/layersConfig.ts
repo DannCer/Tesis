@@ -95,10 +95,10 @@ export const VECTOR_LAYERS: VectorLayerDef[] = [
         group:       '01 Geológicos',
     },
     {
-        id:          'vw_censomunicipio',
-        name:        'Población por Municipio',
-        description: 'Habitantes por municipio (INEGI 2020)',
-        group:       'División político-administrativa',
+        id:          'Litología',
+        name:        'Litología',
+        description: 'Litología',
+        group:       '01 Geológicos',
     },
     {
         id:          'vw_censolocalidad',
