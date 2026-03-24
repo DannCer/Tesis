@@ -1,5 +1,5 @@
 /**
- * @fileoverview Configuración centralizada de la aplicación.
+ * @fileoverview Configuración centralizada — QGIS Server
  * @module config/env
  */
 
@@ -7,9 +7,8 @@
 // FUNCIONES AUXILIARES
 // ============================================================================
 
-const getEnv = (key: string, defaultValue: string = ''): string => {
-    return (import.meta.env[`VITE_${key}`] as string) ?? defaultValue;
-};
+const getEnv = (key: string, defaultValue: string = ''): string =>
+    (import.meta.env[`VITE_${key}`] as string) ?? defaultValue;
 
 const getEnvNumber = (key: string, defaultValue: number): number => {
     const value = import.meta.env[`VITE_${key}`];
@@ -25,10 +24,27 @@ const getEnvBoolean = (key: string, defaultValue: boolean): boolean => {
 };
 
 // ============================================================================
-// CONFIGURACIÓN PRINCIPAL
+// TIPOS
 // ============================================================================
 
 export interface Config {
+    qgisServer: {
+        /** URL base del ejecutable qgis_mapserv.fcgi.exe */
+        url: string;
+        /** Ruta al proyecto .qgz de capas vectoriales */
+        vectorProject: string;
+        /** Ruta al proyecto .qgz de capas ráster */
+        rasterProject: string;
+        timeout: number;
+        maxFeatures: number;
+        /** URL WMS lista para usar (incluye MAP=vectorProject) */
+        wmsUrl: string;
+        /** URL WFS lista para usar (incluye MAP=vectorProject) */
+        wfsUrl: string;
+        /** URL WMS para capas ráster (incluye MAP=rasterProject) */
+        wmsRasterUrl: string;
+    };
+    /** Alias de compatibilidad — apunta a qgisServer */
     geoserver: {
         url: string;
         workspace: string;
@@ -58,68 +74,75 @@ export interface Config {
     mode: string;
 }
 
+// ============================================================================
+// CONFIGURACIÓN PRINCIPAL
+// ============================================================================
+
+const qgisServerUrl     = getEnv('QGIS_SERVER_URL', 'http://localhost/qgis/qgis_mapserv.fcgi.exe');
+const vectorProject     = getEnv('QGIS_VECTOR_PROJECT', 'C:/mis_proyectos/01_Geologicos.qgz');
+const rasterProject     = getEnv('QGIS_RASTER_PROJECT', 'C:/mis_proyectos/01_Geologicos.qgz');
+
+/**
+ * Construye la URL base de QGIS Server con el parámetro MAP incluido.
+ * WMSTileLayer de react-leaflet añade el resto de parámetros automáticamente.
+ */
+const buildQgisUrl = (baseUrl: string, projectPath: string): string =>
+    `${baseUrl}?MAP=${encodeURIComponent(projectPath)}`;
+
 export const config: Config = {
-    // GeoServer
-    geoserver: {
-        url: getEnv('GEOSERVER_URL', 'http://localhost:8080'),
-        workspace: getEnv('GEOSERVER_WORKSPACE', 'Tesis'),
-        timeout: getEnvNumber('WFS_TIMEOUT', 30000),
-        maxFeatures: getEnvNumber('MAX_FEATURES', 50000),
-
-        get wfsUrl() {
-            return `${this.url}/geoserver/${this.workspace}/wfs`;
-        },
-        
-        get wmsUrl() {
-            return `${this.url}/geoserver/${this.workspace}/wms`;
-        },
-
-        get wcsUrl() {
-            return `${this.url}/geoserver/${this.workspace}/wcs`;
-        },
+    qgisServer: {
+        url:           qgisServerUrl,
+        vectorProject: vectorProject,
+        rasterProject: rasterProject,
+        timeout:       getEnvNumber('WFS_TIMEOUT', 30000),
+        maxFeatures:   getEnvNumber('MAX_FEATURES', 5000),
+        get wmsUrl()       { return buildQgisUrl(this.url, this.vectorProject); },
+        get wfsUrl()       { return buildQgisUrl(this.url, this.vectorProject); },
+        get wmsRasterUrl() { return buildQgisUrl(this.url, this.rasterProject); },
     },
 
-    // Configuración del mapa
+    /**
+     * Alias geoserver → qgisServer para compatibilidad con componentes existentes.
+     * workspace queda como string vacío porque QGIS Server no usa workspaces.
+     */
+    get geoserver() {
+        return {
+            url:         qgisServerUrl,
+            workspace:   '',          // QGIS Server no usa workspace
+            timeout:     this.qgisServer.timeout,
+            maxFeatures: this.qgisServer.maxFeatures,
+            wfsUrl:      this.qgisServer.wfsUrl,
+            wmsUrl:      this.qgisServer.wmsUrl,
+            wcsUrl:      this.qgisServer.wmsUrl, // QGIS Server no tiene WCS; apunta a WMS
+        };
+    },
+
     map: {
-        // Centro en México
         center: [
-            getEnvNumber('MAP_CENTER_LAT', 23.5),
-            getEnvNumber('MAP_CENTER_LNG', -102.5),
+            getEnvNumber('MAP_CENTER_LAT', 19.4326),
+            getEnvNumber('MAP_CENTER_LNG', -99.1332),
         ],
-        zoom: getEnvNumber('MAP_ZOOM', 5.5),
-        minZoom: getEnvNumber('MAP_MIN_ZOOM', 5),
-        maxZoom: getEnvNumber('MAP_MAX_ZOOM', 18),
-        
-        // Límites de México
+        zoom:    getEnvNumber('MAP_ZOOM', 11),
+        minZoom: getEnvNumber('MAP_MIN_ZOOM', 8),
+        maxZoom: getEnvNumber('MAP_MAX_ZOOM', 19),
         maxBounds: [
-            [33, -86],      // Noreste
-            [14, -120],     // Suroeste
+            [19.75, -98.75],   // Noreste CDMX
+            [19.05, -99.55],   // Suroeste CDMX
         ],
-        
         maxBoundsViscosity: 0.7,
         zoomDelta: 0.5,
-        zoomSnap: 0.5,
+        zoomSnap:  0.5,
     },
 
-    // Configuración de la app
     app: {
-        name: getEnv('APP_NAME', 'Geovisor - Monitoreo de Uso de Suelo'),
+        name:    getEnv('APP_NAME', 'Geovisor CDMX'),
         version: getEnv('APP_VERSION', '1.0.0'),
-        debug: getEnvBoolean('DEBUG_MODE', import.meta.env.DEV),
+        debug:   getEnvBoolean('DEBUG_MODE', import.meta.env.DEV),
     },
 
     isDevelopment: import.meta.env.DEV,
-    isProduction: import.meta.env.PROD,
-    mode: import.meta.env.MODE,
-};
-
-// ============================================================================
-// CAPAS BASE
-// ============================================================================
-
-export const BASE_LAYERS = {
-    ESTADO: `${config.geoserver.workspace}:limite_estado`,
-    MUNICIPIOS: `${config.geoserver.workspace}:municipios`,
+    isProduction:  import.meta.env.PROD,
+    mode:          import.meta.env.MODE,
 };
 
 // ============================================================================
@@ -127,47 +150,24 @@ export const BASE_LAYERS = {
 // ============================================================================
 
 export const logger = {
-    log: (...args: any[]) => {
-        if (config.app.debug) {
-            console.log(`[${config.app.name}]`, ...args);
-        }
-    },
-    
-    warn: (...args: any[]) => {
-        if (config.app.debug) {
-            console.warn(`[${config.app.name}]`, ...args);
-        }
-    },
-    
-    error: (...args: any[]) => {
-        console.error(`[${config.app.name}]`, ...args);
-    },
-    
-    debug: (...args: any[]) => {
-        if (config.app.debug && config.isDevelopment) {
-            console.debug(`[${config.app.name} DEBUG]`, ...args);
-        }
-    },
+    log:   (...args: any[]) => { if (config.app.debug) console.log(`[${config.app.name}]`, ...args); },
+    warn:  (...args: any[]) => { if (config.app.debug) console.warn(`[${config.app.name}]`, ...args); },
+    error: (...args: any[]) => { console.error(`[${config.app.name}]`, ...args); },
+    debug: (...args: any[]) => { if (config.app.debug && config.isDevelopment) console.debug(`[${config.app.name} DEBUG]`, ...args); },
 };
 
 // Validación en desarrollo
 if (config.isDevelopment) {
-    const requiredVars = ['GEOSERVER_URL', 'GEOSERVER_WORKSPACE'];
-    const missing = requiredVars.filter(key => !import.meta.env[`VITE_${key}`]);
-
+    const required = ['QGIS_SERVER_URL', 'QGIS_VECTOR_PROJECT'];
+    const missing  = required.filter(k => !import.meta.env[`VITE_${k}`]);
     if (missing.length > 0) {
-        console.warn(
-            `⚠️ Variables de entorno faltantes: ${missing.join(', ')}\n` +
-            `Usando valores por defecto. Crea un archivo .env basado en .env.example`
-        );
+        console.warn(`⚠️ Variables de entorno faltantes: ${missing.join(', ')}\nRevisa tu archivo .env`);
     }
-
-    // Log de configuración en desarrollo
-    console.log('🔧 Configuración de GeoServer:', {
-        url: config.geoserver.url,
-        workspace: config.geoserver.workspace,
-        wfsUrl: config.geoserver.wfsUrl,
-        wmsUrl: config.geoserver.wmsUrl
+    console.log('🗺️ Configuración QGIS Server:', {
+        url:           config.qgisServer.url,
+        vectorProject: config.qgisServer.vectorProject,
+        wmsUrl:        config.qgisServer.wmsUrl,
+        wfsUrl:        config.qgisServer.wfsUrl,
     });
 }
 

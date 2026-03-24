@@ -16,12 +16,11 @@ interface VectorLayerProps {
 }
 
 /**
- * Capa vectorial: WMSTileLayer (visual) + GeoJSON invisible (interactividad).
+ * Capa vectorial: WMSTileLayer (visual desde QGIS Server) + GeoJSON invisible (interactividad).
  *
- * REGLA CRÍTICA: el key del GeoJSON NUNCA incluye selectedFeatureId.
- * Si lo incluyera, React desmonaría y remonaría el layer en cada clic,
- * destruyendo el popup antes de que pudiera mostrarse.
- * El highlight de selección se actualiza con setStyle() imperativo.
+ * Cambios vs. GeoServer:
+ * - url → config.qgisServer.wmsUrl  (ya incluye ?MAP=...)
+ * - layers → solo el nombre de la capa, sin workspace
  */
 const VectorLayer: React.FC<VectorLayerProps> = memo(({
     id,
@@ -34,9 +33,8 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
     onEachFeature,
     zIndex = 400,
 }) => {
-    // Mapa featureId → Leaflet layer para actualizaciones imperativas de estilo
-    const layerMapRef  = useRef<Map<string | number, L.Path>>(new Map());
-    const prevSelRef   = useRef<string | number | null>(null);
+    const layerMapRef = useRef<Map<string | number, L.Path>>(new Map());
+    const prevSelRef  = useRef<string | number | null>(null);
 
     const hasPoints = useMemo(() => {
         if (!data?.features) return false;
@@ -46,22 +44,17 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
         });
     }, [data]);
 
-    // Limpiar el mapa de layers cuando cambian los datos
     useEffect(() => {
         layerMapRef.current.clear();
         prevSelRef.current = null;
     }, [timestamp]);
 
-    // Actualizar highlight de selección de forma imperativa (sin re-montar el GeoJSON)
     useEffect(() => {
         const map = layerMapRef.current;
-
-        // Restaurar estilo del anteriormente seleccionado
         if (prevSelRef.current !== null) {
             const prev = map.get(prevSelRef.current);
             if (prev) applyStyle(prev, false, opacity);
         }
-        // Aplicar highlight al nuevo seleccionado
         if (selectedFeatureId !== null) {
             const curr = map.get(selectedFeatureId);
             if (curr) applyStyle(curr, true, opacity);
@@ -69,7 +62,6 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
         prevSelRef.current = selectedFeatureId;
     }, [selectedFeatureId, opacity]);
 
-    // onEachFeature extendido: registra cada layer en el mapa para poder actualizar su estilo
     const wrappedOnEachFeature = useMemo(() =>
         (feature: any, layer: L.Layer) => {
             const fid = feature?.id ?? feature?.properties?.id;
@@ -77,13 +69,11 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
                 layerMapRef.current.set(fid, layer);
             }
             onEachFeature(feature, layer);
-        }
-    , [onEachFeature]);
+        },
+    [onEachFeature]);
 
-    // Estilo inicial del hit-layer: casi invisible pero con opacity > 0
-    // para que Leaflet NO desactive pointer-events en el SVG
     const hitStyle: L.StyleFunction = (feature) => {
-        const t = feature?.geometry?.type ?? '';
+        const t      = feature?.geometry?.type ?? '';
         const isPoly = t === 'Polygon' || t === 'MultiPolygon';
         return {
             fillColor:   '#000',
@@ -94,7 +84,6 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
         };
     };
 
-    // pointToLayer: CircleMarker invisible para puntos (evita el marcador azul)
     const pointToLayer = useMemo(() =>
         hasPoints
             ? (_f: GeoJSON.Feature, latlng: L.LatLng) =>
@@ -102,18 +91,18 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
                     radius: 14, fillColor: '#000', fillOpacity: 0.001,
                     color: '#000', weight: 0.001, opacity: 0.001,
                 })
-            : undefined
-    , [hasPoints]);
+            : undefined,
+    [hasPoints]);
 
     if (!visible) return null;
 
     return (
         <>
-            {/* Visual: simbología de GeoServer */}
+            {/* Visual — simbología desde QGIS Server WMS */}
             <WMSTileLayer
                 key={`${id}-wms`}
-                url={config.geoserver.wmsUrl}
-                layers={`${config.geoserver.workspace}:${wmsLayer}`}
+                url={config.qgisServer.wmsUrl}   // URL con ?MAP=vectorProject
+                layers={wmsLayer}                 // nombre exacto de la capa QGIS (sin workspace)
                 format="image/png"
                 transparent={true}
                 opacity={opacity}
@@ -121,7 +110,7 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
                 params={{ _ts: timestamp } as any}
             />
 
-            {/* Hit-layer: key estable — NO cambia al hacer clic */}
+            {/* Hit-layer GeoJSON invisible para interactividad */}
             {data && (
                 <GeoJSON
                     key={`${id}-hit-${timestamp}`}
@@ -134,17 +123,15 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
         </>
     );
 },
-// selectedFeatureId se maneja imperativamente → no necesita re-montar el componente
 (prev, next) =>
-    prev.visible       === next.visible       &&
-    prev.timestamp     === next.timestamp     &&
-    prev.onEachFeature === next.onEachFeature &&
-    prev.opacity       === next.opacity       &&
-    prev.wmsLayer      === next.wmsLayer      &&
+    prev.visible           === next.visible           &&
+    prev.timestamp         === next.timestamp         &&
+    prev.onEachFeature     === next.onEachFeature     &&
+    prev.opacity           === next.opacity           &&
+    prev.wmsLayer          === next.wmsLayer          &&
     prev.selectedFeatureId === next.selectedFeatureId
 );
 
-// Aplica o restaura el estilo hit de un layer de forma imperativa
 function applyStyle(layer: L.Path, selected: boolean, opacity: number) {
     if (layer instanceof L.CircleMarker) {
         layer.setStyle({
