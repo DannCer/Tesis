@@ -71,9 +71,9 @@ export const VECTOR_LAYERS: VectorLayerDef[] = [
 
     // ── División político-administrativa ─────────────────────────────────────
     {
-        id:          'Aparatos volcánicos',
-        name:        'Aparatos volcánicos',
-        description: 'Aparatos volcánicos',
+        id:          'Aparatos_volcanicos',
+        name:        'Aparatos Volcánicos',
+        description: 'Aparatos Volcánicos',
         group:       '01 Geológicos',
     },
     {
@@ -83,13 +83,13 @@ export const VECTOR_LAYERS: VectorLayerDef[] = [
         group:       '01 Geológicos',
     },    
     {
-        id:          'Zonas potenciales de agrietamiento',
+        id:          'Zonas_potenciales_de_agrietamiento',
         name:        'Zonas potenciales de agrietamiento',
         description: 'Zonas con alto potencial de agrietamiento',
         group:       '01 Geológicos',
     },
     {
-        id:          'Sistemas de topoformas',
+        id:          'Sistemas_De_Topoformas',
         name:        'Sistemas de topoformas',
         description: 'Sistemas de topoformas',
         group:       '01 Geológicos',
@@ -101,11 +101,59 @@ export const VECTOR_LAYERS: VectorLayerDef[] = [
         group:       '01 Geológicos',
     },
     {
-        id:          'vw_censolocalidad',
-        name:        'Población por Localidad',
-        description: 'Habitantes por localidad (INEGI 2020)',
-        group:       'División político-administrativa',
+        id:          'Fallas',
+        name:        'Fallas',
+        description: 'Fallas geológicas',
+        group:       '01 Geológicos',
     },
+    {
+        id:          'Inestabilidad_de_laderas',
+        name:        'Inestabilidad de laderas',
+        description: 'Zonas con alto riesgo de inestabilidad',
+        group:       '01 Geológicos',
+    },
+    {
+        id:          'SGIRPC_Socavones_2020',
+        name:        'Socavones 2020',
+        description: 'Socavones identificados en 2020',
+        group:       '01 Geológicos',
+    },
+    {
+        id:          'Sismos_CDMX',
+        name:        'Sismos CDMX',
+        description: 'Registros de sismos en la Ciudad de México',
+        group:       '01 Geológicos',
+    },
+    {
+        id:          'Socavones_17_19',
+        name:        'Socavones CDMX',
+        description: 'Socavones identificados en la Ciudad de México',
+        group:       '01 Geológicos',
+    },
+    {
+        id:          'Suelos',
+        name:        'Suelos',
+        description: 'Tipos de suelo',
+        group:       '01 Geológicos',
+    },
+    {
+        id:          'Volcanes_activos',
+        name:        'Volcanes Activos',
+        description: 'Volcanes activos en la región',
+        group:       '01 Geológicos',
+    },
+    {
+        id:          'Zonas_de_fracturamiento_hidraulico',
+        name:        'Zonas de fracturamiento hidráulico',
+        description: 'Zonas con alto potencial de fracturamiento hidráulico',
+        group:       '01 Geológicos',
+    },
+    {
+        id:          'Zonificacion_geotecnica_2017',
+        name:        'Zonificación Geotécnica 2017',
+        description: 'Zonificación geotécnica del área de estudio',
+        group:       '01 Geológicos',
+    }
 
     // ── Plantillas — descomenta para agregar capas ───────────────────────────
     // {
