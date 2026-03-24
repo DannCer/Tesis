@@ -570,7 +570,7 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
                                                         </div>
                                                     )}
                                                     {isLoading && <div className="layer-status"><div className="spinner-border spinner-border-sm" role="status"><span className="visually-hidden">Cargando...</span></div></div>}
-                                                    {err && <div className="layer-error" role="alert"><small className="text-danger">\u26A0\uFE0F {err}</small></div>}
+                                                    {err && <div className="layer-error" role="alert"><small className="text-danger"> {err}</small></div>}
                                                 </div>
                                             );
                                         })}
