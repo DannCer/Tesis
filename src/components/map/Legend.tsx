@@ -45,15 +45,6 @@ const VectorSection: React.FC<{
 
     return (
         <div style={{ marginBottom: '14px', paddingBottom: '12px', borderBottom: '1px solid #f0f0f0' }}>
-            {/* Título + spinner */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <strong style={{ fontSize: '11px', color: '#555', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                    {layer.name}
-                </strong>
-                {isLoading && (
-                    <span style={{ width: 10, height: 10, border: '2px solid #ccc', borderTopColor: '#8d1c3d', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.8s linear infinite' }} />
-                )}
-            </div>
             <img
                 src={getWMSLegendUrl(wmsName)}
                 alt={`Leyenda ${layer.name}`}
@@ -177,15 +168,16 @@ const Legend: React.FC<LegendProps> = memo(({
     if (!hasContent) return null;
 
     const getWMSLegendUrl = (layerName: string) => {
+        // QGIS Server: la URL base ya incluye ?MAP=..., añadimos los parámetros con &
         const params = new URLSearchParams({
+            SERVICE: 'WMS',
             REQUEST: 'GetLegendGraphic',
-            VERSION: '1.0.0',
-            FORMAT: 'image/png',
-            LAYER: `${config.geoserver.workspace}:${layerName}`,
-            LEGEND_OPTIONS: 'forceLabels:on;fontName:Arial;fontSize:11;fontColor:0x333333;layout:vertical;rowGap:5',
+            VERSION: '1.3.0',
+            FORMAT:  'image/png',
+            LAYER:   layerName,   // sin workspace — QGIS Server no usa workspace
             TRANSPARENT: 'true',
         });
-        return `${config.geoserver.wmsUrl}?${params.toString()}`;
+        return `${config.qgisServer.wmsUrl}&${params.toString()}`;
     };
 
     return (

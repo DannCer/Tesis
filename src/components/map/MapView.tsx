@@ -118,7 +118,8 @@ const MapView: React.FC = () => {
 
         if (type === 'vector') {
             // 1. Intentar obtener extensión dinámica desde GetCapabilities (WFS)
-            const dynamicBounds = await wfsService.getLayerExtent(layerCfg.id.replace('vw_', ''));
+            const wfsName = layerCfg.wfsName ?? layerCfg.id;
+            const dynamicBounds = await wfsService.getLayerExtent(wfsName);
             
             if (dynamicBounds) {
                 mapInstance.fitBounds(dynamicBounds as L.LatLngBoundsExpression, { padding: [20, 20] });
@@ -206,8 +207,10 @@ const MapView: React.FC = () => {
                     zoomToLayer(layerId, 'vector', vectorLayers[layerId].data);
                 }
             } else if (isActive) {
-                // Cargar nueva capa
-                await loadLayer(layerId);
+                // Cargar nueva capa — usar wfsName para QGIS Server (puede tener espacios/acentos)
+                const layerCfg = AVAILABLE_LAYERS.find(l => l.id === layerId);
+                const nameToLoad = layerCfg?.wfsName ?? layerId;
+                await loadLayer(nameToLoad);
                 // El zoom se manejará en un useEffect separado cuando lleguen los datos
             }
         } else if (layerType === 'raster') {
@@ -327,8 +330,8 @@ const MapView: React.FC = () => {
                     return (
                         <WMSTileLayer
                             key={`${serie.id}-${serie.timeValue}`}
-                            url={config.geoserver.wmsUrl}
-                            layers={`${config.geoserver.workspace}:${serie.wmsLayer || 'usv_mosaico'}`}
+                            url={config.qgisServer.wmsRasterUrl}
+                            layers={serie.wmsLayer || 'usv_mosaico'}
                             format="image/png"
                             transparent={true}
                             opacity={opacityLayers[serie.id] ?? 0.8}
@@ -351,7 +354,7 @@ const MapView: React.FC = () => {
                         <VectorLayer
                             key={id}
                             id={id}
-                            wmsLayer={cfg?.wmsLayer ?? id}
+                            wmsLayer={cfg?.wmsLayer ?? cfg?.wfsName ?? id}
                             data={layer.data}
                             visible={layer.visible}
                             timestamp={layer.timestamp}

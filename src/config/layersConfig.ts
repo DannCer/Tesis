@@ -1,256 +1,272 @@
 /**
- * @fileoverview Configuración centralizada de capas del mapa.
+ * @fileoverview Configuración centralizada de capas — QGIS Server
  *
- * ╔══════════════════════════════════════════════════════════════════════╗
- * ║  FUENTE ÚNICA DE VERDAD — CAPAS VECTORIALES Y RÁSTER                ║
- * ║                                                                      ║
- * ║  Para agregar, editar o eliminar una capa:                           ║
- * ║    · Solo edita este archivo.                                        ║
- * ║    · La simbología la sirve GeoServer vía WMS GetLegendGraphic.      ║
- * ║    · No hay estilos definidos en código.                             ║
- * ║                                                                      ║
- * ║  Estructura del archivo:                                             ║
- * ║    1. VECTOR_LAYERS  — capas WFS (polígonos, puntos, líneas)         ║
- * ║    2. RASTER_LAYERS  — capas WMS/WCS (series temporales, mosaicos)   ║
- * ╚══════════════════════════════════════════════════════════════════════╝
+ * Para QGIS Server:
+ * - id          → identificador interno del geovisor
+ * - wfsName     → nombre EXACTO de la capa en el proyecto QGIS (para WFS)
+ *                 Si se omite, se usa el id. Puede tener espacios y acentos.
+ * - wmsLayer    → nombre para WMS / GetLegendGraphic. Igual a wfsName si se omite.
  *
  * @module config/layersConfig
  */
 
-// ============================================================================
-// TIPOS
-// ============================================================================
-
-/** Capa vectorial servida por WFS + simbología desde WMS GetLegendGraphic */
 export interface VectorLayerDef {
-    /** Identificador único — debe coincidir con el typeName del WFS (sin workspace) */
     id: string;
-    /** Nombre legible en el menú de capas */
     name: string;
-    /** Descripción corta bajo el nombre */
     description: string;
-    /** Grupo en el menú de capas */
     group: string;
-    /**
-     * Nombre de la capa en GeoServer para WMS + GetLegendGraphic.
-     * Por defecto igual al id. Cambia solo si el nombre WMS difiere del WFS.
-     */
+    /** Nombre exacto en QGIS para WFS GetFeature (puede tener espacios/acentos) */
+    wfsName?: string;
+    /** Nombre exacto en QGIS para WMS / GetLegendGraphic */
+    wmsLayer?: string;
 }
 
-/** Capa ráster servida por WMS/WCS + simbología desde WMS GetLegendGraphic */
 export interface RasterLayerDef {
-    /** Identificador único dentro del geovisor */
     id: string;
-    /** Nombre legible en el menú de capas */
     name: string;
-    /** Descripción corta bajo el nombre */
     description: string;
-    /** Nombre de la capa en GeoServer (WMS + WCS) */
     wmsLayer: string;
-    /** Año de la serie (opcional, se muestra como badge) */
     year?: number;
-    /**
-     * Valor TIME para WMS/WCS (formato ISO 8601).
-     * Requerido si el layer es una serie temporal (ej. mosaico por año).
-     */
     timeValue?: string;
 }
 
 // ============================================================================
-// CAPAS VECTORIALES
+// CAPAS VECTORIALES — proyecto 01_Geologicos.qgz
 // ============================================================================
-//
-//  · id         → typeName del WFS sin workspace, ej. "vw_estados"
-//  · wmsLayer   → solo si el nombre en WMS es distinto al id
-//  · group      → agrupa capas en secciones dentro del menú
-//  · fillOpacity / weight → controlan el renderizado Leaflet (no la leyenda)
-//
-// ============================================================================
+// wfsName = nombre exacto como aparece en QGIS Desktop y WMS GetCapabilities
 
 export const VECTOR_LAYERS: VectorLayerDef[] = [
 
-    // ── División político-administrativa ─────────────────────────────────────
+    // ── Geológicos ────────────────────────────────────────────────────────────
     {
-        id:          'Aparatos_volcanicos',
-        name:        'Aparatos Volcánicos',
-        description: 'Aparatos Volcánicos',
-        group:       '01 Geológicos',
-    },
-    {
-        id:          'Fracturas',
-        name:        'Fracturas',
-        description: 'Fracturas geológicas',
-        group:       '01 Geológicos',
-    },    
-    {
-        id:          'Zonas_potenciales_de_agrietamiento',
-        name:        'Zonas potenciales de agrietamiento',
-        description: 'Zonas con alto potencial de agrietamiento',
-        group:       '01 Geológicos',
-    },
-    {
-        id:          'Sistemas_De_Topoformas',
-        name:        'Sistemas de topoformas',
-        description: 'Sistemas de topoformas',
-        group:       '01 Geológicos',
-    },
-    {
-        id:          'Litología',
-        name:        'Litología',
-        description: 'Litología',
-        group:       '01 Geológicos',
-    },
-    {
-        id:          'Fallas',
-        name:        'Fallas',
-        description: 'Fallas geológicas',
-        group:       '01 Geológicos',
-    },
-    {
-        id:          'Inestabilidad_de_laderas',
-        name:        'Inestabilidad de laderas',
-        description: 'Zonas con alto riesgo de inestabilidad',
-        group:       '01 Geológicos',
-    },
-    {
-        id:          'SGIRPC_Socavones_2020',
-        name:        'Socavones 2020',
-        description: 'Socavones identificados en 2020',
-        group:       '01 Geológicos',
-    },
-    {
-        id:          'Sismos_CDMX',
-        name:        'Sismos CDMX',
-        description: 'Registros de sismos en la Ciudad de México',
-        group:       '01 Geológicos',
-    },
-    {
-        id:          'Socavones_17_19',
-        name:        'Socavones CDMX',
-        description: 'Socavones identificados en la Ciudad de México',
-        group:       '01 Geológicos',
-    },
-    {
-        id:          'Suelos',
-        name:        'Suelos',
-        description: 'Tipos de suelo',
-        group:       '01 Geológicos',
-    },
-    {
-        id:          'Volcanes_activos',
-        name:        'Volcanes Activos',
+        id: 'Volcanes_activos',
+        name: 'Volcanes Activos',
         description: 'Volcanes activos en la región',
-        group:       '01 Geológicos',
+        group: '01 Geológicos',
+        wfsName: 'Volcanes_activos',
+        wmsLayer: 'Volcanes_activos',
     },
     {
-        id:          'Zonas_de_fracturamiento_hidraulico',
-        name:        'Zonas de fracturamiento hidráulico',
-        description: 'Zonas con alto potencial de fracturamiento hidráulico',
-        group:       '01 Geológicos',
+        id: 'Aparatos_volcanicos',
+        name: 'Aparatos Volcánicos',
+        description: 'Aparatos volcánicos identificados',
+        group: '01 Geológicos',
+        wfsName: 'Aparatos_volcanicos',
+        wmsLayer: 'Aparatos_volcanicos',
     },
     {
-        id:          'Zonificacion_geotecnica_2017',
-        name:        'Zonificación Geotécnica 2017',
+        id: 'Fracturas',
+        name: 'Fracturas',
+        description: 'Fracturas geológicas',
+        group: '01 Geológicos',
+        wfsName: 'Fracturas',
+        wmsLayer: 'Fracturas',
+    },
+    {
+        id: 'Fallas',
+        name: 'Fallas',
+        description: 'Fallas geológicas',
+        group: '01 Geológicos',
+        wfsName: 'Fallas',
+        wmsLayer: 'Fallas',
+    },
+    {
+        id: 'Zonas_potenciales_de_agrietamiento',
+        name: 'Zonas potenciales de agrietamiento',
+        description: 'Zonas con alto potencial de agrietamiento',
+        group: '01 Geológicos',
+        wfsName: 'Zonas_potenciales_de_agrietamiento',
+        wmsLayer: 'Zonas_potenciales_de_agrietamiento',
+    },
+    {
+        id: 'Zonas_de_fracturamiento_hidraulico',
+        name: 'Zonas de fracturamiento hidráulico',
+        description: 'Zonas con potencial de fracturamiento hidráulico',
+        group: '01 Geológicos',
+        wfsName: 'Zonas_de_fracturamiento_hidraulico',
+        wmsLayer: 'Zonas_de_fracturamiento_hidraulico',
+    },
+    {
+        id: 'Litologia',
+        name: 'Litología',
+        description: 'Litología del suelo',
+        group: '01 Geológicos',
+        wfsName: 'Litologia',
+        wmsLayer: 'Litologia',
+    },
+    {
+        id: 'Suelos',
+        name: 'Suelos',
+        description: 'Tipos de suelo',
+        group: '01 Geológicos',
+        wfsName: 'Suelos',
+        wmsLayer: 'Suelos',
+    },
+    {
+        id: 'Sistemas_de_topoformas',
+        name: 'Sistemas de topoformas',
+        description: 'Sistemas de topoformas',
+        group: '01 Geológicos',
+        wfsName: 'Sistemas_de_topoformas',
+        wmsLayer: 'Sistemas_de_topoformas',
+    },
+    {
+        id: 'Zonificacion_geotecnica_2017',
+        name: 'Zonificación Geotécnica 2017',
         description: 'Zonificación geotécnica del área de estudio',
-        group:       '01 Geológicos',
-    }
+        group: '01 Geológicos',
+        wfsName: 'Zonificacion_geotecnica_2017',
+        wmsLayer: 'Zonificacion_geotecnica_2017',
+    },
 
-    // ── Plantillas — descomenta para agregar capas ───────────────────────────
-    // {
-    //     id:          'vw_cuencas',
-    //     name:        'Cuencas Hidrográficas',
-    //     description: 'Cuencas hidrológicas principales',
-    //     group:       'Recursos hídricos',
-    //     color:       '#4682B4',
-    //     weight:      1.5,
-    //     fillOpacity: 0.2,
-    // },
-    // {
-    //     id:          'vw_acuiferos',
-    //     name:        'Acuíferos',
-    //     description: 'Disponibilidad de acuíferos',
-    //     group:       'Recursos hídricos',
-    //     color:       '#4682B4',
-    //     weight:      1.5,
-    //     fillOpacity: 0.5,
-    // },
+    // ── Riesgos / Socavones ──────────────────────────────────────────────────
+    {
+        id: 'Socavones_2017',
+        name: 'Socavones 2017',
+        description: 'Socavones identificados en 2017',
+        group: '01 Geológicos',
+        wfsName: 'Socavones 2017',
+        wmsLayer: 'Socavones 2017',
+    },
+    {
+        id: 'Socavones_2018',
+        name: 'Socavones 2018',
+        description: 'Socavones identificados en 2018',
+        group: '01 Geológicos',
+        wfsName: 'Socavones 2018',
+        wmsLayer: 'Socavones 2018',
+    },
+    {
+        id: 'Socavones_2019',
+        name: 'Socavones 2019',
+        description: 'Socavones identificados en 2019',
+        group: '01 Geológicos',
+        wfsName: 'Socavones 2019',
+        wmsLayer: 'Socavones 2019',
+    },
+    {
+        id: 'SGIRPC_Socavones_2020',
+        name: 'Socavones 2020',
+        description: 'Socavones identificados en 2020',
+        group: '01 Geológicos',
+        wfsName: 'SGIRPC_Socavones_2020',
+        wmsLayer: 'SGIRPC_Socavones_2020',
+    },
+
+    // ── Sismos ────────────────────────────────────────────────────────────────
+    {
+        id: 'Sismos_CDMX',
+        name: 'Sismos CDMX',
+        description: 'Registros de sismos en la Ciudad de México',
+        group: '01 Geológicos',
+        wfsName: 'Sismos CDMX',
+        wmsLayer: 'Sismos CDMX',
+    },
+
+    // ── Susceptibilidad de Laderas (por alcaldía) ────────────────────────────
+    {
+        id: 'Susceptibilidad_Laderas_AOB',
+        name: 'Susceptibilidad de Laderas AOB',
+        description: 'Susceptibilidad de laderas — Álvaro Obregón',
+        group: '01 Geológicos',
+        wfsName: 'Susceptibilidad de Laderas AOB',
+        wmsLayer: 'Susceptibilidad de Laderas AOB',
+    },
+    {
+        id: 'Susceptibilidad_Laderas_COY',
+        name: 'Susceptibilidad de Laderas COY',
+        description: 'Susceptibilidad de laderas — Coyoacán',
+        group: '01 Geológicos',
+        wfsName: 'Susceptibilidad de Laderas COY',
+        wmsLayer: 'Susceptibilidad de Laderas COY',
+    },
+    {
+        id: 'Susceptibilidad_Laderas_CUJ',
+        name: 'Susceptibilidad de Laderas CUJ',
+        description: 'Susceptibilidad de laderas — Cuajimalpa',
+        group: '01 Geológicos',
+        wfsName: 'Susceptibilidad de Laderas CUJ',
+        wmsLayer: 'Susceptibilidad de Laderas CUJ',
+    },
+    {
+        id: 'Susceptibilidad_Laderas_GAM',
+        name: 'Susceptibilidad de Laderas GAM',
+        description: 'Susceptibilidad de laderas — Gustavo A. Madero',
+        group: '01 Geológicos',
+        wfsName: 'Susceptibilidad de Laderas GAM',
+        wmsLayer: 'Susceptibilidad de Laderas GAM',
+    },
+    {
+        id: 'Susceptibilidad_Laderas_IZP',
+        name: 'Susceptibilidad de Laderas IZP',
+        description: 'Susceptibilidad de laderas — Iztapalapa',
+        group: '01 Geológicos',
+        wfsName: 'Susceptibilidad de Laderas IZP',
+        wmsLayer: 'Susceptibilidad de Laderas IZP',
+    },
+    {
+        id: 'Susceptibilidad_Laderas_MAC',
+        name: 'Susceptibilidad de Laderas MAC',
+        description: 'Susceptibilidad de laderas — Magdalena Contreras',
+        group: '01 Geológicos',
+        wfsName: 'Susceptibilidad de Laderas MAC',
+        wmsLayer: 'Susceptibilidad de Laderas MAC',
+    },
+    {
+        id: 'Susceptibilidad_Laderas_MIH',
+        name: 'Susceptibilidad de Laderas MIH',
+        description: 'Susceptibilidad de laderas — Miguel Hidalgo',
+        group: '01 Geológicos',
+        wfsName: 'Susceptibilidad de Laderas MIH',
+        wmsLayer: 'Susceptibilidad de Laderas MIH',
+    },
+    {
+        id: 'Susceptibilidad_Laderas_MLP',
+        name: 'Susceptibilidad de Laderas MLP',
+        description: 'Susceptibilidad de laderas — Milpa Alta',
+        group: '01 Geológicos',
+        wfsName: 'Susceptibilidad de Laderas MLP',
+        wmsLayer: 'Susceptibilidad de Laderas MLP',
+    },
+    {
+        id: 'Susceptibilidad_Laderas_TLH',
+        name: 'Susceptibilidad de Laderas TLH',
+        description: 'Susceptibilidad de laderas — Tlalpan',
+        group: '01 Geológicos',
+        wfsName: 'Susceptibilidad de Laderas TLH',
+        wmsLayer: 'Susceptibilidad de Laderas TLH',
+    },
+    {
+        id: 'Susceptibilidad_Laderas_TLP',
+        name: 'Susceptibilidad de Laderas TLP',
+        description: 'Susceptibilidad de laderas — Tlalpan poniente',
+        group: '01 Geológicos',
+        wfsName: 'Susceptibilidad de Laderas TLP',
+        wmsLayer: 'Susceptibilidad de Laderas TLP',
+    },
+    {
+        id: 'Susceptibilidad_Laderas_VCA',
+        name: 'Susceptibilidad de Laderas VCA',
+        description: 'Susceptibilidad de laderas — Villa Coapa',
+        group: '01 Geológicos',
+        wfsName: 'Susceptibilidad de Laderas VCA',
+        wmsLayer: 'Susceptibilidad de Laderas VCA',
+    },
+    {
+        id: 'Susceptibilidad_Laderas_XOC',
+        name: 'Susceptibilidad de Laderas XOC',
+        description: 'Susceptibilidad de laderas — Xochimilco',
+        group: '01 Geológicos',
+        wfsName: 'Susceptibilidad de Laderas XOC',
+        wmsLayer: 'Susceptibilidad de Laderas XOC',
+    },
 ];
 
 // ============================================================================
 // CAPAS RÁSTER
 // ============================================================================
-//
-//  · wmsLayer  → nombre exacto de la capa en GeoServer
-//  · timeValue → parámetro TIME para series temporales (WMS/WCS)
-//  · year      → se muestra como badge en el menú
-//
-// ============================================================================
+// wmsLayer = nombre de la capa en el proyecto QGIS ráster
 
 export const RASTER_LAYERS: RasterLayerDef[] = [
-    {
-        id:         'usvserie1',
-        name:       'USV Serie I',
-        description:'Uso de Suelo y Vegetación 1985',
-        wmsLayer:   'usv_mosaico',
-        year:       1985,
-        timeValue:  '1985-01-01',
-    },
-    {
-        id:         'usvserie2',
-        name:       'USV Serie II',
-        description:'Uso de Suelo y Vegetación 1993',
-        wmsLayer:   'usv_mosaico',
-        year:       1993,
-        timeValue:  '1993-01-01',
-    },
-    {
-        id:         'usvserie3',
-        name:       'USV Serie III',
-        description:'Uso de Suelo y Vegetación 2002',
-        wmsLayer:   'usv_mosaico',
-        year:       2002,
-        timeValue:  '2002-01-01',
-    },
-    {
-        id:         'usvserie4',
-        name:       'USV Serie IV',
-        description:'Uso de Suelo y Vegetación 2007',
-        wmsLayer:   'usv_mosaico',
-        year:       2007,
-        timeValue:  '2007-01-01',
-    },
-    {
-        id:         'usvserie5',
-        name:       'USV Serie V',
-        description:'Uso de Suelo y Vegetación 2011',
-        wmsLayer:   'usv_mosaico',
-        year:       2011,
-        timeValue:  '2011-01-01',
-    },
-    {
-        id:         'usvserie6',
-        name:       'USV Serie VI',
-        description:'Uso de Suelo y Vegetación 2014',
-        wmsLayer:   'usv_mosaico',
-        year:       2014,
-        timeValue:  '2014-01-01',
-    },
-    {
-        id:         'usvserie7',
-        name:       'USV Serie VII',
-        description:'Uso de Suelo y Vegetación 2018',
-        wmsLayer:   'usv_mosaico',
-        year:       2018,
-        timeValue:  '2018-01-01',
-    },
-
-    // ── Plantillas — descomenta para agregar capas ────────────────────────────
-    // {
-    //     id:         'ndvi_2020',
-    //     name:       'NDVI 2020',
-    //     description:'Índice de Vegetación 2020',
-    //     wmsLayer:   'ndvi_2020',
-    //     year:       2020,
-    //     color:      '#2E8B57',
-    // },
+    { id: 'subsidencia_2022', name: 'Subsidencia CDMX', description: 'Hundimiento regional 2022', wmsLayer: 'Subsidencia_CDMX_2022', year: 2022 },
 ];

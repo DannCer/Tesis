@@ -1,6 +1,11 @@
 /**
- * @fileoverview Servicio para peticiones WFS a GeoServer
+ * @fileoverview Servicio para peticiones WFS a QGIS Server
  * @module services/wfsService
+ *
+ * Diferencias con GeoServer:
+ * - No hay workspace: el typeName es solo el nombre de la capa
+ * - La URL ya lleva el parámetro MAP= apuntando al proyecto .qgz
+ * - Los nombres de capa pueden tener espacios y acentos (igual que en QGIS Desktop)
  */
 
 import { config, logger } from '../config/env';
@@ -12,24 +17,21 @@ export interface WFSOptions {
     srsName?: string;
 }
 
-/**
- * Clase para manejar peticiones WFS a GeoServer
- */
 class WFSService {
     private baseUrl: string;
-    private workspace: string;
     private timeout: number;
     private maxFeatures: number;
 
     constructor() {
-        this.baseUrl = config.geoserver.wfsUrl;
-        this.workspace = config.geoserver.workspace;
-        this.timeout = config.geoserver.timeout;
-        this.maxFeatures = config.geoserver.maxFeatures;
+        // La URL ya incluye ?MAP=... — solo agregamos los parámetros WFS
+        this.baseUrl = config.qgisServer.wfsUrl;
+        this.timeout = config.qgisServer.timeout;
+        this.maxFeatures = config.qgisServer.maxFeatures;
     }
 
     /**
-     * Realiza una petición GetFeature a GeoServer
+     * Realiza una petición GetFeature a QGIS Server.
+     * A diferencia de GeoServer, el typeName NO lleva workspace.
      */
     async getFeatures(layerName: string, options: WFSOptions = {}): Promise<any> {
         try {
@@ -37,45 +39,35 @@ class WFSService {
                 maxFeatures = this.maxFeatures,
                 cql_filter = null,
                 propertyName = null,
-                srsName = 'EPSG:4326'
+                srsName = 'EPSG:4326',
             } = options;
 
-            // Construir parámetros - IMPORTANTE: usar el formato JSON correcto para GeoServer
+            // La URL base ya tiene MAP=..., le añadimos los parámetros WFS
             const params = new URLSearchParams({
-                service: 'WFS',
-                version: '1.0.0',  // Versión 1.0.0 es más compatible
-                request: 'GetFeature',
-                typeName: `${this.workspace}:${layerName}`,
-                outputFormat: 'application/json',  // Formato JSON explícito
+                SERVICE: 'WFS',
+                VERSION: '1.1.0',
+                REQUEST: 'GetFeature',
+                TYPENAME: layerName,       // sin workspace
+                outputFormat: 'application/vnd.geo+json',
+                //outputFormat: 'application/json',
                 maxFeatures: maxFeatures.toString(),
-                srsName: srsName
+                srsName,
             });
 
-            // Agregar filtro CQL si existe
-            if (cql_filter) {
-                params.append('cql_filter', cql_filter);
-            }
+            if (cql_filter) params.append('CQL_FILTER', cql_filter);
+            if (propertyName) params.append('PROPERTYNAME', propertyName);
 
-            // Agregar propiedades específicas si existen
-            if (propertyName) {
-                params.append('propertyName', propertyName);
-            }
+            // Combinar URL base (que ya tiene ?) con los nuevos parámetros
+            const url = `${this.baseUrl}&${params.toString()}`;
+            logger.debug('Petición WFS QGIS:', url);
 
-            const url = `${this.baseUrl}?${params.toString()}`;
-            
-            logger.debug('Petición WFS:', url);
-
-            // Realizar petición con timeout
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
             const response = await fetch(url, {
                 signal: controller.signal,
-                headers: {
-                    'Accept': 'application/json'
-                }
+                headers: { Accept: 'application/json' },
             });
-
             clearTimeout(timeoutId);
 
             if (!response.ok) {
@@ -84,23 +76,20 @@ class WFSService {
                 throw new Error(`Error WFS: ${response.status} ${response.statusText}`);
             }
 
-            // Verificar que el contenido sea JSON
-            const contentType = response.headers.get('content-type');
-            if (!contentType || !contentType.includes('application/json')) {
+            const contentType = response.headers.get('content-type') ?? '';
+            //if (!contentType.includes('application/json') && !contentType.includes('text/plain')) {
+            if (!contentType.includes('json') && !contentType.includes('text/plain')) {
                 const text = await response.text();
-                logger.error('Respuesta no es JSON:', text.substring(0, 200));
-                throw new Error('El servidor no devolvió un JSON válido. Revisa la configuración de la capa.');
+                logger.error('Respuesta inesperada:', text.substring(0, 300));
+                throw new Error('QGIS Server no devolvió JSON. Verifica que la capa esté publicada como WFS.');
             }
 
             const data = await response.json();
-
-            logger.debug(`Features obtenidos de ${layerName}:`, data.features?.length || 0);
-
+            logger.debug(`Features de "${layerName}":`, data.features?.length ?? 0);
             return data;
 
         } catch (error: any) {
             if (error.name === 'AbortError') {
-                logger.error('Timeout en petición WFS:', layerName);
                 throw new Error('La petición tardó demasiado tiempo');
             }
             logger.error('Error en getFeatures:', error);
@@ -108,240 +97,157 @@ class WFSService {
         }
     }
 
-    /**
-     * Obtiene las capacidades del servicio WFS (GetCapabilities)
-     */
+    /** GetCapabilities del servicio WFS */
     async getCapabilities(): Promise<string> {
         try {
-            const params = new URLSearchParams({
-                service: 'WFS',
-                version: '1.0.0',
-                request: 'GetCapabilities'
-            });
-
-            const url = `${this.baseUrl}?${params.toString()}`;
+            const url = `${this.baseUrl}&SERVICE=WFS&VERSION=1.1.0&REQUEST=GetCapabilities`;
             const response = await fetch(url);
-
-            if (!response.ok) {
-                throw new Error(`Error GetCapabilities: ${response.status}`);
-            }
-
-            const text = await response.text();
-            return text; // Retorna XML
-
+            if (!response.ok) throw new Error(`Error GetCapabilities: ${response.status}`);
+            return response.text();
         } catch (error) {
             logger.error('Error en getCapabilities:', error);
             throw error;
         }
     }
 
-    /**
-     * Obtiene información de una feature específica por ID
-     */
+    /** Feature por ID */
     async getFeatureById(layerName: string, featureId: string): Promise<any> {
         try {
             const params = new URLSearchParams({
-                service: 'WFS',
-                version: '1.0.0',
-                request: 'GetFeature',
-                typeName: `${this.workspace}:${layerName}`,
-                featureID: featureId,
-                outputFormat: 'application/json'
+                SERVICE: 'WFS',
+                VERSION: '1.1.0',
+                REQUEST: 'GetFeature',
+                TYPENAME: layerName,
+                FEATUREID: featureId,
+                //outputFormat: 'application/json',
+                outputFormat: 'application/vnd.geo+json',
             });
-
-            const url = `${this.baseUrl}?${params.toString()}`;
-            const response = await fetch(url, {
-                headers: { 'Accept': 'application/json' }
-            });
-
-            if (!response.ok) {
-                throw new Error(`Error al obtener feature ${featureId}`);
-            }
-
+            const url = `${this.baseUrl}&${params.toString()}`;
+            const response = await fetch(url, { headers: { Accept: 'application/json' } });
+            if (!response.ok) throw new Error(`Error al obtener feature ${featureId}`);
             const data = await response.json();
-            return data.features[0] || null;
-
+            return data.features[0] ?? null;
         } catch (error) {
             logger.error('Error en getFeatureById:', error);
             throw error;
         }
     }
 
-    /**
-     * Obtiene features dentro de un bounding box
-     */
+    /** Features dentro de un BoundingBox */
     async getFeaturesByBBox(layerName: string, bbox: number[], srsName: string = 'EPSG:4326'): Promise<any> {
         try {
-            const bboxString = bbox.join(',');
-            
             const params = new URLSearchParams({
-                service: 'WFS',
-                version: '1.0.0',
-                request: 'GetFeature',
-                typeName: `${this.workspace}:${layerName}`,
-                outputFormat: 'application/json',
-                srsName: srsName,
-                bbox: `${bboxString},${srsName}`
+                SERVICE: 'WFS',
+                VERSION: '1.1.0',
+                REQUEST: 'GetFeature',
+                TYPENAME: layerName,
+                outputFormat: 'application/vnd.geo+json',
+                //                outputFormat: 'application/json',
+                srsName,
+                BBOX: `${bbox.join(',')},${srsName}`,
             });
-
-            const url = `${this.baseUrl}?${params.toString()}`;
-            const response = await fetch(url, {
-                headers: { 'Accept': 'application/json' }
-            });
-
-            if (!response.ok) {
-                throw new Error(`Error en petición bbox: ${response.status}`);
-            }
-
-            const data = await response.json();
-            return data;
-
+            const url = `${this.baseUrl}&${params.toString()}`;
+            const response = await fetch(url, { headers: { Accept: 'application/json' } });
+            if (!response.ok) throw new Error(`Error bbox: ${response.status}`);
+            return response.json();
         } catch (error) {
             logger.error('Error en getFeaturesByBBox:', error);
             throw error;
         }
     }
 
-    /**
-     * Obtiene valores únicos de un campo específico
-     */
+    /** Valores únicos de un campo */
     async getUniqueValues(layerName: string, fieldName: string): Promise<any[]> {
         try {
-            const data = await this.getFeatures(layerName, {
-                propertyName: fieldName,
-                maxFeatures: 10000
+            const data = await this.getFeatures(layerName, { propertyName: fieldName, maxFeatures: 10000 });
+            const unique = new Set<any>();
+            data.features.forEach((f: any) => {
+                const v = f.properties[fieldName];
+                if (v !== null && v !== undefined) unique.add(v);
             });
-
-            // Extraer valores únicos
-            const uniqueValues = new Set<any>();
-            data.features.forEach((feature: any) => {
-                const value = feature.properties[fieldName];
-                if (value !== null && value !== undefined) {
-                    uniqueValues.add(value);
-                }
-            });
-
-            return Array.from(uniqueValues).sort();
-
+            return Array.from(unique).sort();
         } catch (error) {
             logger.error('Error en getUniqueValues:', error);
             throw error;
         }
     }
 
-    /**
-     * Cuenta el número total de features en una capa
-     */
+    /** Cuenta features (hits) */
     async getFeatureCount(layerName: string, cql_filter: string | null = null): Promise<number> {
         try {
             const params = new URLSearchParams({
-                service: 'WFS',
-                version: '1.0.0',
-                request: 'GetFeature',
-                typeName: `${this.workspace}:${layerName}`,
-                resultType: 'hits'
+                SERVICE: 'WFS',
+                VERSION: '1.1.0',
+                REQUEST: 'GetFeature',
+                TYPENAME: layerName,
+                resultType: 'hits',
             });
-
-            if (cql_filter) {
-                params.append('cql_filter', cql_filter);
-            }
-
-            const url = `${this.baseUrl}?${params.toString()}`;
+            if (cql_filter) params.append('CQL_FILTER', cql_filter);
+            const url = `${this.baseUrl}&${params.toString()}`;
             const response = await fetch(url);
-
-            if (!response.ok) {
-                throw new Error(`Error al contar features: ${response.status}`);
-            }
-
+            if (!response.ok) throw new Error(`Error al contar: ${response.status}`);
             const data = await response.json();
-            return data.totalFeatures || data.numberMatched || 0;
-
+            return data.totalFeatures ?? data.numberMatched ?? 0;
         } catch (error) {
             logger.error('Error en getFeatureCount:', error);
             throw error;
         }
     }
 
-    /**
-     * Realiza una consulta con múltiples filtros
-     */
+    /** Filtros múltiples con CQL */
     async getFeaturesByFilters(layerName: string, filters: Record<string, any>): Promise<any> {
-        try {
-            // Construir filtro CQL desde objeto
-            const cqlParts: string[] = [];
-            
-            Object.entries(filters).forEach(([field, value]) => {
-                if (typeof value === 'string') {
-                    cqlParts.push(`${field} = '${value}'`);
-                } else if (Array.isArray(value)) {
-                    const values = value.map(v => `'${v}'`).join(',');
-                    cqlParts.push(`${field} IN (${values})`);
-                } else {
-                    cqlParts.push(`${field} = ${value}`);
-                }
-            });
-
-            const cql_filter = cqlParts.join(' AND ');
-
-            return await this.getFeatures(layerName, { cql_filter });
-
-        } catch (error) {
-            logger.error('Error en getFeaturesByFilters:', error);
-            throw error;
-        }
+        const cqlParts = Object.entries(filters).map(([field, value]) => {
+            if (typeof value === 'string') return `${field} = '${value}'`;
+            if (Array.isArray(value)) return `${field} IN (${value.map(v => `'${v}'`).join(',')})`;
+            return `${field} = ${value}`;
+        });
+        return this.getFeatures(layerName, { cql_filter: cqlParts.join(' AND ') });
     }
 
     /**
-     * Obtiene la extensión (BoundingBox) de una capa WFS desde GetCapabilities
-     * 
-     * @param layerName - Nombre de la capa
-     * @returns LatLngBoundsExpression o null
+     * Extensión de capa desde WFS GetCapabilities.
+     * QGIS Server expone el bbox en WGS84 directamente.
      */
     async getLayerExtent(layerName: string): Promise<[number, number][] | null> {
         try {
-            const params = new URLSearchParams({
-                service: 'WFS',
-                version: '1.0.0',
-                request: 'GetCapabilities'
+            const capXml = await this.getCapabilities();
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(capXml, 'text/xml');
+
+            const featureTypes = Array.from(xmlDoc.querySelectorAll('FeatureType'));
+            const target = featureTypes.find(ft => {
+                const name = ft.querySelector('Name')?.textContent ?? '';
+                return name === layerName || name.endsWith(`:${layerName}`);
             });
 
-            const response = await fetch(`${this.baseUrl}?${params.toString()}`);
-            const xmlText = await response.text();
-            
-            const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-            
-            // En WFS 1.0.0, las capas están en FeatureType
-            const featureTypes = Array.from(xmlDoc.querySelectorAll('FeatureType'));
-            const fullName = `${this.workspace}:${layerName}`;
-            
-            const targetFeatureType = featureTypes.find(ft => {
-                const nameNode = ft.querySelector('Name');
-                return nameNode?.textContent === fullName || nameNode?.textContent === layerName;
-            });
-            
-            if (targetFeatureType) {
-                const bboxNode = targetFeatureType.querySelector('LatLongBoundingBox');
-                if (bboxNode) {
-                    const minx = parseFloat(bboxNode.getAttribute('minx') || '0');
-                    const miny = parseFloat(bboxNode.getAttribute('miny') || '0');
-                    const maxx = parseFloat(bboxNode.getAttribute('maxx') || '0');
-                    const maxy = parseFloat(bboxNode.getAttribute('maxy') || '0');
-                    
-                    // Leaflet usa [lat, lng] -> [y, x]
+            if (target) {
+                const bbox = target.querySelector('WGS84BoundingBox') ??
+                    target.querySelector('LatLongBoundingBox');
+                if (bbox) {
+                    // WFS 1.1: LowerCorner / UpperCorner en "lon lat"
+                    const lower = bbox.querySelector('LowerCorner')?.textContent?.trim().split(' ');
+                    const upper = bbox.querySelector('UpperCorner')?.textContent?.trim().split(' ');
+                    if (lower && upper) {
+                        return [
+                            [parseFloat(lower[1]), parseFloat(lower[0])],
+                            [parseFloat(upper[1]), parseFloat(upper[0])],
+                        ];
+                    }
+                    // WFS 1.0: atributos minx, miny
+                    const minx = parseFloat(bbox.getAttribute('minx') ?? '0');
+                    const miny = parseFloat(bbox.getAttribute('miny') ?? '0');
+                    const maxx = parseFloat(bbox.getAttribute('maxx') ?? '0');
+                    const maxy = parseFloat(bbox.getAttribute('maxy') ?? '0');
                     return [[miny, minx], [maxy, maxx]];
                 }
             }
             return null;
         } catch (error) {
-            logger.error('Error obteniendo extensión de capa WFS:', error);
+            logger.error('Error obteniendo extensión WFS:', error);
             return null;
         }
     }
 }
 
-// Exportar instancia única (singleton)
 export const wfsService = new WFSService();
-
-// Exportar también la clase
 export default WFSService;

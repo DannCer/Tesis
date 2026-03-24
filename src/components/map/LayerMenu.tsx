@@ -59,15 +59,18 @@ const VECTOR_FORMATS: DownloadFormat[] = [
 ];
 const RASTER_FORMATS = [{ label: 'GeoTIFF', ext: 'tif', icon: '\uD83D\uDDFA\uFE0F', description: 'GeoTIFF con georeferenciación (WCS)', color: '#c0392b' }];
 
+// QGIS Server: el typeName no lleva workspace, y la URL base ya tiene MAP=
 const getVectorDownloadUrl = (layer: LayerConfig, outputFormat: string) => {
-    const { geoserver } = config;
-    return `${geoserver.wfsUrl}?${new URLSearchParams({ service:'WFS', version:'1.0.0', request:'GetFeature', typeName:`${geoserver.workspace}:${layer.id}`, outputFormat })}`;
+    const { qgisServer } = config;
+    const wfsName = (layer as any).wfsName ?? layer.id;
+    return `${qgisServer.wfsUrl}&${new URLSearchParams({ SERVICE:'WFS', VERSION:'1.1.0', REQUEST:'GetFeature', TYPENAME: wfsName, outputFormat })}`;
 };
+// QGIS Server no soporta WCS nativo; descarga como WFS GeoTIFF o imagen WMS
 const getRasterDownloadUrl = (layer: LayerConfig) => {
-    const { geoserver } = config;
-    const p = new URLSearchParams({ SERVICE:'WCS', VERSION:'1.0.0', REQUEST:'GetCoverage', COVERAGE:`${geoserver.workspace}:${layer.wmsLayer}`, CRS:'EPSG:4326', BBOX:'-118.5,14.5,-86.5,32.7', WIDTH:'4096', HEIGHT:'3072', FORMAT:'GeoTIFF' });
+    const { qgisServer } = config;
+    const p = new URLSearchParams({ SERVICE:'WMS', VERSION:'1.3.0', REQUEST:'GetMap', LAYERS: layer.wmsLayer ?? layer.id, CRS:'EPSG:4326', BBOX:'18.999,−99.406,19.643,−98.882', WIDTH:'4096', HEIGHT:'3072', FORMAT:'image/tiff' });
     if (layer.timeValue) p.append('TIME', layer.timeValue);
-    return `${geoserver.wcsUrl}?${p}`;
+    return `${qgisServer.wmsRasterUrl}&${p}`;
 };
 const downloadGeoJSON = async (layer: LayerConfig) => {
     try {
@@ -422,7 +425,7 @@ const AddLayerPanel: React.FC<{ onAddLayer: (layer: ExternalLayer) => void }> = 
                                     <div className="add-layer-field">
                                         <label className="add-layer-label">URL del servicio</label>
                                         <div className="ogc-url-row">
-                                            <input type="url" className="add-layer-input" placeholder="https://servidor/geoserver/ows" value={url}
+                                            <input type="url" className="add-layer-input" placeholder="http://localhost/qgis/qgis_mapserv.fcgi.exe?MAP=C:/mis_proyectos/mi_proyecto.qgz" value={url}
                                                 onChange={e => handleUrlChange(e.target.value)} />
                                             {detectedOGC
                                                 ? <span className={`ogc-badge ogc-badge-${detectedOGC}`}>{detectedOGC.toUpperCase()}</span>
@@ -434,7 +437,7 @@ const AddLayerPanel: React.FC<{ onAddLayer: (layer: ExternalLayer) => void }> = 
                                     </div>
                                     <div className="add-layer-field">
                                         <label className="add-layer-label">Nombre de la capa</label>
-                                        <input type="text" className="add-layer-input" placeholder="workspace:nombre_capa" value={layerName} onChange={e => setLayerName(e.target.value)} />
+                                        <input type="text" className="add-layer-input" placeholder="nombre_capa (exacto como aparece en QGIS)" value={layerName} onChange={e => setLayerName(e.target.value)} />
                                         <span className="add-layer-hint">
                                             {detectedOGC === 'wms' && 'Layer name del GetCapabilities WMS'}
                                             {detectedOGC === 'wfs' && 'TypeName del feature type WFS'}

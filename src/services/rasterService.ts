@@ -1,6 +1,11 @@
 /**
- * @fileoverview Servicio para consultar valores de capas ráster (con soporte para mosaicos TIME)
+ * @fileoverview Servicio para consultas de píxel en capas ráster — QGIS Server
  * @module services/rasterService
+ *
+ * Diferencias con GeoServer:
+ * - No hay workspace: el nombre de capa va sin prefijo
+ * - La URL base incluye MAP= apuntando al proyecto .qgz ráster
+ * - GetFeatureInfo devuelve JSON igual que GeoServer
  */
 
 import { config, logger } from '../config/env';
@@ -24,25 +29,14 @@ export interface PixelInfo {
     error?: string;
 }
 
-/**
- * Clase para manejar consultas de ráster via WMS GetFeatureInfo
- */
 class RasterService {
     private baseUrl: string;
-    private workspace: string;
 
     constructor() {
-        this.baseUrl = config.geoserver.wmsUrl;
-        this.workspace = config.geoserver.workspace;
+        // URL con MAP= del proyecto ráster
+        this.baseUrl = config.qgisServer.wmsRasterUrl;
     }
 
-    /**
-     * Obtiene el valor de un píxel en una capa ráster
-     * 
-     * @param layerName - Nombre de la capa ráster
-     * @param params - Parámetros de la consulta
-     * @returns Información del píxel
-     */
     async getPixelValue(layerName: string, params: PixelQueryParams): Promise<PixelInfo> {
         try {
             const {
@@ -50,49 +44,40 @@ class RasterService {
                 width,
                 height,
                 clickPoint,
-                srs = 'EPSG:4326',
-                time = null
+                srs  = 'EPSG:4326',
+                time = null,
             } = params;
 
-            // Construir parámetros GetFeatureInfo
             const requestParams = new URLSearchParams({
-                SERVICE: 'WMS',
-                VERSION: '1.1.0',
-                REQUEST: 'GetFeatureInfo',
-                LAYERS: `${this.workspace}:${layerName}`,
-                QUERY_LAYERS: `${this.workspace}:${layerName}`,
-                STYLES: '',
-                BBOX: bbox.join(','),
-                WIDTH: width.toString(),
-                HEIGHT: height.toString(),
-                FORMAT: 'image/png',
-                INFO_FORMAT: 'application/json',
-                SRS: srs,
-                X: Math.floor(clickPoint[0]).toString(),
-                Y: Math.floor(clickPoint[1]).toString(),
-                FEATURE_COUNT: '1'
+                SERVICE:      'WMS',
+                VERSION:      '1.1.1',
+                REQUEST:      'GetFeatureInfo',
+                LAYERS:       layerName,        // sin workspace
+                QUERY_LAYERS: layerName,
+                STYLES:       '',
+                BBOX:         bbox.join(','),
+                WIDTH:        width.toString(),
+                HEIGHT:       height.toString(),
+                FORMAT:       'image/png',
+                INFO_FORMAT:  'application/json',
+                SRS:          srs,
+                X:            Math.floor(clickPoint[0]).toString(),
+                Y:            Math.floor(clickPoint[1]).toString(),
+                FEATURE_COUNT: '1',
             });
 
-            // Añadir parámetro TIME si existe (para mosaicos)
             if (time) {
                 requestParams.append('TIME', time);
-                logger.debug(`Consultando píxel con TIME=${time}`);
+                logger.debug(`GetFeatureInfo con TIME=${time}`);
             }
 
-            const url = `${this.baseUrl}?${requestParams.toString()}`;
-            
-            logger.debug('GetFeatureInfo request:', url);
+            const url = `${this.baseUrl}&${requestParams.toString()}`;
+            logger.debug('GetFeatureInfo QGIS:', url);
 
             const response = await fetch(url);
-
-            if (!response.ok) {
-                throw new Error(`Error GetFeatureInfo: ${response.status}`);
-            }
+            if (!response.ok) throw new Error(`Error GetFeatureInfo: ${response.status}`);
 
             const data = await response.json();
-
-            logger.debug('Pixel value response:', data);
-
             return this.parseRasterResponse(data, layerName, time);
 
         } catch (error) {
@@ -101,157 +86,93 @@ class RasterService {
         }
     }
 
-    /**
-     * Parsea la respuesta de GetFeatureInfo
-     * 
-     * @param data - Respuesta JSON de GeoServer
-     * @param layerName - Nombre de la capa
-     * @param time - Valor TIME usado (opcional)
-     * @returns Datos parseados del píxel
-     */
     private parseRasterResponse(data: any, layerName: string, time: string | null = null): PixelInfo {
         if (!data.features || data.features.length === 0) {
-            return {
-                layerName,
-                time,
-                value: null,
-                message: 'No hay datos en esta ubicación'
-            };
+            return { layerName, time, value: null, message: 'No hay datos en esta ubicación' };
         }
 
-        const feature = data.features[0];
+        const feature    = data.features[0];
         const properties = feature.properties;
 
-        // ESTRATEGIA DE EXTRACCIÓN PARA MOSAICOS:
-        
-        // 1. Intenta encontrar una propiedad que coincida exactamente con el nombre de la capa
-        // (Comportamiento por defecto de ImageMosaic)
         let rasterValue = properties[layerName];
 
-        // 2. Si no existe, intenta buscar ignorando mayúsculas/minúsculas
         if (rasterValue === undefined) {
-            const keyMatch = Object.keys(properties).find(
-                key => key.toLowerCase() === layerName.toLowerCase()
-            );
-            if (keyMatch) rasterValue = properties[keyMatch];
+            const key = Object.keys(properties).find(k => k.toLowerCase() === layerName.toLowerCase());
+            if (key) rasterValue = properties[key];
         }
 
-        // 3. Fallbacks estándar para capas simples (GeoTIFF único)
         if (rasterValue === undefined) {
-            rasterValue = properties.GRAY_INDEX ?? 
-                          properties.value ?? 
-                          properties.band_1 ??
-                          properties.Band1; // A veces GeoServer usa Band1
+            rasterValue = properties.GRAY_INDEX ??
+                          properties.value      ??
+                          properties.band_1     ??
+                          properties.Band1;
         }
 
-        // 4. Último recurso: buscar el primer valor numérico disponible
-        // (Evita tomar strings como nombres de archivo o IDs del mosaico)
         if (rasterValue === undefined) {
-            const numericValue = Object.values(properties).find(val => typeof val === 'number');
-            if (numericValue !== undefined) {
-                rasterValue = numericValue;
-            } else {
-                // Si todo falla, tomamos el primero como tenías antes
-                rasterValue = properties[Object.keys(properties)[0]];
-            }
+            rasterValue = Object.values(properties).find(v => typeof v === 'number')
+                          ?? Object.values(properties)[0];
         }
 
-        // Formateo del valor (opcional: limitar decimales si es float)
-        const formattedValue = (typeof rasterValue === 'number' && !Number.isInteger(rasterValue))
-            ? parseFloat(rasterValue.toFixed(4)) // Ajusta la precisión según necesites
-            : rasterValue;
+        const formattedValue =
+            typeof rasterValue === 'number' && !Number.isInteger(rasterValue)
+                ? parseFloat(rasterValue.toFixed(4))
+                : rasterValue;
 
         return {
             layerName,
             time,
-            value: formattedValue,
-            rawProperties: properties, // Mantenemos esto para depuración
-            coordinates: feature.geometry?.coordinates || null
+            value:         formattedValue,
+            rawProperties: properties,
+            coordinates:   feature.geometry?.coordinates ?? null,
         };
     }
 
-    /**
-     * Obtiene información de múltiples capas ráster en un punto
-     * 
-     * @param queries - Array de objetos con {layerName, params}
-     * @returns Array con valores de cada capa
-     */
-    async getMultiplePixelValues(queries: {layerName: string, params: PixelQueryParams}[]): Promise<PixelInfo[]> {
-        try {
-            const promises = queries.map(query => 
-                this.getPixelValue(query.layerName, query.params)
-            );
-
-            const results = await Promise.allSettled(promises);
-
-            return results.map((result, index) => {
-                if (result.status === 'fulfilled') {
-                    return result.value;
-                } else {
-                    logger.error(`Error en consulta ${index}:`, result.reason);
-                    return {
-                        layerName: queries[index].layerName,
-                        time: queries[index].params.time || null,
-                        value: null,
-                        error: result.reason.message
-                    };
-                }
-            });
-
-        } catch (error) {
-            logger.error('Error en getMultiplePixelValues:', error);
-            throw error;
-        }
+    async getMultiplePixelValues(
+        queries: { layerName: string; params: PixelQueryParams }[]
+    ): Promise<PixelInfo[]> {
+        const results = await Promise.allSettled(
+            queries.map(q => this.getPixelValue(q.layerName, q.params))
+        );
+        return results.map((result, i) => {
+            if (result.status === 'fulfilled') return result.value;
+            logger.error(`Error en consulta ${i}:`, result.reason);
+            return {
+                layerName: queries[i].layerName,
+                time:      queries[i].params.time ?? null,
+                value:     null,
+                error:     result.reason.message,
+            };
+        });
     }
 
-    /**
-     * Obtiene la extensión (BoundingBox) de una capa desde GetCapabilities
-     * 
-     * @param layerName - Nombre de la capa
-     * @returns LatLngBoundsExpression o null
-     */
+    /** Extensión de capa desde WMS GetCapabilities */
     async getLayerExtent(layerName: string): Promise<[number, number][] | null> {
         try {
-            const params = new URLSearchParams({
-                SERVICE: 'WMS',
-                VERSION: '1.1.1',
-                REQUEST: 'GetCapabilities'
-            });
+            const url = `${this.baseUrl}&SERVICE=WMS&VERSION=1.1.1&REQUEST=GetCapabilities`;
+            const response = await fetch(url);
+            const xmlText  = await response.text();
+            const xmlDoc   = new DOMParser().parseFromString(xmlText, 'text/xml');
 
-            const response = await fetch(`${this.baseUrl}?${params.toString()}`);
-            const xmlText = await response.text();
-            
-            const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-            
-            // Buscar la capa por nombre (incluyendo el workspace)
-            const fullName = `${this.workspace}:${layerName}`;
             const layers = Array.from(xmlDoc.querySelectorAll('Layer > Name'));
-            const targetLayerNameNode = layers.find(node => node.textContent === fullName || node.textContent === layerName);
-            
-            if (targetLayerNameNode && targetLayerNameNode.parentElement) {
-                const layerNode = targetLayerNameNode.parentElement;
-                const bboxNode = layerNode.querySelector('LatLonBoundingBox') || layerNode.querySelector('BoundingBox[SRS="EPSG:4326"]');
-                
-                if (bboxNode) {
-                    const minx = parseFloat(bboxNode.getAttribute('minx') || '0');
-                    const miny = parseFloat(bboxNode.getAttribute('miny') || '0');
-                    const maxx = parseFloat(bboxNode.getAttribute('maxx') || '0');
-                    const maxy = parseFloat(bboxNode.getAttribute('maxy') || '0');
-                    
-                    return [[miny, minx], [maxy, maxx]];
+            const node   = layers.find(n => n.textContent === layerName);
+
+            if (node?.parentElement) {
+                const bbox = node.parentElement.querySelector('LatLonBoundingBox') ??
+                             node.parentElement.querySelector('BoundingBox[SRS="EPSG:4326"]');
+                if (bbox) {
+                    return [
+                        [parseFloat(bbox.getAttribute('miny') ?? '0'), parseFloat(bbox.getAttribute('minx') ?? '0')],
+                        [parseFloat(bbox.getAttribute('maxy') ?? '0'), parseFloat(bbox.getAttribute('maxx') ?? '0')],
+                    ];
                 }
             }
             return null;
         } catch (error) {
-            logger.error('Error obteniendo extensión de capa:', error);
+            logger.error('Error obteniendo extensión ráster:', error);
             return null;
         }
     }
 }
 
-// Exportar instancia única
 export const rasterService = new RasterService();
-
-// Exportar clase
 export default RasterService;
