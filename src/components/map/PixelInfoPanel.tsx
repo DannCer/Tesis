@@ -20,7 +20,7 @@ const PixelInfoPanel: React.FC<PixelInfoPanelProps> = ({ pixelInfo, loading, onC
             const rect = panelRef.current.getBoundingClientRect();
             setPos({ top: rect.top, left: rect.left });
         }
-    }, [pixelInfo, loading]);
+    }, [pixelInfo, loading, pos]);
 
     const onMouseDown = useCallback((e: React.MouseEvent) => {
         // Ignorar clicks en botones

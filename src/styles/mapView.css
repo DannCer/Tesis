@@ -405,3 +405,30 @@
     right: 10px !important;
 }
 .vector-popup .leaflet-popup-close-button:hover { color: #fff !important; }
+
+/* ── Responsivo móvil ── */
+@media (max-width: 768px) {
+    .leaflet-container {
+        height: 100dvh !important;
+    }
+
+    /* Leyenda más pequeña en móvil */
+    .legend-control {
+        max-width: 200px !important;
+        font-size: 0.75rem !important;
+        max-height: 40vh !important;
+    }
+
+    /* Panel de info de píxel */
+    .pixel-info-panel {
+        left: 8px !important;
+        right: 8px !important;
+        bottom: 80px !important;
+        max-width: none !important;
+    }
+
+    /* Controles de zoom y escala */
+    .leaflet-bottom.leaflet-right {
+        bottom: 72px !important;
+    }
+}

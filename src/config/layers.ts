@@ -1,8 +1,6 @@
 /**
- * @fileoverview Derivación de LayerConfig[] a partir de layersConfig.ts — QGIS Server.
- *
- * Cambio clave: se propagan wfsName y wmsLayer para que el resto
- * del sistema use los nombres exactos de las capas QGIS.
+ * @fileoverview Derivación de LayerConfig[] — QGIS Server.
+ * Ráster y vectorial comparten el mismo sistema de grupos.
  */
 
 import { VECTOR_LAYERS, RASTER_LAYERS } from './layersConfig';
@@ -12,21 +10,17 @@ export interface LayerConfig {
     name:        string;
     description: string;
     type:        'vector' | 'raster';
-    group?:      string;
-    /** Nombre exacto de la capa en QGIS para WFS GetFeature */
+    group:       string;
     wfsName?:    string;
-    /** Nombre exacto de la capa en QGIS para WMS / GetLegendGraphic */
     wmsLayer?:   string;
     year?:       number;
     timeValue?:  string;
     showLegend?: boolean;
+    color?:      string;
+    bounds?:     any;
 }
 
-export const VECTOR_STYLE_DEFAULTS = {
-    weight:      2,
-    opacity:     1,
-    fillOpacity: 0.15,
-};
+export const VECTOR_STYLE_DEFAULTS = { weight: 2, opacity: 1, fillOpacity: 0.15 };
 
 const builtVectorLayers: LayerConfig[] = VECTOR_LAYERS.map(v => ({
     id:          v.id,
@@ -34,8 +28,8 @@ const builtVectorLayers: LayerConfig[] = VECTOR_LAYERS.map(v => ({
     description: v.description,
     type:        'vector' as const,
     group:       v.group,
-    wfsName:     v.wfsName  ?? v.id,   // nombre para WFS (puede tener espacios)
-    wmsLayer:    v.wmsLayer ?? v.wfsName ?? v.id,  // nombre para WMS
+    wfsName:     v.wfsName  ?? v.id,
+    wmsLayer:    v.wmsLayer ?? v.wfsName ?? v.id,
     showLegend:  true,
 }));
 
@@ -44,6 +38,7 @@ const builtRasterLayers: LayerConfig[] = RASTER_LAYERS.map(r => ({
     name:        r.name,
     description: r.description,
     type:        'raster' as const,
+    group:       r.group,
     wmsLayer:    r.wmsLayer,
     year:        r.year,
     timeValue:   r.timeValue,
@@ -55,9 +50,7 @@ export const AVAILABLE_LAYERS: LayerConfig[] = [
     ...builtRasterLayers,
 ];
 
-// ============================================================================
-// CLASIFICACIONES RÁSTER (PixelInfo)
-// ============================================================================
+export const getLayerConfig = (id: string) => AVAILABLE_LAYERS.find(l => l.id === id);
 
 export const LAND_USE_CLASSES: Record<number, { nombre: string; color: string }> = {
     1:  { nombre: 'Otro tipo de vegetación',    color: '#fcff47' },
@@ -70,22 +63,4 @@ export const LAND_USE_CLASSES: Record<number, { nombre: string; color: string }>
     8:  { nombre: 'Vegetación secundaria',      color: '#74dd2f' },
     9:  { nombre: 'Cuerpo de agua',             color: '#474ed4' },
     10: { nombre: 'Áreas agrícolas',            color: '#f97326' },
-};
-
-// ============================================================================
-// HELPERS
-// ============================================================================
-
-export const getLayerConfig  = (id: string) => AVAILABLE_LAYERS.find(l => l.id === id);
-export const getVectorLayers = ()            => AVAILABLE_LAYERS.filter(l => l.type === 'vector');
-export const getRasterLayers = ()            => AVAILABLE_LAYERS.filter(l => l.type === 'raster');
-
-export const getVectorGroups = (): string[] => {
-    const seen   = new Set<string>();
-    const groups: string[] = [];
-    for (const layer of getVectorLayers()) {
-        const g = layer.group ?? 'Capas Vectoriales';
-        if (!seen.has(g)) { seen.add(g); groups.push(g); }
-    }
-    return groups;
 };

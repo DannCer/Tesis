@@ -12,6 +12,9 @@ import { GeoJSON } from 'react-leaflet';
 import MapContent from './MapContent';
 import LayerMenu from './LayerMenu';
 import type { ExternalLayer } from './LayerMenu';
+import SwipeControl from './SwipeControl';
+import SwipePanel from './SwipePanel';
+import type { SwipeLayerConfig } from './SwipeControl';
 import { featureStyle, DEFAULT_SYMBOLOGY } from '../../utils/symbologyUtils';
 import GeoRasterLayerComponent from './GeoRasterLayerComponent';
 import PixelInfoPanel from './PixelInfoPanel';
@@ -58,6 +61,23 @@ const MapView: React.FC = () => {
     const [externalLayers, setExternalLayers] = useState<ExternalLayer[]>([]);
     const [externalVisible, setExternalVisible] = useState<Record<string, boolean>>({});
     const [externalOpacity, setExternalOpacity] = useState<Record<string, number>>({});
+
+    // ===== SWIPE =====
+    const [swipeActive, setSwipeActive]       = useState(false);
+    const [swipeLeft,   setSwipeLeft]         = useState<SwipeLayerConfig | null>(null);
+    const [swipeRight,  setSwipeRight]        = useState<SwipeLayerConfig | null>(null);
+
+    const handleSwipeActivate = useCallback((left: SwipeLayerConfig, right: SwipeLayerConfig) => {
+        setSwipeLeft(left);
+        setSwipeRight(right);
+        setSwipeActive(true);
+    }, []);
+
+    const handleSwipeDeactivate = useCallback(() => {
+        setSwipeActive(false);
+        setSwipeLeft(null);
+        setSwipeRight(null);
+    }, []);
 
     const handleAddExternalLayer = useCallback((layer: ExternalLayer) => {
         setExternalLayers(prev => [...prev, layer]);
@@ -304,6 +324,13 @@ const MapView: React.FC = () => {
                 onClose={clearPixelInfo}
             />
 
+            {/* ── Panel de comparación (swipe) fuera del mapa ── */}
+            <SwipePanel
+                active={swipeActive}
+                onActivate={handleSwipeActivate}
+                onDeactivate={handleSwipeDeactivate}
+            />
+
             {wmsError && (
                 <div className="wms-error-alert">
                     ⚠️ {wmsError}
@@ -323,6 +350,15 @@ const MapView: React.FC = () => {
                 <MapClickHandler 
                     onMapClick={handleMapClick}
                 />
+
+                {/* ── Swipe / Comparador de capas ── */}
+                {swipeActive && swipeLeft && swipeRight && (
+                    <SwipeControl
+                        leftLayer={swipeLeft}
+                        rightLayer={swipeRight}
+                        onClose={handleSwipeDeactivate}
+                    />
+                )}
 
                 {RASTER_SERIES.map((serie, index) => {
                     if (!activeLayers[serie.id]) return null;

@@ -2,7 +2,7 @@
  * @fileoverview Estilos Leaflet para capas vectoriales WFS.
  *
  * La simbología visual (leyenda) viene de GeoServer vía WMS GetLegendGraphic.
- * Este módulo solo genera estilos simples para el renderizado Leaflet usando
+ * Este módulo genera estilos simples para el renderizado Leaflet usando
  * los valores de color, fillOpacity y weight definidos en layersConfig.ts.
  *
  * @module utils/layerStyleFactory
@@ -16,7 +16,6 @@ import { VECTOR_LAYERS } from '../config/layersConfig';
 // ============================================================================
 
 export interface LayerOptions {
-    /** true si la capa usa pointToLayer (puntos), false si usa style (polígonos/líneas) */
     isPoint: boolean;
     style?: (feature?: GeoJSON.Feature) => L.PathOptions;
     pointToLayer?: (feature: GeoJSON.Feature, latlng: L.LatLng) => L.Layer;
@@ -61,17 +60,7 @@ export function getLayerOptions(layerName: string): LayerOptions {
         fillColor:   def?.color       ?? DEFAULT.fillColor,
     };
 
-    // Usamos 'style' siempre (los puntos también se renderizan como CircleMarker)
-    const result: LayerOptions = {
-        isPoint: false,
-        style: () => pathOpts,
-    };
-
+    const result: LayerOptions = { isPoint: false, style: () => pathOpts };
     cache.set(layerName, result);
     return result;
-}
-
-/** Invalida la caché de estilos (útil si se cambia la config en caliente) */
-export function clearStyleCache() {
-    cache.clear();
 }
