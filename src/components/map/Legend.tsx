@@ -12,7 +12,7 @@ import { config } from '../../config/env';
 import { AVAILABLE_LAYERS, LayerConfig } from '../../config/layers';
 import { LayerData } from '../../hooks/useWFSLayers';
 import type { ExternalLayer } from './LayerMenu';
-import { SymbologyStyle, DEFAULT_SYMBOLOGY } from '../../utils/symbologyUtils';
+import { SymbologyStyle, DEFAULT_SYMBOLOGY, getRampGradientCSS } from '../../utils/symbologyUtils';
 
 // ============================================================================
 // TIPOS
@@ -21,7 +21,6 @@ import { SymbologyStyle, DEFAULT_SYMBOLOGY } from '../../utils/symbologyUtils';
 interface LegendProps {
     activeLayers: Record<string, boolean | LayerData | any>;
     vectorLayers?: Record<string, LayerData & { color?: string; name?: string }>;
-    loadingLayers?: Set<string>;
     /** Capas externas importadas por el usuario */
     externalLayers?: ExternalLayer[];
     externalVisible?: Record<string, boolean>;
@@ -38,9 +37,8 @@ interface LegendProps {
 
 const VectorSection: React.FC<{
     layer: LayerConfig;
-    isLoading: boolean;
     getWMSLegendUrl: (layerName: string, time?: string) => string;
-}> = ({ layer, isLoading, getWMSLegendUrl }) => {
+}> = ({ layer, getWMSLegendUrl }) => {
     const wmsName = layer.wmsLayer ?? layer.id;
 
     return (
@@ -107,6 +105,33 @@ const ExternalLayerSection: React.FC<{ layer: ExternalLayer }> = ({ layer }) => 
                     </ul>
                 </>
             )}
+
+            {layer.type === 'vector' && sym.mode === 'classified' && sym.classes && sym.classes.length > 0 && (
+                <>
+                    {sym.expression && (
+                        <div style={{ fontSize: '10px', color: '#999', marginBottom: '5px', fontStyle: 'italic', wordBreak: 'break-all' }}>
+                            Expresión: <strong style={{ color: '#777' }}>{sym.expression}</strong>
+                        </div>
+                    )}
+                    {/* Barra de rampa continua */}
+                    {sym.colorRamp && (
+                        <div style={{ height: 8, borderRadius: 3, marginBottom: 6, background: getRampGradientCSS(sym.colorRamp) }} />
+                    )}
+                    <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                        {sym.classes.map((cls, i) => (
+                            <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px', fontSize: '11px', color: '#333' }}>
+                                <span style={{ display: 'inline-block', width: 12, height: 12, backgroundColor: cls.color, border: `1.5px solid ${sym.strokeColor}`, borderRadius: '2px', flexShrink: 0 }} />
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 145, color: '#555' }}>{cls.label}</span>
+                            </li>
+                        ))}
+                    </ul>
+                    {sym.classMethod && (
+                        <div style={{ fontSize: '9px', color: '#bbb', marginTop: 4, fontStyle: 'italic' }}>
+                            {sym.classMethod === 'equal' ? 'Intervalos iguales' : 'Cuantiles'} · {sym.classes.length} clases
+                        </div>
+                    )}
+                </>
+            )}
         </div>
     );
 };
@@ -118,7 +143,6 @@ const ExternalLayerSection: React.FC<{ layer: ExternalLayer }> = ({ layer }) => 
 const Legend: React.FC<LegendProps> = memo(({
     activeLayers,
     vectorLayers = {},
-    loadingLayers = new Set(),
     externalLayers = [],
     externalVisible = {},
 }) => {
@@ -215,7 +239,6 @@ const Legend: React.FC<LegendProps> = memo(({
                         <VectorSection
                             key={layer.id}
                             layer={layer}
-                            isLoading={loadingLayers.has(layer.id)}
                             getWMSLegendUrl={getWMSLegendUrl}
                         />
                     ))}

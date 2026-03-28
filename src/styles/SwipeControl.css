@@ -1,0 +1,341 @@
+/* ============================================================================
+   SWIPE / COMPARADOR DE CAPAS
+   ============================================================================ */
+
+/* ── Divisor deslizable (overlay sobre el mapa) ─────────────────────────── */
+
+.swipe-divider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: #ffffff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.25), 2px 0 8px rgba(0,0,0,0.18);
+    cursor: col-resize;
+    z-index: 1000;
+    touch-action: none;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+}
+
+.swipe-divider:hover,
+.swipe-divider:active {
+    background: #8d1c3d;
+}
+
+/* ── Manija central ─────────────────────────────────────────────────────── */
+
+.swipe-handle {
+    width: 36px;
+    height: 36px;
+    background: #ffffff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.28);
+    color: #8d1c3d;
+    cursor: col-resize;
+    flex-shrink: 0;
+    border: 2px solid #8d1c3d;
+    transition: background 0.15s, color 0.15s;
+    user-select: none;
+}
+
+.swipe-divider:hover .swipe-handle,
+.swipe-divider:active .swipe-handle {
+    background: #8d1c3d;
+    color: #ffffff;
+}
+
+/* ── Etiquetas de capa ───────────────────────────────────────────────────── */
+
+.swipe-label {
+    position: absolute;
+    top: 16px;
+    background: rgba(141, 28, 61, 0.88);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 4px;
+    white-space: nowrap;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+    letter-spacing: 0.3px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    user-select: none;
+}
+
+.swipe-label-left {
+    right: calc(100% + 10px);
+    transform: none;
+}
+
+.swipe-label-right {
+    left: calc(100% + 10px);
+    transform: none;
+}
+
+/* ── Botón cerrar en el divisor ─────────────────────────────────────────── */
+
+.swipe-close-btn {
+    position: absolute;
+    top: 12px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #8d1c3d;
+    color: #fff;
+    border: 2px solid #fff;
+    font-size: 0.72rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+    transition: background 0.15s;
+    line-height: 1;
+    padding: 0;
+    z-index: 1001;
+}
+
+.swipe-close-btn:hover { background: #6d1530; }
+
+/* ── Panel flotante (SwipePanel) ────────────────────────────────────────── */
+
+.swipe-panel-wrapper {
+    position: absolute;
+    top: 70px;
+    right: 52px;         /* justo a la izquierda de los controles de zoom */
+    z-index: 1050;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+/* FAB del comparador */
+.swipe-fab {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: #ffffff;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 7px 12px 7px 10px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #444;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    white-space: nowrap;
+    position: relative;
+}
+
+.swipe-fab:hover {
+    background: #fdf4f6;
+    border-color: #8d1c3d;
+    color: #8d1c3d;
+}
+
+.swipe-fab-active {
+    background: #8d1c3d;
+    border-color: #8d1c3d;
+    color: #fff;
+}
+
+.swipe-fab-active:hover {
+    background: #6d1530;
+    color: #fff;
+}
+
+.swipe-fab-label {
+    font-size: 0.76rem;
+}
+
+.swipe-active-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #f1c40f;
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    animation: pulse-dot 1.5s infinite;
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.6; transform: scale(1.3); }
+}
+
+/* Panel de configuración */
+.swipe-config-panel {
+    background: #ffffff;
+    border-radius: 10px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.18);
+    width: 280px;
+    overflow: hidden;
+    animation: swipe-panel-in 0.2s ease;
+}
+
+@keyframes swipe-panel-in {
+    from { opacity: 0; transform: translateY(-8px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+
+.swipe-config-header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: #8d1c3d;
+    color: #fff;
+    padding: 10px 14px;
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.swipe-config-close {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 1rem;
+    cursor: pointer;
+    line-height: 1;
+    opacity: 0.8;
+    padding: 0 2px;
+}
+.swipe-config-close:hover { opacity: 1; }
+
+.swipe-config-body {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.swipe-side-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.swipe-side-badge {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    display: inline-block;
+    align-self: flex-start;
+}
+
+.swipe-side-badge.left {
+    background: #e8f4fd;
+    color: #2980b9;
+}
+
+.swipe-side-badge.right {
+    background: #fef9e7;
+    color: #d68910;
+}
+
+.swipe-select {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: #333;
+    background: #fafafa;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.swipe-select:focus { border-color: #8d1c3d; }
+
+.swipe-divider-icon {
+    text-align: center;
+    font-size: 1.3rem;
+    color: #8d1c3d;
+    line-height: 1;
+}
+
+.swipe-hint {
+    font-size: 0.72rem;
+    color: #888;
+    margin: 0;
+    line-height: 1.4;
+    background: #f9f9f9;
+    border-radius: 6px;
+    padding: 7px 9px;
+    border-left: 3px solid #8d1c3d;
+}
+
+.swipe-activate-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    background: #8d1c3d;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 9px 14px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s;
+    width: 100%;
+}
+.swipe-activate-btn:hover:not(:disabled) { background: #6d1530; }
+.swipe-activate-btn:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+}
+
+/* ── Responsivo móvil ────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+    .swipe-panel-wrapper {
+        top: auto;
+        bottom: 90px;
+        right: 12px;
+    }
+
+    .swipe-fab-label {
+        display: none;   /* solo ícono en móvil */
+    }
+
+    .swipe-fab {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        padding: 0;
+        justify-content: center;
+        box-shadow: 0 3px 12px rgba(0,0,0,0.22);
+    }
+
+    .swipe-config-panel {
+        width: calc(100vw - 24px);
+        right: 0;
+        position: fixed;
+        bottom: 145px;
+    }
+
+    .swipe-label {
+        font-size: 0.65rem;
+        max-width: 90px;
+        padding: 3px 6px;
+    }
+}

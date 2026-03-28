@@ -48,8 +48,9 @@ export async function loadGeoTIFF(file: File): Promise<GeoRasterParseResult> {
     // Importación dinámica — requiere: npm install georaster
     let parseGeoraster: (input: ArrayBuffer) => Promise<unknown>;
     try {
+        // @ts-expect-error - georaster does not have @types/georaster
         const mod = await import('georaster');
-        parseGeoraster = (mod.default ?? mod) as typeof parseGeoraster;
+        parseGeoraster = (mod.default ?? mod) as any;
     } catch {
         return {
             ok: false,

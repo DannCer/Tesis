@@ -854,3 +854,692 @@
     white-space: nowrap;
     flex: 1;
 }
+
+/* ============================================================================
+   GRUPOS COLAPSABLES
+   ============================================================================ */
+
+.layer-group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    background: none;
+    border: none;
+    padding: 8px 12px 7px;
+    cursor: pointer;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #8d1c3d;
+    border-top: 1px solid #f0e8ec;
+    border-bottom: 1px solid transparent;
+    transition: background 0.15s;
+    text-align: left;
+    user-select: none;
+}
+
+.layer-group-header:hover {
+    background: #fdf4f6;
+}
+
+.layer-group-header.collapsed {
+    border-bottom-color: #f0e8ec;
+}
+
+.group-title-text {
+    flex: 1;
+    display: flex;
+    align-items: center;
+}
+
+.group-meta {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+}
+
+.group-count {
+    font-size: 0.65rem;
+    background: #f0e8ec;
+    color: #8d1c3d;
+    border-radius: 10px;
+    padding: 1px 6px;
+    font-weight: 600;
+}
+
+.group-active-badge {
+    font-size: 0.65rem;
+    background: #8d1c3d;
+    color: #fff;
+    border-radius: 10px;
+    padding: 1px 6px;
+    font-weight: 700;
+}
+
+.group-chevron {
+    transition: transform 0.2s ease;
+    opacity: 0.6;
+}
+
+.group-chevron.closed {
+    transform: rotate(-90deg);
+}
+
+.layer-group-body {
+    animation: slideDown 0.18s ease;
+}
+
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Badge tipo WMS en capas ráster */
+.layer-type-badge {
+    font-size: 0.58rem;
+    background: #e8f4fd;
+    color: #2980b9;
+    border-radius: 4px;
+    padding: 1px 5px;
+    margin-left: 5px;
+    font-weight: 700;
+    vertical-align: middle;
+}
+
+/* ============================================================================
+   RESPONSIVO MÓVIL
+   ============================================================================ */
+
+/* FAB — botón flotante visible sólo en móvil */
+.layer-menu-fab {
+    display: none;
+    position: fixed;
+    bottom: 24px;
+    right: 18px;
+    z-index: 1100;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: #8d1c3d;
+    color: #fff;
+    border: none;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.28);
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+.layer-menu-fab:hover { background: #6d1530; }
+
+.fab-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: #f39c12;
+    color: #fff;
+    font-size: 0.62rem;
+    font-weight: 700;
+    border-radius: 50%;
+    width: 17px;
+    height: 17px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Overlay oscuro detrás del panel móvil */
+.layer-menu-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 1099;
+}
+
+/* Panel móvil (bottom sheet) */
+.mobile-menu {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1100;
+    background: #fff;
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.18);
+    max-height: 80vh;
+    overflow-y: auto;
+    transform: translateY(100%);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mobile-menu.open {
+    transform: translateY(0);
+}
+
+.mobile-menu-handle {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px 16px 6px;
+    cursor: pointer;
+    position: sticky;
+    top: 0;
+    background: #fff;
+    z-index: 2;
+    border-bottom: 1px solid #f0e0e8;
+}
+
+.handle-bar {
+    width: 40px;
+    height: 4px;
+    background: #ddd;
+    border-radius: 2px;
+    margin-bottom: 8px;
+}
+
+.mobile-menu .header-content {
+    width: 100%;
+}
+
+@media (max-width: 768px) {
+    /* Ocultar menú de escritorio */
+    .desktop-menu {
+        display: none !important;
+    }
+
+    /* Mostrar FAB y overlay */
+    .layer-menu-fab {
+        display: flex;
+    }
+
+    .layer-menu-overlay.open,
+    .layer-menu-overlay {
+        display: block;
+    }
+
+    /* Mostrar panel móvil */
+    .mobile-menu {
+        display: block;
+    }
+
+    /* Tabla de atributos full-width en móvil */
+    .attribute-table-container {
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        top: auto !important;
+        width: 100% !important;
+        border-radius: 16px 16px 0 0;
+        max-height: 60vh;
+    }
+}
+
+/* En escritorio, aseguramos que el mobile-menu no se vea */
+@media (min-width: 769px) {
+    .mobile-menu,
+    .layer-menu-fab,
+    .layer-menu-overlay {
+        display: none !important;
+    }
+}
+
+/* ============================================================================
+   SIMBOLOGÍA — MODO CLASIFICADO
+   ============================================================================ */
+
+/* 3 botones de modo en lugar de 2 */
+.sym-modes-3 {
+    grid-template-columns: 1fr 1fr 1fr;
+}
+.sym-modes-3 .sym-mode-btn {
+    font-size: 0.68rem;
+    padding: 0.3rem 0.2rem;
+}
+
+.sym-classified {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+/* Textarea de expresión SQL */
+.sym-expr-textarea {
+    width: 100%;
+    resize: vertical;
+    min-height: 44px;
+    padding: 5px 8px;
+    font-size: 0.78rem;
+    font-family: 'Courier New', monospace;
+    border: 1.5px solid #ccc;
+    border-radius: 4px;
+    background: #fafafa;
+    color: #333;
+    box-sizing: border-box;
+    transition: border-color 0.15s;
+    line-height: 1.4;
+}
+.sym-expr-textarea:focus {
+    border-color: var(--color-primary, #8d1c3d);
+    outline: none;
+    background: #fff;
+}
+
+/* Chips de nombres de campo */
+.sym-field-chips {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.sym-chips-label {
+    font-size: 0.63rem;
+    color: #aaa;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.sym-chips-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+.sym-field-chip {
+    padding: 2px 7px;
+    font-size: 0.68rem;
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    cursor: pointer;
+    color: #555;
+    transition: all 0.12s;
+    font-family: 'Courier New', monospace;
+    white-space: nowrap;
+}
+.sym-field-chip:hover {
+    background: #fbeaef;
+    border-color: var(--color-primary, #8d1c3d);
+    color: var(--color-primary, #8d1c3d);
+}
+
+/* Fila dividida Método + Clases */
+.sym-row-split {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+}
+.sym-split-item {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1;
+}
+.sym-classes-input {
+    width: 100% !important;
+    text-align: center;
+}
+
+/* Grid de rampas de color */
+.sym-ramp-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+}
+.sym-ramp-item {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: 3px;
+    background: #fff;
+    border: 1.5px solid #e0e0e0;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.sym-ramp-item:hover {
+    border-color: #bbb;
+}
+.sym-ramp-item.selected {
+    border-color: var(--color-primary-dark, #6b0f2a);
+    box-shadow: 0 0 0 2px rgba(141, 28, 61, 0.15);
+}
+.sym-ramp-bar {
+    display: block;
+    height: 14px;
+    border-radius: 3px;
+    width: 100%;
+}
+.sym-ramp-name {
+    font-size: 0.62rem;
+    color: #777;
+    text-align: center;
+    line-height: 1;
+}
+
+/* Botón Generar clases */
+.sym-generate-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 10px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    background: var(--color-primary, #8d1c3d);
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 0.15s;
+    width: 100%;
+}
+.sym-generate-btn:hover {
+    background: var(--color-primary-dark, #6b0f2a);
+}
+.sym-generate-btn:active {
+    transform: scale(0.98);
+}
+
+/* Error de clasificación */
+.sym-class-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 5px;
+    font-size: 0.72rem;
+    color: #c0392b;
+    background: #fdf0ee;
+    border: 1px solid #f5c6c1;
+    border-radius: 4px;
+    padding: 5px 7px;
+    line-height: 1.35;
+}
+
+/* Lista de clases generadas */
+.sym-class-list {
+    background: #fafafa;
+    border: 1px solid #eee;
+    border-radius: 4px;
+    padding: 6px 8px;
+}
+.sym-class-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 3px;
+}
+.sym-class-row:last-child { margin-bottom: 0; }
+.sym-class-range {
+    font-size: 0.72rem;
+    color: #444;
+    font-family: 'Courier New', monospace;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ============================================================================
+   DESCARGA — SECCIÓN SERVICIOS
+   ============================================================================ */
+
+.dl-menu-section {
+    padding: 6px 12px 4px;
+    font-size: 0.67rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--color-gray-400, #bbb);
+    background: var(--color-bg-light, #fafafa);
+    border-top: 1px solid var(--color-gray-100, #f0f0f0);
+    border-bottom: 1px solid var(--color-gray-100, #f0f0f0);
+    margin-top: 2px;
+}
+
+.dl-item-service {
+    border-bottom: 1px solid var(--color-gray-100, #f5f5f5);
+}
+
+.dl-item-icon-svc {
+    font-size: 0;   /* oculta texto alternativo */
+}
+
+.svc-arrow {
+    font-size: 1.1rem !important;
+    color: #ccc !important;
+    font-family: inherit !important;
+    font-weight: 300;
+}
+
+.dl-trigger-loading {
+    opacity: 0.7;
+    cursor: wait;
+}
+
+/* ============================================================================
+   MODAL SERVICIOS OGC
+   ============================================================================ */
+
+.svc-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 999999;
+    animation: svcOverlayIn 0.15s ease;
+    padding: 16px;
+    box-sizing: border-box;
+}
+
+@keyframes svcOverlayIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.svc-modal {
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.28), 0 4px 16px rgba(0,0,0,0.12);
+    width: 100%;
+    max-width: 540px;
+    animation: svcModalIn 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+    overflow: hidden;
+}
+
+@keyframes svcModalIn {
+    from { opacity: 0; transform: scale(0.94) translateY(8px); }
+    to   { opacity: 1; transform: scale(1)    translateY(0);   }
+}
+
+/* Header */
+.svc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 18px 14px;
+    border-bottom: 1px solid #f0f0f0;
+    background: linear-gradient(135deg, #fdf6f8 0%, #f8f4fd 100%);
+}
+
+.svc-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.svc-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 9px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+}
+.svc-badge-wfs { background: #1a73e820; color: #1a73e8; }
+.svc-badge-wms { background: #9c27b020; color: #9c27b0; }
+
+.svc-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #222;
+    line-height: 1.2;
+}
+
+.svc-subtitle {
+    font-size: 0.78rem;
+    color: #888;
+    margin-top: 2px;
+}
+
+.svc-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: #aaa;
+    cursor: pointer;
+    transition: background 0.14s, color 0.14s;
+    flex-shrink: 0;
+}
+.svc-close:hover { background: #f0f0f0; color: #555; }
+
+/* Instrucciones */
+.svc-instructions {
+    padding: 10px 18px;
+    font-size: 0.78rem;
+    color: #666;
+    background: #fffdf5;
+    border-bottom: 1px solid #f5f0e0;
+    line-height: 1.45;
+}
+
+/* Filas de URL */
+.svc-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 12px 18px;
+    gap: 12px;
+}
+
+.svc-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.svc-row-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.svc-row-value {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.svc-url-input {
+    flex: 1;
+    padding: 7px 10px;
+    font-size: 0.78rem;
+    border: 1.5px solid #e0e0e0;
+    border-radius: 6px;
+    background: #f8f8f8;
+    color: #333;
+    cursor: text;
+    min-width: 0;
+    transition: border-color 0.12s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.svc-url-input:focus {
+    border-color: var(--color-primary, #8d1c3d);
+    outline: none;
+    background: #fff;
+}
+.svc-url-mono {
+    font-family: 'Courier New', monospace;
+    font-size: 0.82rem;
+    background: #f3f0ff;
+    border-color: #d4c9f8;
+}
+
+/* Botón copiar individual */
+.svc-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    border-radius: 6px;
+    border: 1.5px solid #e0e0e0;
+    background: #fff;
+    color: #555;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: all 0.14s;
+}
+.svc-copy-btn:hover {
+    border-color: var(--color-primary, #8d1c3d);
+    color: var(--color-primary, #8d1c3d);
+    background: #fbeaef;
+}
+.svc-copy-btn.copied {
+    border-color: #27ae60;
+    color: #27ae60;
+    background: #edfaf1;
+}
+
+/* Footer */
+.svc-footer {
+    padding: 10px 18px 16px;
+    border-top: 1px solid #f0f0f0;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.svc-copy-all-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    background: var(--color-primary, #8d1c3d);
+    color: #fff;
+    border: none;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 0.14s, transform 0.1s;
+}
+.svc-copy-all-btn:hover  { background: var(--color-primary-dark, #6b0f2a); }
+.svc-copy-all-btn:active { transform: scale(0.98); }
+
+/* Spinner reutilizable — definición en línea 602 */
+
+/* Responsive */
+@media (max-width: 480px) {
+    .svc-modal { border-radius: 10px; }
+    .svc-row-value { flex-direction: column; align-items: stretch; }
+    .svc-copy-btn { justify-content: center; }
+    .svc-url-input { font-size: 0.72rem; }
+}

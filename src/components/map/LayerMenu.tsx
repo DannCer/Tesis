@@ -7,10 +7,10 @@ import { config } from '../../config/env';
 import AttributeTable from './AttributeTable';
 import { fileToGeoJSON, VECTOR_ACCEPT } from '../../utils/fileToGeoJSON';
 import { loadGeoTIFF } from '../../utils/georasterLoader';
-import { isValidOpacity, normalizeOpacity } from '../../utils/validation';
 import {
-    SymbologyStyle, GeomType, DEFAULT_SYMBOLOGY,
+    SymbologyStyle, SymbologyMode, GeomType, DEFAULT_SYMBOLOGY,
     detectGeomType, extractFields, autoCategorize,
+    classifyFeatures, getRampGradientCSS, RAMP_NAMES,
 } from '../../utils/symbologyUtils';
 
 
@@ -53,85 +53,364 @@ export interface ExternalLayer {
 interface DownloadFormat { label: string; ext: string; icon: string; outputFormat: string; description: string; color: string; }
 
 const VECTOR_FORMATS: DownloadFormat[] = [
-    { label: 'Shapefile', ext: 'shp.zip', icon: '\uD83D\uDDC2\uFE0F', outputFormat: 'SHAPE-ZIP',                             description: 'Compatible con ArcGIS, QGIS', color: '#e67e22' },
-    { label: 'GeoJSON',   ext: 'geojson', icon: '{ }',               outputFormat: 'application/json',                      description: 'Ideal para web y código',      color: '#27ae60' },
-    { label: 'KML',       ext: 'kml',     icon: '\uD83C\uDF0D',       outputFormat: 'application/vnd.google-earth.kml+xml',  description: 'Google Earth / Maps',          color: '#2980b9' },
+    { label: 'Shapefile', ext: 'shp.zip', icon: '\uD83D\uDDC2\uFE0F', outputFormat: 'SHAPE-ZIP',                            description: 'Compatible con ArcGIS, QGIS', color: '#e67e22' },
+    { label: 'GeoJSON',   ext: 'geojson', icon: '{ }',               outputFormat: 'application/json',                     description: 'Ideal para web y código',      color: '#27ae60' },
+    { label: 'KML',       ext: 'kml',     icon: '\uD83C\uDF0D',       outputFormat: 'application/vnd.google-earth.kml+xml', description: 'Google Earth / Maps',          color: '#2980b9' },
 ];
 const RASTER_FORMATS = [{ label: 'GeoTIFF', ext: 'tif', icon: '\uD83D\uDDFA\uFE0F', description: 'GeoTIFF con georeferenciación (WCS)', color: '#c0392b' }];
 
-// QGIS Server: el typeName no lleva workspace, y la URL base ya tiene MAP=
-const getVectorDownloadUrl = (layer: LayerConfig, outputFormat: string) => {
-    const { qgisServer } = config;
+// ─── URLs ─────────────────────────────────────────────────────────────────────
+
+const getVectorDownloadUrl = (layer: LayerConfig, outputFormat: string): string => {
     const wfsName = (layer as any).wfsName ?? layer.id;
-    return `${qgisServer.wfsUrl}&${new URLSearchParams({ SERVICE:'WFS', VERSION:'1.1.0', REQUEST:'GetFeature', TYPENAME: wfsName, outputFormat })}`;
-};
-// QGIS Server no soporta WCS nativo; descarga como WFS GeoTIFF o imagen WMS
-const getRasterDownloadUrl = (layer: LayerConfig) => {
-    const { qgisServer } = config;
-    const p = new URLSearchParams({ SERVICE:'WMS', VERSION:'1.3.0', REQUEST:'GetMap', LAYERS: layer.wmsLayer ?? layer.id, CRS:'EPSG:4326', BBOX:'18.999,−99.406,19.643,−98.882', WIDTH:'4096', HEIGHT:'3072', FORMAT:'image/tiff' });
-    if (layer.timeValue) p.append('TIME', layer.timeValue);
-    return `${qgisServer.wmsRasterUrl}&${p}`;
-};
-const downloadGeoJSON = async (layer: LayerConfig) => {
-    try {
-        const res = await fetch(getVectorDownloadUrl(layer, 'application/json'));
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = Object.assign(document.createElement('a'), { href: url, download: `${layer.id}.geojson` });
-        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch (e) { console.error('Error descargando GeoJSON:', e); }
+    const url = new URL(config.qgisServer.wfsUrl);
+    url.searchParams.set('SERVICE',      'WFS');
+    url.searchParams.set('VERSION',      '1.1.0');
+    url.searchParams.set('REQUEST',      'GetFeature');
+    url.searchParams.set('TYPENAME',     wfsName);
+    url.searchParams.set('outputFormat', outputFormat);
+    return url.toString();
 };
 
+const getRasterDownloadUrl = (layer: LayerConfig): string => {
+    const url = new URL(config.qgisServer.wmsRasterUrl);
+    url.searchParams.set('SERVICE', 'WMS');
+    url.searchParams.set('VERSION', '1.3.0');
+    url.searchParams.set('REQUEST', 'GetMap');
+    url.searchParams.set('LAYERS',  layer.wmsLayer ?? layer.id);
+    url.searchParams.set('CRS',     'EPSG:4326');
+    url.searchParams.set('BBOX',    '14.532,-118.454,32.718,-86.710');
+    url.searchParams.set('WIDTH',   '4096');
+    url.searchParams.set('HEIGHT',  '3072');
+    url.searchParams.set('FORMAT',  'image/tiff');
+    if (layer.timeValue) url.searchParams.set('TIME', layer.timeValue);
+    return url.toString();
+};
+
+/** URL de servicio WFS limpia para consumo en SIG (sin REQUEST) */
+const getWFSServiceUrl = (layer: LayerConfig): string => {
+    const wfsName = (layer as any).wfsName ?? layer.id;
+    const url = new URL(config.qgisServer.wfsUrl);
+    url.searchParams.set('SERVICE',  'WFS');
+    url.searchParams.set('VERSION',  '2.0.0');
+    url.searchParams.set('REQUEST',  'GetCapabilities');
+    return `${url.toString()}  |  TYPENAME: ${wfsName}`;
+};
+
+/** Devuelve { baseUrl, capabilitiesUrl, layerName } para el modal de servicio */
+const getServiceInfo = (layer: LayerConfig, type: 'wfs' | 'wms') => {
+    const wfsName  = (layer as any).wfsName  ?? layer.id;
+    const wmsLayer = (layer as any).wmsLayer ?? layer.id;
+
+    if (type === 'wfs') {
+        const base = new URL(config.qgisServer.wfsUrl);
+        base.searchParams.set('SERVICE', 'WFS');
+        base.searchParams.set('VERSION', '2.0.0');
+        base.searchParams.set('REQUEST', 'GetCapabilities');
+        const full = new URL(config.qgisServer.wfsUrl);
+        full.searchParams.set('SERVICE',  'WFS');
+        full.searchParams.set('VERSION',  '2.0.0');
+        full.searchParams.set('REQUEST',  'GetFeature');
+        full.searchParams.set('TYPENAME', wfsName);
+        return {
+            type: 'WFS' as const,
+            connectionUrl:    config.qgisServer.wfsUrl,
+            capabilitiesUrl:  base.toString(),
+            getFeatureUrl:    full.toString(),
+            layerName:        wfsName,
+        };
+    } else {
+        const base = new URL(config.qgisServer.wmsUrl);
+        base.searchParams.set('SERVICE', 'WMS');
+        base.searchParams.set('VERSION', '1.3.0');
+        base.searchParams.set('REQUEST', 'GetCapabilities');
+        return {
+            type: 'WMS' as const,
+            connectionUrl:   config.qgisServer.wmsUrl,
+            capabilitiesUrl: base.toString(),
+            getFeatureUrl:   '',
+            layerName:       wmsLayer,
+        };
+    }
+};
+
+// ─── Descarga programática (fetch → blob) ────────────────────────────────────
+
+async function downloadVectorFormat(layer: LayerConfig, fmt: DownloadFormat): Promise<void> {
+    const url = getVectorDownloadUrl(layer, fmt.outputFormat);
+    try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = Object.assign(document.createElement('a'), {
+            href:     blobUrl,
+            download: `${layer.id}.${fmt.ext}`,
+        });
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+    } catch (e) {
+        console.error(`Error descargando ${fmt.label}:`, e);
+    }
+}
+
+// ─── Modal Servicio OGC ───────────────────────────────────────────────────────
+
+interface ServiceModalProps {
+    info: ReturnType<typeof getServiceInfo>;
+    layerName: string;
+    onClose: () => void;
+}
+
+const ServiceModal: React.FC<ServiceModalProps> = ({ info, layerName, onClose }) => {
+    const [copied, setCopied] = useState<string | null>(null);
+
+    const copy = async (text: string, key: string) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            setCopied(key);
+            setTimeout(() => setCopied(null), 2000);
+        } catch {
+            /* fallback: execCommand */
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            setCopied(key);
+            setTimeout(() => setCopied(null), 2000);
+        }
+    };
+
+    const CopyBtn: React.FC<{ text: string; id: string }> = ({ text, id }) => (
+        <button
+            className={`svc-copy-btn ${copied === id ? 'copied' : ''}`}
+            onClick={() => copy(text, id)}
+            title="Copiar"
+        >
+            {copied === id
+                ? <><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16"><path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425a.267.267 0 0 1 .02-.022z"/></svg> Copiado</>
+                : <><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5H3.5A1.5 1.5 0 0 0 2 3h12a1.5 1.5 0 0 0-1.5-1.5H11A1.5 1.5 0 0 0 9.5 0h-3z"/></svg> Copiar</>
+            }
+        </button>
+    );
+
+    const rows: Array<{ label: string; value: string; id: string; mono?: boolean }> = [
+        {
+            label: 'URL de conexión (pegar en QGIS / ArcGIS)',
+            value: info.connectionUrl,
+            id:    'conn',
+        },
+        {
+            label: `Nombre de capa / ${info.type === 'WFS' ? 'TypeName' : 'LAYER'}`,
+            value: info.layerName,
+            id:    'lyr',
+            mono:  true,
+        },
+        {
+            label: 'URL GetCapabilities',
+            value: info.capabilitiesUrl,
+            id:    'caps',
+        },
+        ...(info.type === 'WFS' && info.getFeatureUrl ? [{
+            label: 'URL GetFeature completa',
+            value: info.getFeatureUrl,
+            id:    'feat',
+        }] : []),
+    ];
+
+    const modal = (
+        <div className="svc-overlay" onClick={onClose}>
+            <div className="svc-modal" onClick={e => e.stopPropagation()}>
+                {/* Header */}
+                <div className="svc-header">
+                    <div className="svc-header-left">
+                        <span className={`svc-badge svc-badge-${info.type.toLowerCase()}`}>{info.type}</span>
+                        <div>
+                            <div className="svc-title">Consumir como servicio {info.type}</div>
+                            <div className="svc-subtitle">{layerName}</div>
+                        </div>
+                    </div>
+                    <button className="svc-close" onClick={onClose} title="Cerrar">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854z"/>
+                        </svg>
+                    </button>
+                </div>
+
+                {/* Instrucciones */}
+                <div className="svc-instructions">
+                    {info.type === 'WFS'
+                        ? 'En QGIS: Capa → Agregar capa → WFS. En ArcGIS Pro: Insert → Connections → New WFS Server.'
+                        : 'En QGIS: Capa → Agregar capa → WMS/WMTS. En ArcGIS Pro: Insert → Connections → New WMS Server.'
+                    }
+                </div>
+
+                {/* Filas de URL */}
+                <div className="svc-rows">
+                    {rows.map(row => (
+                        <div key={row.id} className="svc-row">
+                            <span className="svc-row-label">{row.label}</span>
+                            <div className="svc-row-value">
+                                <input
+                                    readOnly
+                                    className={`svc-url-input${row.mono ? ' svc-url-mono' : ''}`}
+                                    value={row.value}
+                                    onFocus={e => e.target.select()}
+                                />
+                                <CopyBtn text={row.value} id={row.id} />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Footer */}
+                <div className="svc-footer">
+                    <button
+                        className="svc-copy-all-btn"
+                        onClick={() => copy(rows.map(r => `${r.label}:\n${r.value}`).join('\n\n'), 'all')}
+                    >
+                        {copied === 'all'
+                            ? <><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425a.267.267 0 0 1 .02-.022z"/></svg> Todo copiado</>
+                            : <><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5H3.5A1.5 1.5 0 0 0 2 3h12a1.5 1.5 0 0 0-1.5-1.5H11A1.5 1.5 0 0 0 9.5 0h-3z"/></svg> Copiar todo</>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+
+    return ReactDOM.createPortal(modal, document.body);
+};
+
+// ─── DownloadDropdown ─────────────────────────────────────────────────────────
+
 const DownloadDropdown: React.FC<{ layer: LayerConfig }> = ({ layer }) => {
-    const [open, setOpen] = useState(false);
-    const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
+    const [open, setOpen]               = useState(false);
+    const [menuStyle, setMenuStyle]     = useState<React.CSSProperties>({});
+    const [serviceModal, setServiceModal] = useState<ReturnType<typeof getServiceInfo> | null>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
+
     const openMenu = () => {
         if (triggerRef.current) {
             const rect = triggerRef.current.getBoundingClientRect();
-            const mw = 230;
-            setMenuStyle({ position:'absolute', top: rect.bottom + 6 + window.scrollY, left: Math.max(8, rect.right - mw), width: mw, zIndex: 99999 });
+            const mw = 245;
+            setMenuStyle({
+                position: 'absolute',
+                top: rect.bottom + 6 + window.scrollY,
+                left: Math.max(8, rect.right - mw),
+                width: mw,
+                zIndex: 99999,
+            });
         }
         setOpen(o => !o);
     };
+
     useEffect(() => {
         if (!open) return;
-        const close = (e: MouseEvent) => { if (!triggerRef.current?.contains(e.target as Node)) setOpen(false); };
+        const close  = (e: MouseEvent) => { if (!triggerRef.current?.contains(e.target as Node)) setOpen(false); };
         const scroll = () => setOpen(false);
         document.addEventListener('mousedown', close);
         document.addEventListener('scroll', scroll, true);
-        return () => { document.removeEventListener('mousedown', close); document.removeEventListener('scroll', scroll, true); };
+        return () => {
+            document.removeEventListener('mousedown', close);
+            document.removeEventListener('scroll', scroll, true);
+        };
     }, [open]);
+
+    const openService = (type: 'wfs' | 'wms') => {
+        setOpen(false);
+        setServiceModal(getServiceInfo(layer, type));
+    };
+
+    const [downloading, setDownloading] = useState<string | null>(null);
+
+    const handleDownload = async (fmt: DownloadFormat) => {
+        setOpen(false);
+        setDownloading(fmt.ext);
+        await downloadVectorFormat(layer, fmt);
+        setDownloading(null);
+    };
+
     const menu = (
         <div className="dl-menu" style={menuStyle} onMouseDown={e => e.stopPropagation()}>
+            {/* ── Sección descargas ── */}
             <div className="dl-menu-header">Descargar como</div>
             {layer.type === 'vector'
-                ? VECTOR_FORMATS.map(fmt => fmt.outputFormat === 'application/json'
-                    ? <button key={fmt.ext} className="dl-item dl-item-btn" onClick={() => { downloadGeoJSON(layer); setOpen(false); }}>
-                        <span className="dl-item-icon" style={{ background:`${fmt.color}18`, color:fmt.color }}>{fmt.icon}</span>
-                        <span className="dl-item-info"><span className="dl-item-label">{fmt.label}</span><span className="dl-item-desc">{fmt.description}</span></span>
+                ? VECTOR_FORMATS.map(fmt => (
+                    <button key={fmt.ext} className="dl-item dl-item-btn" onClick={() => handleDownload(fmt)}>
+                        <span className="dl-item-icon" style={{ background: `${fmt.color}18`, color: fmt.color }}>{fmt.icon}</span>
+                        <span className="dl-item-info">
+                            <span className="dl-item-label">{fmt.label}</span>
+                            <span className="dl-item-desc">{fmt.description}</span>
+                        </span>
+                        <span className="dl-item-ext">.{fmt.ext.replace('.zip', '')}</span>
+                    </button>
+                ))
+                : RASTER_FORMATS.map(fmt => (
+                    <a key={fmt.ext} href={getRasterDownloadUrl(layer)} className="dl-item"
+                        target="_blank" rel="noopener noreferrer"
+                        download={`${layer.id}.${fmt.ext}`}
+                        onClick={() => setOpen(false)}>
+                        <span className="dl-item-icon" style={{ background: `${fmt.color}18`, color: fmt.color }}>{fmt.icon}</span>
+                        <span className="dl-item-info">
+                            <span className="dl-item-label">{fmt.label}</span>
+                            <span className="dl-item-desc">{fmt.description}</span>
+                        </span>
                         <span className="dl-item-ext">.{fmt.ext}</span>
-                      </button>
-                    : <a key={fmt.ext} href={getVectorDownloadUrl(layer, fmt.outputFormat)} className="dl-item" target="_blank" rel="noopener noreferrer" download={`${layer.id}.${fmt.ext}`} onClick={() => setOpen(false)}>
-                        <span className="dl-item-icon" style={{ background:`${fmt.color}18`, color:fmt.color }}>{fmt.icon}</span>
-                        <span className="dl-item-info"><span className="dl-item-label">{fmt.label}</span><span className="dl-item-desc">{fmt.description}</span></span>
-                        <span className="dl-item-ext">.{fmt.ext.replace('.zip','')}</span>
-                      </a>)
-                : RASTER_FORMATS.map(fmt => <a key={fmt.ext} href={getRasterDownloadUrl(layer)} className="dl-item" target="_blank" rel="noopener noreferrer" download={`${layer.id}.${fmt.ext}`} onClick={() => setOpen(false)}>
-                    <span className="dl-item-icon" style={{ background:`${fmt.color}18`, color:fmt.color }}>{fmt.icon}</span>
-                    <span className="dl-item-info"><span className="dl-item-label">{fmt.label}</span><span className="dl-item-desc">{fmt.description}</span></span>
-                    <span className="dl-item-ext">.{fmt.ext}</span>
-                  </a>)
+                    </a>
+                ))
             }
+
+            {/* ── Sección servicios ── */}
+            <div className="dl-menu-section">Consumir como servicio</div>
+            {layer.type === 'vector' && (
+                <button className="dl-item dl-item-btn dl-item-service" onClick={() => openService('wfs')}>
+                    <span className="dl-item-icon dl-item-icon-svc" style={{ background: '#1a73e818', color: '#1a73e8' }}>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M0 3.5A1.5 1.5 0 0 1 1.5 2h13A1.5 1.5 0 0 1 16 3.5v2A1.5 1.5 0 0 1 14.5 7h-13A1.5 1.5 0 0 1 0 5.5v-2zm1.5-.5a.5.5 0 0 0-.5.5v2a.5.5 0 0 0 .5.5h13a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 0-.5-.5h-13zM0 10.5A1.5 1.5 0 0 1 1.5 9h13a1.5 1.5 0 0 1 1.5 1.5v2a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 0 12.5v-2z"/></svg>
+                    </span>
+                    <span className="dl-item-info">
+                        <span className="dl-item-label">WFS</span>
+                        <span className="dl-item-desc">Web Feature Service · QGIS, ArcGIS</span>
+                    </span>
+                    <span className="dl-item-ext svc-arrow">›</span>
+                </button>
+            )}
+            <button className="dl-item dl-item-btn dl-item-service" onClick={() => openService('wms')}>
+                <span className="dl-item-icon dl-item-icon-svc" style={{ background: '#9c27b018', color: '#9c27b0' }}>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M8 0C3.582 0 0 3.582 0 8s3.582 8 8 8 8-3.582 8-8-3.582-8-8-8zm.25 11.5v1.25a.25.25 0 0 1-.5 0V11.5a.25.25 0 0 1 .5 0zm0-8.5v5.25a.25.25 0 0 1-.5 0V3a.25.25 0 0 1 .5 0z"/></svg>
+                </span>
+                <span className="dl-item-info">
+                    <span className="dl-item-label">WMS</span>
+                    <span className="dl-item-desc">Web Map Service · visor web, SIG</span>
+                </span>
+                <span className="dl-item-ext svc-arrow">›</span>
+            </button>
         </div>
     );
+
     return (
         <div className="dl-dropdown">
-            <button ref={triggerRef} className="dl-trigger" title="Opciones de descarga" onClick={openMenu}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/></svg>
-                <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" fill="currentColor" viewBox="0 0 16 16" className={`dl-caret ${open?'open':''}`}><path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/></svg>
+            <button ref={triggerRef} className={`dl-trigger ${downloading ? 'dl-trigger-loading' : ''}`} title="Opciones de descarga y servicios" onClick={openMenu}>
+                {downloading
+                    ? <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" className="spin"><path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
+                    : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/></svg>
+                }
+                <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" fill="currentColor" viewBox="0 0 16 16" className={`dl-caret ${open ? 'open' : ''}`}><path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/></svg>
             </button>
             {open && ReactDOM.createPortal(menu, document.body)}
+            {serviceModal && (
+                <ServiceModal
+                    info={serviceModal}
+                    layerName={layer.name}
+                    onClose={() => setServiceModal(null)}
+                />
+            )}
         </div>
     );
 };
@@ -177,6 +456,8 @@ interface SymbologyEditorProps {
 const SymbologyEditor: React.FC<SymbologyEditorProps> = ({ features, geomType, symbology, onChange }) => {
     const fields = extractFields(features);
     const isLine = geomType === 'line';
+    const [classError, setClassError] = useState<string | null>(null);
+
     const set = (patch: Partial<SymbologyStyle>) => onChange({ ...symbology, ...patch });
 
     const handleFieldChange = (field: string) => {
@@ -184,19 +465,56 @@ const SymbologyEditor: React.FC<SymbologyEditorProps> = ({ features, geomType, s
         set({ field, categories, mode: 'categorical' });
     };
 
+    const handleModeChange = (mode: SymbologyMode) => {
+        setClassError(null);
+        if (mode === 'single') {
+            set({ mode, field: undefined, categories: undefined });
+        } else if (mode === 'categorical') {
+            if (fields.length && !symbology.field) handleFieldChange(fields[0]);
+            else set({ mode });
+        } else {
+            set({
+                mode,
+                expression:  symbology.expression  ?? (fields[0] ?? ''),
+                numClasses:  symbology.numClasses   ?? 5,
+                colorRamp:   symbology.colorRamp    ?? RAMP_NAMES[0],
+                classMethod: symbology.classMethod  ?? 'equal',
+            });
+        }
+    };
+
+    const handleGenerateClasses = () => {
+        setClassError(null);
+        const expr = (symbology.expression ?? '').trim();
+        if (!expr) { setClassError('Escribe una expresión o selecciona un campo'); return; }
+        const result = classifyFeatures(
+            features, expr,
+            symbology.numClasses  ?? 5,
+            symbology.classMethod ?? 'equal',
+            symbology.colorRamp   ?? RAMP_NAMES[0],
+        );
+        if (!result) {
+            setClassError('No se pudo evaluar la expresión. Verifica los nombres de campo y que los valores sean numéricos.');
+            return;
+        }
+        set({ classes: result });
+    };
+
+    const insertField = (field: string) => {
+        const cur = symbology.expression ?? '';
+        set({ expression: cur ? `${cur} ${field}` : field });
+    };
+
     return (
         <div className="sym-editor">
-            <div className="sym-modes">
-                <button className={`sym-mode-btn ${symbology.mode === 'single' ? 'selected' : ''}`}
-                    onClick={() => set({ mode:'single', field:undefined, categories:undefined })}>
-                    Color único
-                </button>
-                <button className={`sym-mode-btn ${symbology.mode === 'categorical' ? 'selected' : ''}`}
-                    onClick={() => { if (fields.length && !symbology.field) handleFieldChange(fields[0]); else set({ mode:'categorical' }); }}>
-                    Por campo
-                </button>
+            {/* Pestañas de modo */}
+            <div className="sym-modes sym-modes-3">
+                <button className={`sym-mode-btn ${symbology.mode === 'single'      ? 'selected' : ''}`} onClick={() => handleModeChange('single')}>Color único</button>
+                <button className={`sym-mode-btn ${symbology.mode === 'categorical' ? 'selected' : ''}`} onClick={() => handleModeChange('categorical')}>Por campo</button>
+                <button className={`sym-mode-btn ${symbology.mode === 'classified'  ? 'selected' : ''}`} onClick={() => handleModeChange('classified')}>Clasificado</button>
             </div>
 
+            {/* Color único */}
             {symbology.mode === 'single' && (
                 <div className="sym-single">
                     {!isLine && (
@@ -214,12 +532,13 @@ const SymbologyEditor: React.FC<SymbologyEditorProps> = ({ features, geomType, s
                         <div className="sym-color-row">
                             <input type="color" value={symbology.strokeColor} onChange={e => set({ strokeColor: e.target.value })} className="sym-color-input" />
                             <input type="number" min={0.5} max={8} step={0.5} value={symbology.strokeWeight} onChange={e => set({ strokeWeight: parseFloat(e.target.value) })} className="sym-weight-input" />
-                            <span className="sym-label" style={{ fontSize:'0.68rem' }}>px</span>
+                            <span className="sym-label" style={{ fontSize: '0.68rem' }}>px</span>
                         </div>
                     </div>
                 </div>
             )}
 
+            {/* Por campo */}
             {symbology.mode === 'categorical' && (
                 <div className="sym-categorical">
                     <div className="sym-row">
@@ -236,13 +555,119 @@ const SymbologyEditor: React.FC<SymbologyEditorProps> = ({ features, geomType, s
                                 {symbology.categories.map(cat => (
                                     <div key={cat.value} className="sym-cat-row">
                                         <input type="color" value={cat.color}
-                                            onChange={e => set({ categories: symbology.categories!.map(c => c.value === cat.value ? {...c, color: e.target.value} : c) })}
+                                            onChange={e => set({ categories: symbology.categories!.map(c => c.value === cat.value ? { ...c, color: e.target.value } : c) })}
                                             className="sym-color-input sym-color-sm" />
                                         <span className="sym-cat-label" title={cat.value}>{cat.value}</span>
                                     </div>
                                 ))}
                             </div>
-                            <div className="sym-row" style={{ marginTop:6 }}>
+                            <div className="sym-row" style={{ marginTop: 6 }}>
+                                <label className="sym-label">Opacidad</label>
+                                <div className="sym-color-row">
+                                    <input type="range" min={0} max={1} step={0.05} value={symbology.fillOpacity} onChange={e => set({ fillOpacity: parseFloat(e.target.value) })} className="opacity-slider sym-opacity" />
+                                    <span className="sym-pct">{Math.round(symbology.fillOpacity * 100)}%</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Clasificado */}
+            {symbology.mode === 'classified' && (
+                <div className="sym-classified">
+                    {/* Expresión SQL */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <label className="sym-label">Expresión SQL</label>
+                        <textarea
+                            className="sym-expr-textarea"
+                            placeholder={`Ej: ${fields[0] ?? 'campo'}, ${fields[0] ?? 'a'} / ${fields[1] ?? 'b'}`}
+                            value={symbology.expression ?? ''}
+                            onChange={e => { set({ expression: e.target.value }); setClassError(null); }}
+                            rows={2}
+                            spellCheck={false}
+                        />
+                    </div>
+
+                    {/* Chips de campos */}
+                    {fields.length > 0 && (
+                        <div className="sym-field-chips">
+                            <span className="sym-chips-label">Campos disponibles:</span>
+                            <div className="sym-chips-row">
+                                {fields.map(f => (
+                                    <button key={f} className="sym-field-chip" onClick={() => insertField(f)} title={`Insertar "${f}"`}>
+                                        {f}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Método y número de clases */}
+                    <div className="sym-row-split">
+                        <div className="sym-split-item">
+                            <label className="sym-label">Método</label>
+                            <select className="sym-select" value={symbology.classMethod ?? 'equal'} onChange={e => set({ classMethod: e.target.value as 'equal' | 'quantile' })}>
+                                <option value="equal">Intervalos iguales</option>
+                                <option value="quantile">Cuantiles</option>
+                            </select>
+                        </div>
+                        <div className="sym-split-item">
+                            <label className="sym-label">Clases</label>
+                            <input
+                                type="number" min={2} max={15} step={1}
+                                className="sym-weight-input sym-classes-input"
+                                value={symbology.numClasses ?? 5}
+                                onChange={e => set({ numClasses: Math.max(2, Math.min(15, parseInt(e.target.value) || 5)) })}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Rampa de color */}
+                    <label className="sym-label">Rampa de color</label>
+                    <div className="sym-ramp-grid">
+                        {RAMP_NAMES.map(ramp => (
+                            <button
+                                key={ramp}
+                                className={`sym-ramp-item ${(symbology.colorRamp ?? RAMP_NAMES[0]) === ramp ? 'selected' : ''}`}
+                                onClick={() => set({ colorRamp: ramp })}
+                                title={ramp}
+                            >
+                                <span className="sym-ramp-bar" style={{ background: getRampGradientCSS(ramp) }} />
+                                <span className="sym-ramp-name">{ramp}</span>
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Botón generar */}
+                    <button className="sym-generate-btn" onClick={handleGenerateClasses}>
+                        ⚙ Generar clases
+                    </button>
+
+                    {classError && <div className="sym-class-error">{classError}</div>}
+
+                    {/* Lista de clases generadas */}
+                    {symbology.classes && symbology.classes.length > 0 && (
+                        <div className="sym-class-list">
+                            <span className="sym-label" style={{ display: 'block', marginBottom: 4 }}>
+                                Clases ({symbology.classes.length})
+                            </span>
+                            {symbology.classes.map((cls, i) => (
+                                <div key={i} className="sym-class-row">
+                                    <input
+                                        type="color"
+                                        value={cls.color}
+                                        className="sym-color-input sym-color-sm"
+                                        onChange={e => set({
+                                            classes: symbology.classes!.map((c, j) =>
+                                                j === i ? { ...c, color: e.target.value } : c
+                                            ),
+                                        })}
+                                    />
+                                    <span className="sym-class-range">{cls.label}</span>
+                                </div>
+                            ))}
+                            <div className="sym-row" style={{ marginTop: 6 }}>
                                 <label className="sym-label">Opacidad</label>
                                 <div className="sym-color-row">
                                     <input type="range" min={0} max={1} step={0.05} value={symbology.fillOpacity} onChange={e => set({ fillOpacity: parseFloat(e.target.value) })} className="opacity-slider sym-opacity" />
@@ -498,9 +923,23 @@ const AddLayerPanel: React.FC<{ onAddLayer: (layer: ExternalLayer) => void }> = 
 // ─── LayerMenu principal ──────────────────────────────────────────────────────
 
 const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onLayerToggle, onOpacityChange, externalLayers, externalVisible, externalOpacity, onAddExternalLayer, onRemoveExternalLayer, onToggleExternalLayer, onExternalOpacityChange }) => {
-    const [collapsed, setCollapsed]   = useState(false);
-    const [searchTerm, setSearchTerm] = useState('');
+    const [menuOpen, setMenuOpen]         = useState(false);   // móvil: panel abierto/cerrado
+    const [collapsed, setCollapsed]       = useState(false);   // escritorio: colapsado lateral
+    const [searchTerm, setSearchTerm]     = useState('');
     const [attributeTableLayerId, setAttributeTableLayerId] = useState<string | null>(null);
+    // Grupos colapsados: Set de nombres de grupo que están cerrados
+    const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+    const toggleGroup = (group: string) =>
+        setCollapsedGroups(prev => {
+            const next = new Set(prev);
+            if (next.has(group)) {
+                next.delete(group);
+            } else {
+                next.add(group);
+            }
+            return next;
+        });
 
     const handleCheckboxChange = (layer: LayerConfig, isChecked: boolean) => onLayerToggle(layer.id, isChecked, layer.type);
     const isLayerActive  = (id: string) => layers[id]?.visible || false;
@@ -512,124 +951,176 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
         l.description.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    const activeCount         = Object.values(layers).filter(l => l?.visible).length;
-    const activeTableLayer    = attributeTableLayerId ? AVAILABLE_LAYERS.find(l => l.id === attributeTableLayerId) : null;
+    // Grupos únicos en orden de aparición (vectoriales + ráster mezclados)
+    const allGroups = Array.from(new Set(filteredLayers.map(l => l.group)));
+
+    const activeCount      = Object.values(layers).filter(l => l?.visible).length;
+    const activeTableLayer = attributeTableLayerId ? AVAILABLE_LAYERS.find(l => l.id === attributeTableLayerId) : null;
     const activeTableFeatures = attributeTableLayerId ? (layers[attributeTableLayerId]?.data?.features ?? []) : [];
 
-    return (
-        <>
-            <div className={`layer-menu ${collapsed ? 'collapsed' : ''}`}>
-                <div className="layer-menu-header">
-                    <div className="header-content">
-                        <h3>Capas</h3>
-                        {activeCount > 0 && <span className="active-badge">{activeCount}</span>}
-                    </div>
-                    <button className="collapse-btn" onClick={() => setCollapsed(!collapsed)} title={collapsed ? 'Expandir' : 'Contraer'}>
-                        {collapsed ? '\u2192' : '\u2190'}
-                    </button>
+    const renderLayerItem = (layer: LayerConfig) => {
+        const isActive  = layer.type === 'vector' ? isLayerActive(layer.id) : (layers[layer.id]?.visible || false);
+        const isLoading = isLayerLoading(layer.id);
+        const err       = getLayerError(layer.id);
+        const fc        = layers[layer.id]?.data?.features?.length;
+
+        return (
+            <div key={layer.id} className={`layer-item ${isActive ? 'active' : ''}`}>
+                <div className="layer-checkbox-wrapper">
+                    <input
+                        type="checkbox"
+                        id={layer.id}
+                        className="layer-checkbox"
+                        checked={isActive}
+                        onChange={e => handleCheckboxChange(layer, e.target.checked)}
+                        disabled={isLoading}
+                    />
+                    <label htmlFor={layer.id} className="layer-label">
+                        <div className="layer-info">
+                            <span className="layer-name">
+                                {layer.name}
+                                {layer.year && <span className="year-badge">{layer.year}</span>}
+                                {layer.type === 'raster' && <span className="layer-type-badge">WMS</span>}
+                            </span>
+                            <span className="layer-description">
+                                {layer.description}
+                                {fc != null && <span className="feature-count"> · {fc} elementos</span>}
+                            </span>
+                        </div>
+                    </label>
                 </div>
 
-                {!collapsed && (
-                    <div className="layer-menu-content">
-                        <div className="search-container">
-                            <input type="text" placeholder="Buscar capas..." className="search-input" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-                            <AddLayerPanel onAddLayer={onAddExternalLayer} />
+                <div className="layer-actions">
+                    {isActive && layer.type === 'vector' && (
+                        <button className="table-btn" title="Ver tabla de atributos" onClick={() => setAttributeTableLayerId(layer.id)}>
+                            <TableIcon />
+                        </button>
+                    )}
+                    <DownloadDropdown layer={layer} />
+                </div>
+
+                {isActive && (
+                    <div className="layer-opacity-control">
+                        <span className="opacity-label">Opacidad: {Math.round((layers[layer.id]?.opacity || 0.8) * 100)}%</span>
+                        <input
+                            type="range" min="0" max="1" step="0.05"
+                            value={layers[layer.id]?.opacity || 0.8}
+                            onChange={e => {
+                                const v = parseFloat(e.target.value);
+                                onOpacityChange(layer.id, v, layer.type);
+                            }}
+                            className="opacity-slider"
+                        />
+                    </div>
+                )}
+
+                {isLoading && (
+                    <div className="layer-status">
+                        <div className="spinner-border spinner-border-sm" role="status">
+                            <span className="visually-hidden">Cargando...</span>
                         </div>
+                    </div>
+                )}
+                {err && <div className="layer-error" role="alert"><small className="text-danger"> {err}</small></div>}
+            </div>
+        );
+    };
 
-                        <div className="layers-list">
+    const menuContent = (
+        <div className="layer-menu-content">
+            <div className="search-container">
+                <input
+                    type="text"
+                    placeholder="Buscar capas..."
+                    className="search-input"
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                />
+                <AddLayerPanel onAddLayer={onAddExternalLayer} />
+            </div>
 
-                            {/* Vectoriales */}
-                            {Array.from(new Set(filteredLayers.filter(l => l.type === 'vector').map(l => l.group ?? 'Capas Vectoriales'))).map(group => {
-                                const gl = filteredLayers.filter(l => l.type === 'vector' && (l.group ?? 'Capas Vectoriales') === group);
-                                if (!gl.length) return null;
-                                return (
-                                    <div key={group} className="layer-group">
-                                        <h6 className="layer-group-title">{group}</h6>
-                                        {gl.map(layer => {
-                                            const isActive  = isLayerActive(layer.id);
-                                            const isLoading = isLayerLoading(layer.id);
-                                            const err       = getLayerError(layer.id);
-                                            const fc        = layers[layer.id]?.data?.features?.length;
-                                            return (
-                                                <div key={layer.id} className={`layer-item ${isActive ? 'active' : ''}`}>
-                                                    <div className="layer-checkbox-wrapper">
-                                                        <input type="checkbox" id={layer.id} className="layer-checkbox" checked={isActive} onChange={e => handleCheckboxChange(layer, e.target.checked)} disabled={isLoading} />
-                                                        <label htmlFor={layer.id} className="layer-label">
-                                                            <div className="layer-info">
-                                                                <span className="layer-name">{layer.name}</span>
-                                                                <span className="layer-description">{layer.description}<br/>{fc && <span className="feature-count"> {fc} elementos</span>}</span>
-                                                            </div>
-                                                        </label>
-                                                    </div>
-                                                    <div className="layer-actions">
-                                                        {isActive && <button className="table-btn" title="Ver tabla de atributos" onClick={() => setAttributeTableLayerId(layer.id)}><TableIcon /></button>}
-                                                        <DownloadDropdown layer={layer} />
-                                                        {isActive && <div className="layer-color-indicator" style={{ backgroundColor: layer.color }} />}
-                                                    </div>
-                                                    {isActive && (
-                                                        <div className="layer-opacity-control">
-                                                            <span className="opacity-label">Opacidad: {Math.round((layers[layer.id]?.opacity || 0.8) * 100)}%</span>
-                                                            <input type="range" min="0" max="1" step="0.05" value={layers[layer.id]?.opacity || 0.8} onChange={e => { const v = parseFloat(e.target.value); if (isValidOpacity(v)) onOpacityChange(layer.id, normalizeOpacity(v), 'vector'); }} className="opacity-slider" />
-                                                        </div>
-                                                    )}
-                                                    {isLoading && <div className="layer-status"><div className="spinner-border spinner-border-sm" role="status"><span className="visually-hidden">Cargando...</span></div></div>}
-                                                    {err && <div className="layer-error" role="alert"><small className="text-danger"> {err}</small></div>}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                );
-                            })}
+            <div className="layers-list">
 
-                            {/* Ráster */}
-                            {filteredLayers.filter(l => l.type === 'raster').length > 0 && (
-                                <div className="layer-group">
-                                    <h6 className="layer-group-title">Uso de Suelo y Vegetación</h6>
-                                    {filteredLayers.filter(l => l.type === 'raster').map(layer => {
-                                        const isActive = isLayerActive(layer.id);
-                                        return (
-                                            <div key={layer.id} className={`layer-item ${isActive ? 'active' : ''}`}>
-                                                <div className="layer-checkbox-wrapper">
-                                                    <input type="checkbox" id={layer.id} className="layer-checkbox" checked={isActive} onChange={e => handleCheckboxChange(layer, e.target.checked)} />
-                                                    <label htmlFor={layer.id} className="layer-label">
-                                                        <div className="layer-info">
-                                                            <span className="layer-name">{layer.name}{layer.year && <span className="year-badge">{layer.year}</span>}</span>
-                                                            <span className="layer-description">{layer.description}</span>
-                                                        </div>
-                                                    </label>
-                                                </div>
-                                                <div className="layer-actions">
-                                                    <DownloadDropdown layer={layer} />
-                                                    {isActive && <div className="layer-color-indicator" style={{ backgroundColor: layer.color }} />}
-                                                </div>
-                                                {isActive && (
-                                                    <div className="layer-opacity-control">
-                                                        <span className="opacity-label">Opacidad: {Math.round((layers[layer.id]?.opacity || 0.8) * 100)}%</span>
-                                                        <input type="range" min="0" max="1" step="0.05" value={layers[layer.id]?.opacity || 0.8} onChange={e => onOpacityChange(layer.id, parseFloat(e.target.value), 'raster')} className="opacity-slider" />
-                                                    </div>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
+                {/* ── Grupos unificados (vector + ráster) ── */}
+                {allGroups.map(group => {
+                    const groupLayers = filteredLayers.filter(l => l.group === group);
+                    if (!groupLayers.length) return null;
+                    const isGroupCollapsed = collapsedGroups.has(group);
+                    const activeInGroup    = groupLayers.filter(l => isLayerActive(l.id)).length;
+
+                    return (
+                        <div key={group} className="layer-group">
+                            {/* Cabecera colapsable */}
+                            <button
+                                className={`layer-group-header ${isGroupCollapsed ? 'collapsed' : ''}`}
+                                onClick={() => toggleGroup(group)}
+                                aria-expanded={!isGroupCollapsed}
+                            >
+                                <span className="group-title-text">{group}</span>
+                                <span className="group-meta">
+                                    {activeInGroup > 0 && (
+                                        <span className="group-active-badge">{activeInGroup}</span>
+                                    )}
+                                    <span className="group-count">{groupLayers.length}</span>
+                                    <svg
+                                        className={`group-chevron ${isGroupCollapsed ? 'closed' : ''}`}
+                                        xmlns="http://www.w3.org/2000/svg" width="12" height="12"
+                                        fill="currentColor" viewBox="0 0 16 16"
+                                    >
+                                        <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/>
+                                    </svg>
+                                </span>
+                            </button>
+
+                            {/* Capas del grupo */}
+                            {!isGroupCollapsed && (
+                                <div className="layer-group-body">
+                                    {groupLayers.map(renderLayerItem)}
                                 </div>
                             )}
+                        </div>
+                    );
+                })}
 
-                            {/* Capas importadas */}
-                            {externalLayers.length > 0 && (
-                                <div className="layer-group">
-                                    <h6 className="layer-group-title imported-title">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="currentColor" viewBox="0 0 16 16" style={{ marginRight:4 }}><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/></svg>
-                                        Capas importadas
-                                        <span className="imported-count">{externalLayers.length}</span>
-                                    </h6>
+                {/* ── Capas importadas ── */}
+                {externalLayers.length > 0 && (() => {
+                    const isGroupCollapsed = collapsedGroups.has('__imported__');
+                    return (
+                        <div className="layer-group">
+                            <button
+                                className={`layer-group-header ${isGroupCollapsed ? 'collapsed' : ''}`}
+                                onClick={() => toggleGroup('__imported__')}
+                                aria-expanded={!isGroupCollapsed}
+                            >
+                                <span className="group-title-text">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="currentColor" viewBox="0 0 16 16" style={{ marginRight: 5 }}>
+                                        <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                                        <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
+                                    </svg>
+                                    Capas importadas
+                                </span>
+                                <span className="group-meta">
+                                    <span className="group-count">{externalLayers.length}</span>
+                                    <svg
+                                        className={`group-chevron ${isGroupCollapsed ? 'closed' : ''}`}
+                                        xmlns="http://www.w3.org/2000/svg" width="12" height="12"
+                                        fill="currentColor" viewBox="0 0 16 16"
+                                    >
+                                        <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/>
+                                    </svg>
+                                </span>
+                            </button>
+
+                            {!isGroupCollapsed && (
+                                <div className="layer-group-body">
                                     {externalLayers.map(ext => {
                                         const isVisible = externalVisible[ext.id] ?? true;
                                         const opacity   = externalOpacity[ext.id]  ?? 0.8;
                                         const fmt =
-                                            ext.type === 'wms'    ? `WMS \u00B7 ${ext.layerName}` :
-                                            ext.type === 'wfs'    ? `WFS \u00B7 ${ext.layerName}` :
+                                            ext.type === 'wms'    ? `WMS · ${ext.layerName}` :
+                                            ext.type === 'wfs'    ? `WFS · ${ext.layerName}` :
                                             ext.type === 'raster' ? 'GeoTIFF local' :
-                                            ext.file ? ext.file.name.split('.').pop()?.toUpperCase() + ' local' : 'Vectorial';
+                                            ext.file ? (ext.file.name.split('.').pop()?.toUpperCase() + ' local') : 'Vectorial';
                                         return (
                                             <div key={ext.id} className={`layer-item ${isVisible ? 'active' : ''}`}>
                                                 <div className="layer-checkbox-wrapper">
@@ -657,14 +1148,63 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
                                     })}
                                 </div>
                             )}
-
                         </div>
+                    );
+                })()}
+
+            </div>
+        </div>
+    );
+
+    return (
+        <>
+            {/* ── Botón flotante móvil ── */}
+            <button
+                className="layer-menu-fab"
+                onClick={() => setMenuOpen(o => !o)}
+                aria-label="Abrir menú de capas"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M8.235 1.559a.5.5 0 0 0-.47 0l-7.5 4a.5.5 0 0 0 0 .882L3.188 8 .264 9.559a.5.5 0 0 0 0 .882l7.5 4a.5.5 0 0 0 .47 0l7.5-4a.5.5 0 0 0 0-.882L12.813 8l2.922-1.559a.5.5 0 0 0 0-.882l-7.5-4z"/>
+                </svg>
+                {activeCount > 0 && <span className="fab-badge">{activeCount}</span>}
+            </button>
+
+            {/* ── Overlay móvil ── */}
+            {menuOpen && <div className="layer-menu-overlay" onClick={() => setMenuOpen(false)} />}
+
+            {/* ── Panel escritorio ── */}
+            <div className={`layer-menu desktop-menu ${collapsed ? 'collapsed' : ''}`}>
+                <div className="layer-menu-header">
+                    <div className="header-content">
+                        <h3>Capas</h3>
+                        {activeCount > 0 && <span className="active-badge">{activeCount}</span>}
                     </div>
-                )}
+                    <button className="collapse-btn" onClick={() => setCollapsed(!collapsed)} title={collapsed ? 'Expandir' : 'Contraer'}>
+                        {collapsed ? '→' : '←'}
+                    </button>
+                </div>
+                {!collapsed && menuContent}
+            </div>
+
+            {/* ── Panel móvil (bottom sheet) ── */}
+            <div className={`layer-menu mobile-menu ${menuOpen ? 'open' : ''}`}>
+                <div className="mobile-menu-handle" onClick={() => setMenuOpen(false)}>
+                    <span className="handle-bar" />
+                    <div className="header-content">
+                        <h3>Capas</h3>
+                        {activeCount > 0 && <span className="active-badge">{activeCount}</span>}
+                    </div>
+                </div>
+                {menuContent}
             </div>
 
             {attributeTableLayerId && activeTableLayer && (
-                <AttributeTable layerName={activeTableLayer.name} features={activeTableFeatures} onClose={() => setAttributeTableLayerId(null)} />
+                <AttributeTable
+                    layerName={activeTableLayer.name}
+                    features={activeTableFeatures}
+                    onClose={() => setAttributeTableLayerId(null)}
+                />
             )}
         </>
     );

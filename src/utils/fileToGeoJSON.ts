@@ -155,14 +155,12 @@ async function parseKMZ(file: File): Promise<ParseResult> {
         }
 
         const buffer  = await readAsArrayBuffer(file);
-        // @ts-ignore
         const zip     = await JSZip.loadAsync(buffer);
         const kmlFile = Object.keys(zip.files).find(name =>
             name.toLowerCase().endsWith('.kml') && !zip.files[name].dir
         );
         if (!kmlFile) return { ok: false, error: 'No se encontró ningún archivo .kml dentro del KMZ' };
 
-        // @ts-ignore
         const kmlText = await zip.files[kmlFile].async('text');
         const fc      = kmlToGeoJSON(kmlText);
         if (!fc.features.length) {
@@ -196,7 +194,7 @@ async function parseShapefile(file: File): Promise<ParseResult> {
     console.debug('[fileToGeoJSON] parseando como Shapefile ZIP...');
     try {
         // Importación dinámica — requiere: npm install shpjs
-        let shp: typeof import('shpjs');
+        let shp: any;
         try {
             shp = await import('shpjs');
         } catch {
@@ -209,7 +207,6 @@ async function parseShapefile(file: File): Promise<ParseResult> {
         const buffer = await readAsArrayBuffer(file);
 
         // shpjs recibe el .zip con shp + dbf + prj para preservar atributos y proyección
-        // @ts-ignore
         const result = await shp.default(buffer);
 
         // shpjs puede devolver un array de FeatureCollections (múltiples capas en el zip)

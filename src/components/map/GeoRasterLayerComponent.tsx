@@ -13,6 +13,7 @@ interface GeoRasterLayerProps {
     georaster: unknown;
     opacity?: number;
     resolution?: number;
+    layerId?: string;
 }
 
 // Pane dedicado — z-index 450 queda sobre el mapa base (tilePane = 200)
@@ -67,7 +68,7 @@ const GeoRasterLayerComponent: React.FC<GeoRasterLayerProps> = ({
 
             // Zoom automático al extent del raster
             try {
-                const g = georaster as { xmin: number; xmax: number; ymin: number; ymax: number };
+                const g = georaster as any;
                 if (g.xmin !== undefined) {
                     const Leaflet = (await import('leaflet')).default;
                     const bounds  = Leaflet.latLngBounds([g.ymin, g.xmin], [g.ymax, g.xmax]);
@@ -85,7 +86,7 @@ const GeoRasterLayerComponent: React.FC<GeoRasterLayerProps> = ({
                 layerRef.current = null;
             }
         };
-    }, [georaster, map]);
+    }, [georaster, map, opacity, resolution]);
 
     // Actualizar opacidad sin re-montar la capa
     useEffect(() => {
