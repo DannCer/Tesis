@@ -18,6 +18,11 @@ export interface LayerConfig {
     showLegend?: boolean;
     color?:      string;
     bounds?:     any;
+    legendRamp?: {
+        colors: string[];
+        minLabel?: string;
+        maxLabel?: string;
+    };
 }
 
 export const VECTOR_STYLE_DEFAULTS = { weight: 2, opacity: 1, fillOpacity: 0.15 };
@@ -42,6 +47,7 @@ const builtRasterLayers: LayerConfig[] = RASTER_LAYERS.map(r => ({
     wmsLayer:    r.wmsLayer,
     year:        r.year,
     timeValue:   r.timeValue,
+    legendRamp:  r.legendRamp,
     showLegend:  true,
 }));
 

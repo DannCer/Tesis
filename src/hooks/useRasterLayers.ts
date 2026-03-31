@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { rasterService, PixelInfo } from '../services/rasterService';
 import { logger } from '../config/env';
 import L from 'leaflet';
@@ -22,6 +22,8 @@ export const useRasterLayers = () => {
     const [opacityLayers, setOpacityLayers] = useState<Record<string, number>>({});
     const [pixelInfo, setPixelInfo] = useState<MapPixelData | null>(null);
     const [loading, setLoading] = useState(false);
+    const pixelQueryControllerRef = useRef<AbortController | null>(null);
+    const pixelQuerySeqRef = useRef(0);
 
     const toggleRasterLayer = useCallback((layerName: string, isActive: boolean) => {
         setActiveLayers(prev => ({ ...prev, [layerName]: isActive }));
@@ -35,6 +37,13 @@ export const useRasterLayers = () => {
     }, []);
 
     const queryPixelValue = useCallback(async (event: L.LeafletMouseEvent, map: L.Map) => {
+        const querySeq = ++pixelQuerySeqRef.current;
+        if (pixelQueryControllerRef.current) {
+            pixelQueryControllerRef.current.abort();
+        }
+        const controller = new AbortController();
+        pixelQueryControllerRef.current = controller;
+
         try {
             const activeSeries = AVAILABLE_LAYERS.filter(l => 
                 l.type === 'raster' && activeLayers[l.id]
@@ -64,11 +73,13 @@ export const useRasterLayers = () => {
                 layerName: serie.wmsLayer || 'usv_mosaico',
                 params: {
                     ...baseParams,
-                    time: serie.timeValue
+                    time: serie.timeValue,
+                    signal: controller.signal,
                 }
             }));
 
             const results = await rasterService.getMultiplePixelValues(queries);
+            if (querySeq !== pixelQuerySeqRef.current) return;
 
             const enrichedResults: EnrichedPixelInfo[] = results.map((result, index) => {
                 const serie = activeSeries[index];
@@ -87,6 +98,8 @@ export const useRasterLayers = () => {
             });
 
         } catch (error: any) {
+            if (error?.name === 'AbortError') return;
+            if (querySeq !== pixelQuerySeqRef.current) return;
             logger.error('Error consultando píxel:', error);
             setPixelInfo({ 
                 coordinates: [event.latlng.lat, event.latlng.lng], 
@@ -95,11 +108,19 @@ export const useRasterLayers = () => {
                 timestamp: Date.now() 
             });
         } finally {
-            setLoading(false);
+            if (querySeq === pixelQuerySeqRef.current) {
+                setLoading(false);
+            }
         }
     }, [activeLayers]);
 
-    const clearPixelInfo = useCallback(() => setPixelInfo(null), []);
+    const clearPixelInfo = useCallback(() => {
+        if (pixelQueryControllerRef.current) {
+            pixelQueryControllerRef.current.abort();
+            pixelQueryControllerRef.current = null;
+        }
+        setPixelInfo(null);
+    }, []);
 
     return {
         activeLayers,

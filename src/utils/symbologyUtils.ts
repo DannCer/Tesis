@@ -185,14 +185,19 @@ export function classifyFeatures(
     method: 'equal' | 'quantile',
     rampName: string
 ): ClassifiedEntry[] | null {
-    const values = features
-        .map(f => evaluateExpression(expression, f.properties ?? {}))
-        .filter((v): v is number => v !== null);
+    const values: number[] = [];
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
 
-    if (values.length === 0) return null;
+    for (const feature of features) {
+        const value = evaluateExpression(expression, feature.properties ?? {});
+        if (value === null) continue;
+        values.push(value);
+        if (value < min) min = value;
+        if (value > max) max = value;
+    }
 
-    const min = Math.min(...values);
-    const max = Math.max(...values);
+    if (values.length === 0 || !isFinite(min) || !isFinite(max)) return null;
 
     // Caso especial: todos los valores son iguales
     if (min === max) {

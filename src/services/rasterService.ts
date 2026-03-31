@@ -17,6 +17,7 @@ export interface PixelQueryParams {
     clickPoint: [number, number];
     srs?: string;
     time?: string | null;
+    signal?: AbortSignal;
 }
 
 export interface PixelInfo {
@@ -31,6 +32,9 @@ export interface PixelInfo {
 
 class RasterService {
     private baseUrl: string;
+    private capabilitiesCache: { xml: string; ts: number } | null = null;
+    private readonly capabilitiesTtlMs = 5 * 60 * 1000;
+    private layerExtentCache = new Map<string, [number, number][] | null>();
 
     constructor() {
         // URL con MAP= del proyecto ráster
@@ -46,6 +50,7 @@ class RasterService {
                 clickPoint,
                 srs  = 'EPSG:4326',
                 time = null,
+                signal,
             } = params;
 
             const requestParams = new URLSearchParams({
@@ -74,7 +79,7 @@ class RasterService {
             const url = `${this.baseUrl}&${requestParams.toString()}`;
             logger.debug('GetFeatureInfo QGIS:', url);
 
-            const response = await fetch(url);
+            const response = await fetch(url, { signal });
             if (!response.ok) throw new Error(`Error GetFeatureInfo: ${response.status}`);
 
             const data = await response.json();
@@ -148,9 +153,19 @@ class RasterService {
     /** Extensión de capa desde WMS GetCapabilities */
     async getLayerExtent(layerName: string): Promise<[number, number][] | null> {
         try {
-            const url = `${this.baseUrl}&SERVICE=WMS&VERSION=1.1.1&REQUEST=GetCapabilities`;
-            const response = await fetch(url);
-            const xmlText  = await response.text();
+            if (this.layerExtentCache.has(layerName)) {
+                return this.layerExtentCache.get(layerName) ?? null;
+            }
+            const now = Date.now();
+            let xmlText: string;
+            if (this.capabilitiesCache && (now - this.capabilitiesCache.ts) < this.capabilitiesTtlMs) {
+                xmlText = this.capabilitiesCache.xml;
+            } else {
+                const url = `${this.baseUrl}&SERVICE=WMS&VERSION=1.1.1&REQUEST=GetCapabilities`;
+                const response = await fetch(url);
+                xmlText = await response.text();
+                this.capabilitiesCache = { xml: xmlText, ts: now };
+            }
             const xmlDoc   = new DOMParser().parseFromString(xmlText, 'text/xml');
 
             const layers = Array.from(xmlDoc.querySelectorAll('Layer > Name'));
@@ -160,12 +175,15 @@ class RasterService {
                 const bbox = node.parentElement.querySelector('LatLonBoundingBox') ??
                              node.parentElement.querySelector('BoundingBox[SRS="EPSG:4326"]');
                 if (bbox) {
-                    return [
+                    const extent: [number, number][] = [
                         [parseFloat(bbox.getAttribute('miny') ?? '0'), parseFloat(bbox.getAttribute('minx') ?? '0')],
                         [parseFloat(bbox.getAttribute('maxy') ?? '0'), parseFloat(bbox.getAttribute('maxx') ?? '0')],
                     ];
+                    this.layerExtentCache.set(layerName, extent);
+                    return extent;
                 }
             }
+            this.layerExtentCache.set(layerName, null);
             return null;
         } catch (error) {
             logger.error('Error obteniendo extensión ráster:', error);
