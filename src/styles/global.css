@@ -319,6 +319,26 @@ html, body {
     overflow: hidden;
 }
 
+.legend-section {
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.legend-layer-title {
+    font-size: 11px;
+    display: block;
+    margin-bottom: 8px;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.legend-image {
+    max-width: 100%;
+    display: block;
+}
+
 /* ============================================
    ESTILOS PARA POPUPS DE CAPAS VECTORIALES
    ============================================ */

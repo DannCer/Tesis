@@ -1,5 +1,5 @@
-import React, { memo, useMemo, useRef, useEffect } from 'react';
-import { GeoJSON, WMSTileLayer } from 'react-leaflet';
+import React, { memo, useMemo, useRef, useEffect, useState, useCallback } from 'react';
+import { GeoJSON, ImageOverlay, WMSTileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { config } from '../../config/env';
 
@@ -14,6 +14,84 @@ interface VectorLayerProps {
     onEachFeature: (feature: any, layer: L.Layer) => void;
     zIndex?: number;
 }
+
+interface ViewportWmsOverlayProps {
+    layerId: string;
+    layerName: string;
+    opacity: number;
+    zIndex: number;
+    timestamp: number;
+}
+
+const ViewportWmsOverlay: React.FC<ViewportWmsOverlayProps> = ({
+    layerId,
+    layerName,
+    opacity,
+    zIndex,
+    timestamp,
+}) => {
+    const map = useMap();
+    const [overlay, setOverlay] = useState<{ url: string; bounds: L.LatLngBoundsExpression } | null>(null);
+
+    const updateOverlay = useCallback(() => {
+        const size = map.getSize();
+        if (!size.x || !size.y) return;
+
+        const bounds = map.getBounds();
+        const sw = L.CRS.EPSG3857.project(bounds.getSouthWest());
+        const ne = L.CRS.EPSG3857.project(bounds.getNorthEast());
+        const bbox3857 = `${sw.x},${sw.y},${ne.x},${ne.y}`;
+
+        const params = new URLSearchParams({
+            SERVICE: 'WMS',
+            VERSION: '1.1.1',
+            REQUEST: 'GetMap',
+            LAYERS: layerName,
+            STYLES: '',
+            FORMAT: 'image/png',
+            TRANSPARENT: 'true',
+            SRS: 'EPSG:3857',
+            BBOX: bbox3857,
+            WIDTH: String(size.x),
+            HEIGHT: String(size.y),
+            BUFFER: '128',
+            _lid: layerId,
+            _ts: String(timestamp),
+        });
+
+        setOverlay({
+            url: `${config.qgisServer.wmsUrl}&${params.toString()}`,
+            bounds: [
+                [bounds.getSouth(), bounds.getWest()],
+                [bounds.getNorth(), bounds.getEast()],
+            ],
+        });
+    }, [map, layerName, layerId, timestamp]);
+
+    useEffect(() => {
+        updateOverlay();
+        map.on('moveend', updateOverlay);
+        map.on('zoomend', updateOverlay);
+        map.on('resize', updateOverlay);
+        return () => {
+            map.off('moveend', updateOverlay);
+            map.off('zoomend', updateOverlay);
+            map.off('resize', updateOverlay);
+        };
+    }, [map, updateOverlay]);
+
+    if (!overlay) return null;
+
+    return (
+        <ImageOverlay
+            key={`${layerId}-viewport-${timestamp}`}
+            url={overlay.url}
+            bounds={overlay.bounds}
+            opacity={opacity}
+            zIndex={zIndex}
+        />
+    );
+};
 
 /**
  * Capa vectorial: WMSTileLayer (visual desde QGIS Server) + GeoJSON invisible (interactividad).
@@ -98,17 +176,27 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
 
     return (
         <>
-            {/* Visual — simbología desde QGIS Server WMS */}
-            <WMSTileLayer
-                key={`${id}-wms`}
-                url={config.qgisServer.wmsUrl}   // URL con ?MAP=vectorProject
-                layers={wmsLayer}                 // nombre exacto de la capa QGIS (sin workspace)
-                format="image/png"
-                transparent={true}
-                opacity={opacity}
-                zIndex={zIndex}
-                params={{ _ts: timestamp } as any}
-            />
+            {/* Visual — puntos en imagen única (evita recorte por bordes de tile), resto en tiles */}
+            {hasPoints ? (
+                <ViewportWmsOverlay
+                    layerId={id}
+                    layerName={wmsLayer}
+                    opacity={opacity}
+                    zIndex={zIndex}
+                    timestamp={timestamp}
+                />
+            ) : (
+                <WMSTileLayer
+                    key={`${id}-wms`}
+                    url={config.qgisServer.wmsUrl}   // URL con ?MAP=vectorProject
+                    layers={wmsLayer}                 // nombre exacto de la capa QGIS (sin workspace)
+                    format="image/png"
+                    transparent={true}
+                    opacity={opacity}
+                    zIndex={zIndex}
+                    params={{ _ts: timestamp, TILED: true, BUFFER: 128 } as any}
+                />
+            )}
 
             {/* Hit-layer GeoJSON invisible para interactividad */}
             {data && (

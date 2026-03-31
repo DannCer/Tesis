@@ -27,6 +27,11 @@ const GeoRasterLayerComponent: React.FC<GeoRasterLayerProps> = ({
 }) => {
     const map      = useMap();
     const layerRef = useRef<L.Layer | null>(null);
+    const didAutoZoomRef = useRef(false);
+
+    useEffect(() => {
+        didAutoZoomRef.current = false;
+    }, [georaster]);
 
     useEffect(() => {
         if (!georaster) return;
@@ -66,15 +71,22 @@ const GeoRasterLayerComponent: React.FC<GeoRasterLayerProps> = ({
             layer.addTo(map);
             layerRef.current = layer;
 
-            // Zoom automático al extent del raster
-            try {
-                const g = georaster as any;
-                if (g.xmin !== undefined) {
-                    const Leaflet = (await import('leaflet')).default;
-                    const bounds  = Leaflet.latLngBounds([g.ymin, g.xmin], [g.ymax, g.xmax]);
-                    if (bounds.isValid()) map.fitBounds(bounds, { padding: [30, 30] });
+            // Zoom automático solo una vez por ráster para evitar saltos en cambios de opacidad.
+            if (!didAutoZoomRef.current) {
+                try {
+                    const g = georaster as any;
+                    if (g.xmin !== undefined) {
+                        const Leaflet = (await import('leaflet')).default;
+                        const bounds  = Leaflet.latLngBounds([g.ymin, g.xmin], [g.ymax, g.xmax]);
+                        if (bounds.isValid()) {
+                            map.fitBounds(bounds, { padding: [30, 30] });
+                            didAutoZoomRef.current = true;
+                        }
+                    }
+                } catch {
+                    /* sin zoom */
                 }
-            } catch { /* sin zoom */ }
+            }
         };
 
         addLayer();
@@ -86,7 +98,7 @@ const GeoRasterLayerComponent: React.FC<GeoRasterLayerProps> = ({
                 layerRef.current = null;
             }
         };
-    }, [georaster, map, opacity, resolution]);
+    }, [georaster, map, resolution]);
 
     // Actualizar opacidad sin re-montar la capa
     useEffect(() => {

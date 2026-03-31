@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useMemo } from 'react';
+import React, { useCallback, useState, useMemo, useRef } from 'react';
 import {
     MapContainer,
     WMSTileLayer,
@@ -66,6 +66,7 @@ const MapView: React.FC = () => {
     const [swipeActive, setSwipeActive]       = useState(false);
     const [swipeLeft,   setSwipeLeft]         = useState<SwipeLayerConfig | null>(null);
     const [swipeRight,  setSwipeRight]        = useState<SwipeLayerConfig | null>(null);
+    const autoZoomedVectorLayersRef = useRef<Set<string>>(new Set());
 
     const handleSwipeActivate = useCallback((left: SwipeLayerConfig, right: SwipeLayerConfig) => {
         setSwipeLeft(left);
@@ -224,7 +225,10 @@ const MapView: React.FC = () => {
                 toggleLayer(layerId);
                 // Si la estamos activando y ya tiene datos, hacemos zoom
                 if (isActive) {
+                    autoZoomedVectorLayersRef.current.add(layerId);
                     zoomToLayer(layerId, 'vector', vectorLayers[layerId].data);
+                } else {
+                    autoZoomedVectorLayersRef.current.delete(layerId);
                 }
             } else if (isActive) {
                 // Cargar nueva capa — usar wfsName para QGIS Server (puede tener espacios/acentos)
@@ -247,8 +251,8 @@ const MapView: React.FC = () => {
         
         const checkAndZoom = async () => {
             for (const [id, layer] of Object.entries(vectorLayers)) {
-                const isRecent = (Date.now() - layer.timestamp) < 1000;
-                if (layer.visible && layer.data && isRecent) {
+                if (layer.visible && layer.data && !autoZoomedVectorLayersRef.current.has(id)) {
+                    autoZoomedVectorLayersRef.current.add(id);
                     await zoomToLayer(id, 'vector', layer.data);
                 }
             }

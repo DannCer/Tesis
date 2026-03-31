@@ -1,31 +1,111 @@
 /**
  * @fileoverview Configuración centralizada de capas — QGIS Server
  *
- * wfsName  → TypeName EXACTO del WFS GetCapabilities (con guiones bajos)
- * wmsLayer → nombre EXACTO del WMS GetCapabilities (puede tener espacios)
- * group    → agrupa capas en el menú (vectoriales Y ráster comparten grupos)
+ * ============================================================================
+ * GUÍA RÁPIDA: CÓMO AGREGAR NUEVAS CAPAS
+ * ============================================================================
+ *
+ * 1. CAPAS VECTORIALES (WFS):
+ *    - Agregar un objeto al array VECTOR_LAYERS
+ *    - wfsName: Debe coincidir EXACTAMENTE con el <Name> del WFS GetCapabilities
+ *               Usar guiones bajos, sin acentos (ej: 'Zonificacion_geotecnica_2017')
+ *    - wmsLayer: Nombre exacto del WMS (puede tener espacios/acentos)
+ *    - group: Categoría en el menú (usar emojis para mejor UX)
+ *
+ * 2. CAPAS RÁSTER (WMS):
+ *    - Agregar un objeto al array RASTER_LAYERS
+ *    - wmsLayer: Nombre exacto de la capa en QGIS Server
+ *    - year: Año de la serie temporal (para badge en UI)
+ *    - timeValue: Valor TIME para consultas WMS (formato YYYY-MM-DD)
+ *    - group: Misma categoría que vectoriales para menú unificado
+ *
+ * 3. VERIFICAR NOMENCLATURA:
+ *    - WFS GetCapabilities: http://localhost/qgis/...?SERVICE=WFS&REQUEST=GetCapabilities&MAP=...
+ *    - WMS GetCapabilities: http://localhost/qgis/...?SERVICE=WMS&REQUEST=GetCapabilities&MAP=...
+ *    - Copiar los nombres EXACTOS como aparecen en los XML
+ *
+ * 4. EJEMPLO COMPLETO:
+ *    {
+ *        id:          'mi_capa_vectorial',
+ *        name:        'Mi Capa Vectorial',
+ *        description: 'Descripción visible en el menú',
+ *        group:       '🌋 Geológicos',  // o '⚠️ Riesgos', '🏔️ Susceptibilidad', etc.
+ *        wfsName:     'mi_capa_vectorial',  // Exacto del WFS
+ *        wmsLayer:    'Mi Capa Vectorial',  // Exacto del WMS
+ *    }
+ * ============================================================================
  */
 
+/**
+ * Definición de capa vectorial WFS
+ */
 export interface VectorLayerDef {
+    /** ID único interno (sin espacios, snake_case recomendado) */
     id:          string;
+    /** Nombre visible en el menú de capas */
     name:        string;
+    /** Descripción corta visible debajo del nombre */
     description: string;
+    /** Grupo/categoría en el menú (usar emojis para mejor UX) */
     group:       string;
+    /**
+     * TypeName EXACTO del WFS GetCapabilities
+     * - Usar guiones bajos (_) en lugar de espacios
+     * - Sin acentos ni caracteres especiales
+     * - Ejemplo: 'Zonificacion_geotecnica_2017'
+     */
     wfsName?:    string;
+    /**
+     * Nombre EXACTO del WMS GetCapabilities
+     * - Puede tener espacios y acentos como en QGIS Desktop
+     * - Ejemplo: 'Zonificación geotécnica 2017'
+     */
     wmsLayer?:   string;
+    /** Color del stroke (borde) para polígonos/líneas */
     color?:      string;
+    /** Grosor del borde en píxeles (default: 2) */
     weight?:     number;
+    /** Opacidad del relleno para polígonos (0-1, default: 0.15) */
     fillOpacity?: number;
 }
 
+/**
+ * Definición de capa ráster WMS
+ */
 export interface RasterLayerDef {
+    /** ID único interno (sin espacios, snake_case recomendado) */
     id:          string;
+    /** Nombre visible en el menú de capas */
     name:        string;
+    /** Descripción corta visible debajo del nombre */
     description: string;
-    group:       string;   // ← ahora ráster también tiene grupo
+    /**
+     * Grupo/categoría en el menú
+     * Debe coincidir con algún grupo de VECTOR_LAYERS para menú unificado
+     */
+    group:       string;
+    /**
+     * Nombre EXACTO de la capa WMS en QGIS Server
+     * Para series temporales, usar el nombre de la capa base
+     */
     wmsLayer:    string;
+    /** Año de la serie temporal (para badge en UI) */
     year?:       number;
+    /**
+     * Valor TIME para consultas WMS con dimensión temporal
+     * Formato: YYYY-MM-DD (ej: '2022-01-01')
+     */
     timeValue?:  string;
+    /**
+     * Configuración opcional de rampa de colores para la leyenda en frontend.
+     * Si está presente, la leyenda mostrará una barra continua en lugar de
+     * recuadros/clases discretas.
+     */
+    legendRamp?: {
+        colors: string[];
+        minLabel?: string;
+        maxLabel?: string;
+    };
 }
 
 // ============================================================================
@@ -291,6 +371,11 @@ export const RASTER_LAYERS: RasterLayerDef[] = [
         group:       '🌋 Geológicos',
         wmsLayer:    'Subsidencia_CDMX_2022',
         year:        2022,
+        legendRamp: {
+            colors: ['#2c7bb6', '#abd9e9', '#ffffbf', '#fdae61', '#d7191c'],
+            minLabel: 'Bajo',
+            maxLabel: 'Alto',
+        },
     },
     // Agrega aquí tus series USV u otros ráster con su grupo correspondiente
     // {

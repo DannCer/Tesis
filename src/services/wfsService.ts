@@ -21,6 +21,9 @@ class WFSService {
     private baseUrl: string;
     private timeout: number;
     private maxFeatures: number;
+    private capabilitiesCache: { xml: string; ts: number } | null = null;
+    private readonly capabilitiesTtlMs = 5 * 60 * 1000;
+    private layerExtentCache = new Map<string, [number, number][] | null>();
 
     constructor() {
         // La URL ya incluye ?MAP=... — solo agregamos los parámetros WFS
@@ -100,10 +103,16 @@ class WFSService {
     /** GetCapabilities del servicio WFS */
     async getCapabilities(): Promise<string> {
         try {
+            const now = Date.now();
+            if (this.capabilitiesCache && (now - this.capabilitiesCache.ts) < this.capabilitiesTtlMs) {
+                return this.capabilitiesCache.xml;
+            }
             const url = `${this.baseUrl}&SERVICE=WFS&VERSION=1.1.0&REQUEST=GetCapabilities`;
             const response = await fetch(url);
             if (!response.ok) throw new Error(`Error GetCapabilities: ${response.status}`);
-            return response.text();
+            const xml = await response.text();
+            this.capabilitiesCache = { xml, ts: now };
+            return xml;
         } catch (error) {
             logger.error('Error en getCapabilities:', error);
             throw error;
@@ -210,6 +219,9 @@ class WFSService {
      */
     async getLayerExtent(layerName: string): Promise<[number, number][] | null> {
         try {
+            if (this.layerExtentCache.has(layerName)) {
+                return this.layerExtentCache.get(layerName) ?? null;
+            }
             const capXml = await this.getCapabilities();
             const parser = new DOMParser();
             const xmlDoc = parser.parseFromString(capXml, 'text/xml');
@@ -228,19 +240,24 @@ class WFSService {
                     const lower = bbox.querySelector('LowerCorner')?.textContent?.trim().split(' ');
                     const upper = bbox.querySelector('UpperCorner')?.textContent?.trim().split(' ');
                     if (lower && upper) {
-                        return [
+                        const extent: [number, number][] = [
                             [parseFloat(lower[1]), parseFloat(lower[0])],
                             [parseFloat(upper[1]), parseFloat(upper[0])],
                         ];
+                        this.layerExtentCache.set(layerName, extent);
+                        return extent;
                     }
                     // WFS 1.0: atributos minx, miny
                     const minx = parseFloat(bbox.getAttribute('minx') ?? '0');
                     const miny = parseFloat(bbox.getAttribute('miny') ?? '0');
                     const maxx = parseFloat(bbox.getAttribute('maxx') ?? '0');
                     const maxy = parseFloat(bbox.getAttribute('maxy') ?? '0');
-                    return [[miny, minx], [maxy, maxx]];
+                    const extent: [number, number][] = [[miny, minx], [maxy, maxx]];
+                    this.layerExtentCache.set(layerName, extent);
+                    return extent;
                 }
             }
+            this.layerExtentCache.set(layerName, null);
             return null;
         } catch (error) {
             logger.error('Error obteniendo extensión WFS:', error);

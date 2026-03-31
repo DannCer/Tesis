@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef, memo } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect, memo } from 'react';
 import '../../styles/AttributeTable.css';
 
 interface AttributeTableProps {
@@ -156,7 +156,8 @@ function splitLogical(expr: string, keyword: string): string[] {
 // CONSTANTE GLOBAL (fuera del componente para evitar re-declaración)
 // ============================================================================
 
-const ROWS_PER_PAGE = 1000;
+const ROWS_PER_PAGE = 300;
+const SEARCH_DEBOUNCE_MS = 180;
 
 // ============================================================================
 // COMPONENTE
@@ -164,6 +165,7 @@ const ROWS_PER_PAGE = 1000;
 
 const AttributeTable: React.FC<AttributeTableProps> = memo(({ layerName, features, onClose }) => {
     const [searchTerm,    setSearchTerm]    = useState('');
+    const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
     const [sqlInput,      setSqlInput]      = useState('');
     const [sqlApplied,    setSqlApplied]    = useState('');
     const [sqlError,      setSqlError]      = useState('');
@@ -175,6 +177,13 @@ const AttributeTable: React.FC<AttributeTableProps> = memo(({ layerName, feature
     const sortColumnRef    = useRef<string | null>(null);
     const sortDirectionRef = useRef<'asc' | 'desc'>('asc');
 
+    useEffect(() => {
+        const timeoutId = window.setTimeout(() => {
+            setDebouncedSearchTerm(searchTerm);
+        }, SEARCH_DEBOUNCE_MS);
+        return () => window.clearTimeout(timeoutId);
+    }, [searchTerm]);
+
     const columns = useMemo(() => {
         if (!features.length) return [];
         const keys = new Set<string>();
@@ -184,16 +193,22 @@ const AttributeTable: React.FC<AttributeTableProps> = memo(({ layerName, feature
         return Array.from(keys);
     }, [features]);
 
+    const baseRows = useMemo(
+        () => features.map(f => (f.properties as Record<string, unknown>) || {}),
+        [features]
+    );
+
+    const sqlRows = useMemo(() => {
+        if (!sqlApplied.trim()) return baseRows;
+        const result = applySqlWhere(baseRows, sqlApplied);
+        return 'message' in result ? [] : result.rows;
+    }, [baseRows, sqlApplied]);
+
     const processedRows = useMemo(() => {
-        let rows = features.map(f => f.properties as Record<string, unknown> || {});
+        let rows = sqlRows;
 
-        if (sqlApplied.trim()) {
-            const result = applySqlWhere(rows, sqlApplied);
-            rows = 'message' in result ? [] : result.rows;
-        }
-
-        if (searchTerm.trim()) {
-            const term = searchTerm.toLowerCase();
+        if (debouncedSearchTerm.trim()) {
+            const term = debouncedSearchTerm.toLowerCase();
             rows = rows.filter(row =>
                 Object.values(row).some(val => String(val ?? '').toLowerCase().includes(term))
             );
@@ -209,7 +224,7 @@ const AttributeTable: React.FC<AttributeTableProps> = memo(({ layerName, feature
         }
 
         return rows;
-    }, [features, sqlApplied, searchTerm, sortColumn, sortDirection]);
+    }, [sqlRows, debouncedSearchTerm, sortColumn, sortDirection]);
 
     const totalPages    = Math.max(1, Math.ceil(processedRows.length / ROWS_PER_PAGE));
     const paginatedRows = processedRows.slice(
@@ -234,7 +249,7 @@ const AttributeTable: React.FC<AttributeTableProps> = memo(({ layerName, feature
     const applySQL = useCallback(() => {
         setSqlError('');
         const test = applySqlWhere(
-            features.map(f => f.properties as Record<string, unknown> || {}),
+            baseRows,
             sqlInput
         );
         if ('message' in test) {
@@ -243,7 +258,7 @@ const AttributeTable: React.FC<AttributeTableProps> = memo(({ layerName, feature
             setSqlApplied(sqlInput);
             setCurrentPage(1);
         }
-    }, [sqlInput, features]);
+    }, [sqlInput, baseRows]);
 
     const clearSQL = useCallback(() => {
         setSqlInput('');

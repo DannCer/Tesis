@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import ReactDOM from 'react-dom';
 import '../../styles/LayerMenu.css';
 import { LayerData } from '../../hooks/useWFSLayers';
@@ -85,16 +85,6 @@ const getRasterDownloadUrl = (layer: LayerConfig): string => {
     url.searchParams.set('FORMAT',  'image/tiff');
     if (layer.timeValue) url.searchParams.set('TIME', layer.timeValue);
     return url.toString();
-};
-
-/** URL de servicio WFS limpia para consumo en SIG (sin REQUEST) */
-const getWFSServiceUrl = (layer: LayerConfig): string => {
-    const wfsName = (layer as any).wfsName ?? layer.id;
-    const url = new URL(config.qgisServer.wfsUrl);
-    url.searchParams.set('SERVICE',  'WFS');
-    url.searchParams.set('VERSION',  '2.0.0');
-    url.searchParams.set('REQUEST',  'GetCapabilities');
-    return `${url.toString()}  |  TYPENAME: ${wfsName}`;
 };
 
 /** Devuelve { baseUrl, capabilitiesUrl, layerName } para el modal de servicio */
@@ -946,13 +936,27 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
     const isLayerLoading = (id: string) => loading[id] || false;
     const getLayerError  = (id: string) => errors[id] || null;
 
-    const filteredLayers = AVAILABLE_LAYERS.filter(l =>
-        l.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        l.description.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const normalizedSearch = searchTerm.toLowerCase();
+    const filteredLayers = useMemo(() => (
+        AVAILABLE_LAYERS.filter(l =>
+            l.name.toLowerCase().includes(normalizedSearch) ||
+            l.description.toLowerCase().includes(normalizedSearch)
+        )
+    ), [normalizedSearch]);
 
-    // Grupos únicos en orden de aparición (vectoriales + ráster mezclados)
-    const allGroups = Array.from(new Set(filteredLayers.map(l => l.group)));
+    // Pre-agrupado para evitar filtrar por grupo en cada render.
+    const groupedLayers = useMemo(() => {
+        const grouped = new Map<string, LayerConfig[]>();
+        filteredLayers.forEach((layer) => {
+            const list = grouped.get(layer.group);
+            if (list) {
+                list.push(layer);
+            } else {
+                grouped.set(layer.group, [layer]);
+            }
+        });
+        return grouped;
+    }, [filteredLayers]);
 
     const activeCount      = Object.values(layers).filter(l => l?.visible).length;
     const activeTableLayer = attributeTableLayerId ? AVAILABLE_LAYERS.find(l => l.id === attributeTableLayerId) : null;
@@ -1042,9 +1046,8 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
             <div className="layers-list">
 
                 {/* ── Grupos unificados (vector + ráster) ── */}
-                {allGroups.map(group => {
-                    const groupLayers = filteredLayers.filter(l => l.group === group);
-                    if (!groupLayers.length) return null;
+                {[...groupedLayers.entries()].map(([group, groupLayers]) => {
+                    if (groupLayers.length === 0) return null;
                     const isGroupCollapsed = collapsedGroups.has(group);
                     const activeInGroup    = groupLayers.filter(l => isLayerActive(l.id)).length;
 

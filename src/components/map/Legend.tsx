@@ -42,11 +42,11 @@ const VectorSection: React.FC<{
     const wmsName = layer.wmsLayer ?? layer.id;
 
     return (
-        <div style={{ marginBottom: '14px', paddingBottom: '12px', borderBottom: '1px solid #f0f0f0' }}>
+        <div className="legend-section">
             <img
                 src={getWMSLegendUrl(wmsName)}
                 alt={`Leyenda ${layer.name}`}
-                style={{ maxWidth: '100%', display: 'block' }}
+                className="legend-image"
                 onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
             />
         </div>
@@ -155,7 +155,7 @@ const Legend: React.FC<LegendProps> = memo(({
             L.DomEvent.disableClickPropagation(legendRef.current);
             L.DomEvent.disableScrollPropagation(legendRef.current);
         }
-    });
+    }, []);
 
     // ── Capas vectoriales activas con leyenda definida ──────────────────────
     const activeVectorIds = useMemo(() =>
@@ -175,20 +175,16 @@ const Legend: React.FC<LegendProps> = memo(({
             .filter((l): l is LayerConfig => !!l)
     , [activeVectorIds]);
 
-    // ── Capas ráster activas (para WMS legend) ──────────────────────────────
-    const activeRasterWmsLayers = useMemo(() =>
-        Array.from(new Set(
-            AVAILABLE_LAYERS
-                .filter(l => l.type === 'raster' && (
-                    activeLayers[l.id] === true ||
-                    (activeLayers[l.id] as any)?.visible === true
-                ))
-                .map(l => l.wmsLayer ?? 'usv_mosaico')
+    // ── Capas ráster activas (leyenda por capa) ─────────────────────────────
+    const activeRasterLayers = useMemo(() =>
+        AVAILABLE_LAYERS.filter(l => l.type === 'raster' && (
+            activeLayers[l.id] === true ||
+            (activeLayers[l.id] as any)?.visible === true
         ))
     , [activeLayers]);
 
     const visibleExternalLayers = externalLayers.filter(l => externalVisible[l.id] !== false);
-    const hasContent = activeVectorIds.length > 0 || activeRasterWmsLayers.length > 0 || visibleExternalLayers.length > 0;
+    const hasContent = activeVectorIds.length > 0 || activeRasterLayers.length > 0 || visibleExternalLayers.length > 0;
     if (!hasContent) return null;
 
     const getWMSLegendUrl = (layerName: string) => {
@@ -244,23 +240,44 @@ const Legend: React.FC<LegendProps> = memo(({
                     ))}
 
                     {/* ── Capas ráster (WMS) ── */}
-                    {activeRasterWmsLayers.map(wmsName => (
-                        <div key={wmsName} style={{ marginBottom: '14px' }}>
-                            <strong style={{ fontSize: '11px', display: 'block', marginBottom: '8px', color: '#555', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                                {wmsName === 'usv_mosaico' ? 'Uso de Suelo y Vegetación' : wmsName.replace(/_/g, ' ')}
-                            </strong>
-                            <img
-                                src={getWMSLegendUrl(wmsName)}
-                                alt={`Leyenda ${wmsName}`}
-                                style={{ maxWidth: '100%', display: 'block' }}
-                            />
-                        </div>
-                    ))}
+                    {activeRasterLayers.map(layer => {
+                        const wmsName = layer.wmsLayer ?? 'usv_mosaico';
+                        const ramp = layer.legendRamp;
+                        return (
+                            <div key={layer.id} style={{ marginBottom: '14px' }}>
+                                <strong style={{ fontSize: '11px', display: 'block', marginBottom: '8px', color: '#555', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+                                    {layer.name}
+                                </strong>
+                                {ramp?.colors?.length ? (
+                                    <div>
+                                        <div
+                                            style={{
+                                                height: 14,
+                                                borderRadius: 4,
+                                                border: '1px solid #ddd',
+                                                background: `linear-gradient(to right, ${ramp.colors.join(', ')})`,
+                                            }}
+                                        />
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#777', marginTop: 4 }}>
+                                            <span>{ramp.minLabel ?? 'Mínimo'}</span>
+                                            <span>{ramp.maxLabel ?? 'Máximo'}</span>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <img
+                                        src={getWMSLegendUrl(wmsName)}
+                                        alt={`Leyenda ${wmsName}`}
+                                        style={{ maxWidth: '100%', display: 'block' }}
+                                    />
+                                )}
+                            </div>
+                        );
+                    })}
 
                     {/* ── Capas externas importadas ── */}
                     {visibleExternalLayers.length > 0 && (
                         <>
-                            <div style={{ fontSize: '10px', color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '8px', paddingTop: (activeVectorIds.length > 0 || activeRasterWmsLayers.length > 0) ? '4px' : 0 }}>
+                            <div style={{ fontSize: '10px', color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '8px', paddingTop: (activeVectorIds.length > 0 || activeRasterLayers.length > 0) ? '4px' : 0 }}>
                                 Capas importadas
                             </div>
                             {visibleExternalLayers.map(layer => (
