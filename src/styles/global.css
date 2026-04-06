@@ -264,7 +264,8 @@ html, body {
     min-width: 200px;
     max-width: 280px;
     border: none;
-    overflow: hidden;
+    /* overflow:clip mantiene el border-radius sin interceptar eventos wheel */
+    overflow: clip;
 }
 
 .legend-header {
@@ -303,13 +304,21 @@ html, body {
 
 .legend-body {
     padding: 12px;
-    max-height: 400px;
+    max-height: 55vh;         /* relativo a la ventana para pantallas pequeñas */
     overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;   /* evita scroll-chaining al mapa */
     transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
                 padding 0.3s ease,
                 opacity 0.2s ease;
     opacity: 1;
+    /* Scrollbar delgado en navegadores modernos */
+    scrollbar-width: thin;
+    scrollbar-color: #c9a0b4 transparent;
 }
+.legend-body::-webkit-scrollbar { width: 5px; }
+.legend-body::-webkit-scrollbar-track { background: transparent; }
+.legend-body::-webkit-scrollbar-thumb { background: #c9a0b4; border-radius: 3px; }
 
 .legend-body--hidden {
     max-height: 0 !important;
