@@ -6,6 +6,7 @@ import './styles/variables.css';
 import './styles/global.css';
 import './styles/responsive-utilities.css';
 import Principal from './pages/Principal';
+import Arquitectura from './pages/Arquitectura';
 import Geovisor from './pages/Geovisor';
 import LayoutPrincipal from './components/layout/LayoutPrincipal';
 import LayoutGeovisor from './components/layout/LayoutGeovisor';
@@ -26,6 +27,14 @@ createRoot(rootElement).render(
           element={
             <LayoutPrincipal>
               <Principal />
+            </LayoutPrincipal>
+          }
+        />
+        <Route
+          path="/arquitectura"
+          element={
+            <LayoutPrincipal>
+              <Arquitectura />
             </LayoutPrincipal>
           }
         />

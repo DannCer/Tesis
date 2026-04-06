@@ -208,6 +208,32 @@ const Principal: React.FC = () => {
         </div>
       </section>
 
+      {/* Arquitectura del Sistema */}
+      <section className="content-section bg-light">
+        <div className="container-max py-5">
+          <div className="row">
+            <div className="col-12 col-md-10 offset-md-1">
+              <div className="section-header">
+                <span className="section-icon">🏗️</span>
+                <h2>Arquitectura del Sistema</h2>
+              </div>
+              <p className="intro-text mb-4">
+                El proyecto ha evolucionado hacia una arquitectura moderna de tres capas utilizando QGIS Server, 
+                React/TypeScript y PostgreSQL/PostGIS. Conoce los detalles técnicos de implementación.
+              </p>
+              <div className="text-center">
+                <button 
+                  className="btn btn-primary btn-lg"
+                  onClick={() => navigate('/arquitectura')}
+                >
+                  Ver Arquitectura Detallada
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Índice de la Tesis */}
       <section className="content-section thesis-index-section">
         <div className="container-max py-5">

@@ -152,7 +152,7 @@ Editar `src/config/layersConfig.ts` y agregar al array `VECTOR_LAYERS`:
     id:          'mi_nueva_capa',           // ID único interno
     name:        'Mi Nueva Capa',           // Nombre visible en el menú
     description: 'Descripción de la capa',  // Descripción corta
-    group:       '🌋 Geológicos',           // Grupo (con emoji opcional)
+    group:       'Geológicos',           // Grupo (con emoji opcional)
     wfsName:     'mi_nueva_capa',          // TypeName exacto del WFS
     wmsLayer:    'Mi Nueva Capa',          // Nombre exacto del WMS
 }
@@ -167,7 +167,7 @@ Agregar al array `RASTER_LAYERS`:
     id:          'raster_2024',
     name:        'Raster 2024',
     description: 'Descripción',
-    group:       '🌋 Geológicos',           // Mismo sistema de grupos
+    group:       'Geológicos',           // Mismo sistema de grupos
     wmsLayer:    'nombre_capa_wms',
     year:        2024,                      // Año para badge
     timeValue:   '2024-01-01',             // Valor TIME para WMS
