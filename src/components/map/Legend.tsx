@@ -147,14 +147,30 @@ const Legend: React.FC<LegendProps> = memo(({
     externalVisible = {},
 }) => {
     const legendRef = useRef<HTMLDivElement>(null);
+    const bodyRef   = useRef<HTMLDivElement>(null);
     const [minimized, setMinimized] = useState(false);
 
-    // Deshabilitar propagación de eventos de Leaflet
+    // Bloquea clicks para que no lleguen al mapa
     useEffect(() => {
-        if (legendRef.current) {
-            L.DomEvent.disableClickPropagation(legendRef.current);
-            L.DomEvent.disableScrollPropagation(legendRef.current);
-        }
+        if (legendRef.current) L.DomEvent.disableClickPropagation(legendRef.current);
+    }, []);
+
+    // Bloquea el zoom de Leaflet cuando el ratón está sobre la leyenda.
+    //
+    // FASE DE BURBUJEO (sin capture):
+    //   1. El evento llega a legend-body → el navegador aplica el scroll nativo ✓
+    //   2. Al burbujear, nuestro handler llama stopPropagation() → el evento
+    //      nunca alcanza el handler de zoom de Leaflet en el MapContainer ✓
+    //   3. NO se llama preventDefault() → el scroll nativo nunca se cancela ✓
+    //
+    // Con { capture: true } el handler se ejecutaba ANTES de que el navegador
+    // pudiera aplicar el scroll, impidiendo el desplazamiento del elemento.
+    useEffect(() => {
+        const el = bodyRef.current;
+        if (!el) return;
+        const stop = (e: WheelEvent) => e.stopPropagation();
+        el.addEventListener('wheel', stop);           // burbujeo, sin capture
+        return () => el.removeEventListener('wheel', stop);
     }, []);
 
     // ── Capas vectoriales activas con leyenda definida ──────────────────────
@@ -228,7 +244,7 @@ const Legend: React.FC<LegendProps> = memo(({
                 </div>
 
                 {/* Cuerpo */}
-                <div className={`legend-body ${minimized ? 'legend-body--hidden' : ''}`}>
+                <div ref={bodyRef} className={`legend-body ${minimized ? 'legend-body--hidden' : ''}`}>
 
                     {/* ── Capas vectoriales (simbología desde GeoServer WMS) ── */}
                     {activeVectorLayers.map(layer => (
