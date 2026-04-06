@@ -36,69 +36,77 @@ class WFSService {
      * Realiza una petición GetFeature a QGIS Server.
      * A diferencia de GeoServer, el typeName NO lleva workspace.
      */
-    async getFeatures(layerName: string, options: WFSOptions = {}): Promise<any> {
-        try {
-            const {
-                maxFeatures = this.maxFeatures,
-                cql_filter = null,
-                propertyName = null,
-                srsName = 'EPSG:4326',
-            } = options;
+    async getFeatures(layerName: string, options: WFSOptions = {}, customMapPath?: string): Promise<any> {
+    try {
+        // 1. Determinar el proyecto .qgz a utilizar
+        const mapPath = customMapPath || config.qgisServer.vectorProject;
 
-            // La URL base ya tiene MAP=..., le añadimos los parámetros WFS
-            const params = new URLSearchParams({
-                SERVICE: 'WFS',
-                VERSION: '1.1.0',
-                REQUEST: 'GetFeature',
-                TYPENAME: layerName,       // sin workspace
-                outputFormat: 'application/vnd.geo+json',
-                //outputFormat: 'application/json',
-                maxFeatures: maxFeatures.toString(),
-                srsName,
-            });
+        // 2. Construir los parámetros de búsqueda (WFS GetFeature)
+        const {
+            maxFeatures = this.maxFeatures,
+            cql_filter = null,
+            propertyName = null,
+            srsName = 'EPSG:4326',
+        } = options;
 
-            if (cql_filter) params.append('CQL_FILTER', cql_filter);
-            if (propertyName) params.append('PROPERTYNAME', propertyName);
+        const params = new URLSearchParams({
+            MAP: mapPath, // Parámetro crucial para QGIS Server
+            SERVICE: 'WFS',
+            VERSION: '1.1.0',
+            REQUEST: 'GetFeature',
+            TYPENAME: layerName,
+            OUTPUTFORMAT: 'application/vnd.geo+json',
+            MAXFEATURES: maxFeatures.toString(),
+            SRSNAME: srsName,
+        });
 
-            // Combinar URL base (que ya tiene ?) con los nuevos parámetros
-            const url = `${this.baseUrl}&${params.toString()}`;
-            logger.debug('Petición WFS QGIS:', url);
+        if (cql_filter) params.append('CQL_FILTER', cql_filter);
+        if (propertyName) params.append('PROPERTYNAME', propertyName);
 
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+        // 3. Construir la URL final limpia
+        // Usamos la baseUrl (que es el .exe) y le pegamos los params
+        const finalUrl = `${this.baseUrl}${this.baseUrl.includes('?') ? '&' : '?'}${params.toString()}`;
+        
+        logger.debug('Petición WFS QGIS:', finalUrl);
 
-            const response = await fetch(url, {
-                signal: controller.signal,
-                headers: { Accept: 'application/json' },
-            });
-            clearTimeout(timeoutId);
+        // 4. Gestión de AbortController para el Timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                logger.error('Error WFS Response:', errorText);
-                throw new Error(`Error WFS: ${response.status} ${response.statusText}`);
-            }
+        const response = await fetch(finalUrl, {
+            signal: controller.signal,
+            headers: { Accept: 'application/json' },
+        });
+        clearTimeout(timeoutId);
 
-            const contentType = response.headers.get('content-type') ?? '';
-            //if (!contentType.includes('application/json') && !contentType.includes('text/plain')) {
-            if (!contentType.includes('json') && !contentType.includes('text/plain')) {
-                const text = await response.text();
-                logger.error('Respuesta inesperada:', text.substring(0, 300));
-                throw new Error('QGIS Server no devolvió JSON. Verifica que la capa esté publicada como WFS.');
-            }
-
-            const data = await response.json();
-            logger.debug(`Features de "${layerName}":`, data.features?.length ?? 0);
-            return data;
-
-        } catch (error: any) {
-            if (error.name === 'AbortError') {
-                throw new Error('La petición tardó demasiado tiempo');
-            }
-            logger.error('Error en getFeatures:', error);
-            throw error;
+        // 5. Validación de la respuesta
+        if (!response.ok) {
+            const errorText = await response.text();
+            logger.error('Error WFS Response:', errorText);
+            throw new Error(`Error WFS: ${response.status} ${response.statusText}`);
         }
+
+        const contentType = response.headers.get('content-type') ?? '';
+        
+        // QGIS Server a veces devuelve application/json o text/plain si hay errores XML
+        if (!contentType.includes('json') && !contentType.includes('text/plain')) {
+            const text = await response.text();
+            logger.error('Respuesta inesperada (posible XML de error):', text.substring(0, 300));
+            throw new Error('QGIS Server no devolvió JSON. Verifica que la capa esté publicada en las Propiedades del Proyecto -> QGIS Server.');
+        }
+
+        const data = await response.json();
+        logger.debug(`Features de "${layerName}":`, data.features?.length ?? 0);
+        return data;
+
+    } catch (error: any) {
+        if (error.name === 'AbortError') {
+            throw new Error('La petición WFS tardó demasiado tiempo (Timeout)');
+        }
+        logger.error('Error en getFeatures:', error);
+        throw error;
     }
+}
 
     /** GetCapabilities del servicio WFS */
     async getCapabilities(): Promise<string> {
