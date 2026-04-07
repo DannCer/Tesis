@@ -8,6 +8,7 @@ import './styles/responsive-utilities.css';
 import Principal from './pages/Principal';
 import Arquitectura from './pages/Arquitectura';
 import Geovisor from './pages/Geovisor';
+import GestionProyectos from './pages/GestionProyectos';
 import LayoutPrincipal from './components/layout/LayoutPrincipal';
 import LayoutGeovisor from './components/layout/LayoutGeovisor';
 import NotFound from './pages/NotFound';
@@ -45,6 +46,10 @@ createRoot(rootElement).render(
               <Geovisor />
             </LayoutGeovisor>
           } 
+        />
+        <Route 
+          path="/gestion-proyectos" 
+          element={<GestionProyectos />} 
         />
         <Route path="*" element={<NotFound />} />
       </Routes>

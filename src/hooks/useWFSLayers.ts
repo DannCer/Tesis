@@ -17,24 +17,18 @@ export interface LayerData {
 }
 
 export const useWFSLayers = () => {
-    const [layers, setLayers] = useState<Record<string, LayerData>>({});
+    const [layers, setLayers]   = useState<Record<string, LayerData>>({});
     const [loading, setLoading] = useState<Record<string, boolean>>({});
-    const [errors, setErrors] = useState<Record<string, string | null>>({});
+    const [errors, setErrors]   = useState<Record<string, string | null>>({});
 
-    const loadLayer = useCallback(async (
-        layerName: string,
-        options: WFSOptions = {},
-        customMapPath?: string // Parámetro para proyectos dinámicos
-    ): Promise<boolean> => {
-        // 1. Iniciar estados de carga ANTES de la petición
-        setLoading(prev => ({ ...prev, [layerName]: true }));
-        setErrors(prev => ({ ...prev, [layerName]: null }));
-
+    const loadLayer = useCallback(async (layerName: string, options: WFSOptions = {}): Promise<boolean> => {
         try {
+            setLoading(prev => ({ ...prev, [layerName]: true }));
+            setErrors(prev => ({ ...prev, [layerName]: null }));
+
             logger.debug('Cargando capa:', layerName);
 
-            // 2. Una sola llamada al servicio usando el customMapPath
-            const data = await wfsService.getFeatures(layerName, options, customMapPath);
+            const data = await wfsService.getFeatures(layerName, options);
 
             if (!data?.features) {
                 throw new Error('Datos de capa inválidos o vacíos');
@@ -50,33 +44,28 @@ export const useWFSLayers = () => {
                 },
             }));
 
-            logger.debug(`Capa ${layerName} cargada: ${data.features.length} features`);
+            logger.debug(`Capa ${layerName} cargada:`, data.features.length, 'features');
             return true;
 
         } catch (error: any) {
             const errorMessage = error.message || 'Error desconocido al cargar la capa';
             logger.error(`Error cargando ${layerName}:`, error);
-            
             setErrors(prev => ({ ...prev, [layerName]: errorMessage }));
-            
-            // Error estructurado para el sistema de monitoreo
             logger.error('Error estructurado:', createError(
-                ErrorType.SERVER, 
-                errorMessage,
+                ErrorType.SERVER, errorMessage,
                 error instanceof Error ? error : undefined,
                 layerName
             ));
             return false;
         } finally {
-            // 3. Finalizar carga independientemente del resultado
             setLoading(prev => ({ ...prev, [layerName]: false }));
         }
     }, []);
 
     const unloadLayer = useCallback((layerName: string) => {
-        setLayers(prev => { const s = { ...prev }; delete s[layerName]; return s; });
-        setErrors(prev => { const s = { ...prev }; delete s[layerName]; return s; });
-        setLoading(prev => { const s = { ...prev }; delete s[layerName]; return s; });
+        setLayers(prev  => { const s = { ...prev };  delete s[layerName]; return s; });
+        setErrors(prev  => { const s = { ...prev };  delete s[layerName]; return s; });
+        setLoading(prev => { const s = { ...prev };  delete s[layerName]; return s; });
     }, []);
 
     const toggleLayer = useCallback((layerName: string) => {
