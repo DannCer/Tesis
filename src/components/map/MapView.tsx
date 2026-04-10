@@ -9,30 +9,31 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { GeoJSON } from 'react-leaflet';
 
-import MapContent from './MapContent';
-import LayerMenu from './LayerMenu';
-import type { ExternalLayer } from './LayerMenu';
-import SwipeControl from './SwipeControl';
-import SwipePanel from './SwipePanel';
-import type { SwipeLayerConfig } from './SwipeControl';
-import { featureStyle, DEFAULT_SYMBOLOGY } from '../../utils/symbologyUtils';
-import GeoRasterLayerComponent from './GeoRasterLayerComponent';
-import PixelInfoPanel from './PixelInfoPanel';
-import Legend from './Legend';
-import PrintDesigner from './PrintDesigner';
-import VectorLayer from './VectorLayer';
-import { useWFSLayers } from '../../hooks/useWFSLayers';
-import { useRasterLayers } from '../../hooks/useRasterLayers';
-import { wfsService } from '../../services/wfsService';
-import { rasterService } from '../../services/rasterService';
-import { config } from '../../config/env';
-import { AVAILABLE_LAYERS, getLayerConfig } from '../../config/layers';
-import '../../styles/mapView.css';
+import MapContent from '@components/map/MapContent';
+import LayerMenu from '@components/map/panels/LayerMenu';
+import type { ExternalLayer } from '@components/map/panels/LayerMenu';
+import SwipeControl from '@components/map/controls/SwipeControl';
+import SwipePanel from '@components/map/tools/SwipePanel';
+import type { SwipeLayerConfig } from '@components/map/controls/SwipeControl';
+import { featureStyle, DEFAULT_SYMBOLOGY } from '@utils/geo/symbologyUtils';
+import GeoRasterLayerComponent from '@components/map/layers/GeoRasterLayerComponent';
+import PixelInfoPanel from '@components/map/panels/PixelInfoPanel';
+import Legend from '@components/map/panels/Legend';
+import PrintDesigner from '@components/map/tools/PrintDesigner';
+import VectorLayer from '@components/map/layers/VectorLayer';
+import { useWFSLayers } from '@hooks/map';
+import { useRasterLayers } from '@hooks/map';
+import { wfsService } from '../../services/geoserver/wfsService';
+import { rasterService } from '../../services/geoserver/rasterService';
+import { config } from '@config/env';
+import { AVAILABLE_LAYERS, getLayerConfig } from '@config/layers';
+import '@styles/mapView.css';
+import { useApiLayersLoader } from '@hooks/api';
 
 /**
  * Filtramos las series ráster desde la configuración global
  */
-const RASTER_SERIES = AVAILABLE_LAYERS.filter(l => l.type === 'raster');
+
 
 interface MapClickHandlerProps {
     onMapClick: (e: L.LeafletMouseEvent, map: L.Map) => void;
@@ -55,6 +56,13 @@ const MapView: React.FC = () => {
         center: [19.4326, -99.1332],
         zoom: 10
     };
+
+     const { layersByGroup } = useApiLayersLoader();
+
+    const RASTER_SERIES = useMemo(
+        () => Object.values(layersByGroup).flat().filter(l => l.type === 'raster'),
+        [layersByGroup]
+    );
     
     const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
     const [printOpen,   setPrintOpen]   = useState(false);
@@ -224,8 +232,8 @@ const MapView: React.FC = () => {
     const handleLayerToggle = useCallback(async (layerId: string, isActive: boolean, layerType: 'vector' | 'raster') => {
         if (layerType === 'vector') {
             if (vectorLayers[layerId]) {
+                // La capa ya existe en el estado — solo alternar visibilidad
                 toggleLayer(layerId);
-                // Si la estamos activando y ya tiene datos, hacemos zoom
                 if (isActive) {
                     autoZoomedVectorLayersRef.current.add(layerId);
                     zoomToLayer(layerId, 'vector', vectorLayers[layerId].data);
@@ -233,10 +241,10 @@ const MapView: React.FC = () => {
                     autoZoomedVectorLayersRef.current.delete(layerId);
                 }
             } else if (isActive) {
-                // Cargar nueva capa — usar wfsName para QGIS Server (puede tener espacios/acentos)
+                // Cargar nueva capa: usar wfsName para la consulta WFS pero almacenar bajo layerId
                 const layerCfg = AVAILABLE_LAYERS.find(l => l.id === layerId);
                 const nameToLoad = layerCfg?.wfsName ?? layerId;
-                await loadLayer(nameToLoad);
+                await loadLayer(nameToLoad, {}, layerId);
                 // El zoom se manejará en un useEffect separado cuando lleguen los datos
             }
         } else if (layerType === 'raster') {
@@ -305,6 +313,8 @@ const MapView: React.FC = () => {
             setRasterLayerOpacity(layerId, opacity);
         }
     }, [setLayerOpacity, setRasterLayerOpacity]);
+
+    
 
     return (
         <div className="map-view-container-full">

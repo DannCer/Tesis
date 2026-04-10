@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { wfsService } from '../services/wfsService';
+import { wfsService } from '@services/geoserver';
 
 // Mock del módulo env
 vi.mock('../config/env', () => ({

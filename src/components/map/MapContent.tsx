@@ -1,6 +1,6 @@
 import React from 'react';
 import { ZoomControl, ScaleControl } from 'react-leaflet';
-import BaseLayerControls from './BaseLayerControls';
+import BaseLayerControls from '@components/map/controls/BaseLayerControls';
 
 export interface WMSLayerConfig {
     name: string;

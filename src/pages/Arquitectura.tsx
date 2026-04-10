@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import '../styles/arquitectura.css';
+import '@styles/arquitectura.css';
 
 const Arquitectura: React.FC = () => {
   const navigate = useNavigate();
