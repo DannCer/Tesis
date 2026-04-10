@@ -21,12 +21,15 @@ export const useWFSLayers = () => {
     const [loading, setLoading] = useState<Record<string, boolean>>({});
     const [errors, setErrors]   = useState<Record<string, string | null>>({});
 
-    const loadLayer = useCallback(async (layerName: string, options: WFSOptions = {}): Promise<boolean> => {
+    const loadLayer = useCallback(async (layerName: string, options: WFSOptions = {}, storageKey?: string): Promise<boolean> => {
+        // storageKey permite usar un ID distinto del nombre WFS para almacenar la capa en el estado.
+        // Si no se proporciona, se usa layerName como clave (comportamiento original).
+        const key = storageKey ?? layerName;
         try {
-            setLoading(prev => ({ ...prev, [layerName]: true }));
-            setErrors(prev => ({ ...prev, [layerName]: null }));
+            setLoading(prev => ({ ...prev, [key]: true }));
+            setErrors(prev => ({ ...prev, [key]: null }));
 
-            logger.debug('Cargando capa:', layerName);
+            logger.debug('Cargando capa:', layerName, '→ clave:', key);
 
             const data = await wfsService.getFeatures(layerName, options);
 
@@ -44,13 +47,13 @@ export const useWFSLayers = () => {
                 },
             }));
 
-            logger.debug(`Capa ${layerName} cargada:`, data.features.length, 'features');
+            logger.debug(`Capa ${layerName} cargada (key: ${key}):`, data.features.length, 'features');
             return true;
 
         } catch (error: any) {
             const errorMessage = error.message || 'Error desconocido al cargar la capa';
             logger.error(`Error cargando ${layerName}:`, error);
-            setErrors(prev => ({ ...prev, [layerName]: errorMessage }));
+            setErrors(prev => ({ ...prev, [key]: errorMessage }));
             logger.error('Error estructurado:', createError(
                 ErrorType.SERVER, errorMessage,
                 error instanceof Error ? error : undefined,
@@ -58,7 +61,7 @@ export const useWFSLayers = () => {
             ));
             return false;
         } finally {
-            setLoading(prev => ({ ...prev, [layerName]: false }));
+            setLoading(prev => ({ ...prev, [key]: false }));
         }
     }, []);
 
