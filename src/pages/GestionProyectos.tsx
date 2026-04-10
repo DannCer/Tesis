@@ -5,15 +5,13 @@
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useLayersContext } from '@contexts/LayersContext';
-import GruposManager from '@components/map/management/GruposManager';
-import CapasManager from '@components/map/management/CapasManager';
-import CapasPublicadas from '@components/map/management/CapasPublicadas';
-import '@styles/gestion-proyectos.css';
+import GruposManager from '../components/map/GruposManager';
+import CapasManager from '../components/map/CapasManager';
+import CapasPublicadas from '../components/map/CapasPublicadas';
+import '../styles/gestion-proyectos.css';
 
 const GestionProyectos: React.FC = () => {
     const navigate = useNavigate();
-    const { refresh } = useLayersContext();
     const [activeTab, setActiveTab] = useState<'grupos' | 'capas' | 'publicadas'>('grupos');
 
     return (
@@ -84,7 +82,7 @@ const GestionProyectos: React.FC = () => {
                                 consumida por el geovisor.
                             </p>
                         </div>
-                        <CapasManager onCapasChange={refresh} />
+                        <CapasManager />
                     </div>
                 )}
 
