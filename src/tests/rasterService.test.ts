@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { rasterService } from '../services/rasterService';
+import { rasterService } from '@services/geoserver';
 
 // Mock del módulo env
 vi.mock('../config/env', () => ({

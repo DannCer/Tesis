@@ -147,6 +147,74 @@
     gap: 0.6rem;
 }
 
+/* ===== CHECKBOX PERSONALIZADO ===== */
+
+.layer-checkbox {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    min-height: 18px;
+    border: 2px solid var(--color-gray-400, #ccc);
+    border-radius: 4px;
+    background: white;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-top: 2px;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.layer-checkbox:hover {
+    border-color: var(--color-primary, #8d1c3d);
+    box-shadow: 0 0 0 3px rgba(141, 28, 61, 0.1);
+}
+
+.layer-checkbox:checked {
+    background: var(--color-primary, #8d1c3d);
+    border-color: var(--color-primary, #8d1c3d);
+}
+
+.layer-checkbox:checked::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+    line-height: 1;
+}
+
+.layer-checkbox:disabled {
+    background: var(--color-gray-100, #f0f0f0);
+    border-color: var(--color-gray-300, #ddd);
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.layer-checkbox:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(141, 28, 61, 0.2);
+}
+
+/* Label que contiene la información de la capa */
+.layer-label {
+    flex: 1;
+    display: flex;
+    align-items: flex-start;
+    cursor: pointer;
+    user-select: none;
+    min-width: 0;
+}
+
+.layer-info {
+    min-width: 0;
+    flex: 1;
+}
+
 .layer-actions {
     display: flex;
     flex-direction: column;

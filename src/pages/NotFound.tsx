@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import LayoutPrincipal from '../components/layout/LayoutPrincipal';
-import '../styles/notfound.css';
+import '@styles/notfound.css';
 
 const NotFound: React.FC = () => {
     const navigate = useNavigate();

@@ -1,6 +1,6 @@
 import React, { ReactNode } from 'react';
-import Header from './Header';
-import '../../styles/global.css';
+import Header from '@components/layout/Header';
+import '@styles/global.css';
 
 interface LayoutGeovisorProps {
   children: ReactNode;

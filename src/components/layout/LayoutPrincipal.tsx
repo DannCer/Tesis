@@ -8,7 +8,7 @@
  */
 
 import React, { ReactNode } from 'react';
-import Header from './Header';
+import Header from '@components/layout/Header';
 
 interface LayoutPrincipalProps {
   children: ReactNode;

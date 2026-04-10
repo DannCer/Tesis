@@ -13,7 +13,7 @@ import {
   featureStyle,
   getColorInRamp,
   DEFAULT_SYMBOLOGY,
-} from '../utils/symbologyUtils';
+} from '@utils/geo/symbologyUtils';
 
 describe('symbologyUtils', () => {
   describe('evaluateExpression', () => {

@@ -1,9 +1,6 @@
 /**
- * @fileoverview Derivación de LayerConfig[] — QGIS Server.
- * Ráster y vectorial comparten el mismo sistema de grupos.
+ * @fileoverview Derivación de LayerConfig[] — Carga dinámica desde API
  */
-
-import { VECTOR_LAYERS, RASTER_LAYERS } from './layersConfig';
 
 export interface LayerConfig {
     id:          string;
@@ -27,34 +24,13 @@ export interface LayerConfig {
 
 export const VECTOR_STYLE_DEFAULTS = { weight: 2, opacity: 1, fillOpacity: 0.15 };
 
-const builtVectorLayers: LayerConfig[] = VECTOR_LAYERS.map(v => ({
-    id:          v.id,
-    name:        v.name,
-    description: v.description,
-    type:        'vector' as const,
-    group:       v.group,
-    wfsName:     v.wfsName  ?? v.id,
-    wmsLayer:    v.wmsLayer ?? v.wfsName ?? v.id,
-    showLegend:  true,
-}));
+// Capa vacía inicial - se llena dinámicamente desde la API
+export let AVAILABLE_LAYERS: LayerConfig[] = [];
 
-const builtRasterLayers: LayerConfig[] = RASTER_LAYERS.map(r => ({
-    id:          r.id,
-    name:        r.name,
-    description: r.description,
-    type:        'raster' as const,
-    group:       r.group,
-    wmsLayer:    r.wmsLayer,
-    year:        r.year,
-    timeValue:   r.timeValue,
-    legendRamp:  r.legendRamp,
-    showLegend:  true,
-}));
-
-export const AVAILABLE_LAYERS: LayerConfig[] = [
-    ...builtVectorLayers,
-    ...builtRasterLayers,
-];
+// Función para actualizar las capas desde la API
+export const updateAvailableLayers = (layers: LayerConfig[]) => {
+    AVAILABLE_LAYERS = layers;
+};
 
 export const getLayerConfig = (id: string) => AVAILABLE_LAYERS.find(l => l.id === id);
 

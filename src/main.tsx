@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router } from 'react-router-dom';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './styles/variables.css';
 import './styles/global.css';
@@ -14,10 +14,7 @@ import LayoutGeovisor from './components/layout/LayoutGeovisor';
 import NotFound from './pages/NotFound';
 
 const rootElement = document.getElementById('root');
-
-if (!rootElement) {
-  throw new Error('Failed to find the root element');
-}
+if (!rootElement) throw new Error('No se encontró el elemento root en el DOM.');
 
 createRoot(rootElement).render(
   <StrictMode>
