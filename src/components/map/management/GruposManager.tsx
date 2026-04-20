@@ -156,7 +156,6 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                                 <div className="grupo-header">
                                     <div className="grupo-info">
                                         <h4>{grupo.nombre}</h4>
-                                        <span className="grupo-id">ID: {grupo.id}</span>
                                     </div>
                                     <button
                                         className="btn-delete"
@@ -168,8 +167,15 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                                 </div>
                                 {grupo.url_proyecto && (
                                     <div className="grupo-url">
-                                        <strong>URL:</strong>
-                                        <code>{grupo.url_proyecto}</code>
+                                        <strong>Enlace a proyecto:</strong>
+                                        <a
+                                            href={`http://localhost/qgis/qgis_mapserv.fcgi.exe?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&MAP=${grupo.url_proyecto}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            style={{ display: 'block', wordBreak: 'break-all', fontSize: '0.85em' }}
+                                        >
+                                            Abrir GetCapabilities
+                                        </a>
                                     </div>
                                 )}
                             </div>

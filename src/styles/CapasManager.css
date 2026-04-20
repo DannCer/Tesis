@@ -159,3 +159,111 @@
     padding: 0.5rem;
   }
 }
+
+/* ── Columna Acciones ─────────────────────────────────────────────────────── */
+
+.acciones-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-wrap: nowrap;
+}
+
+/* ── Botón Validar ── */
+
+.btn-validate-small {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  height: 1.875rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.15s, box-shadow 0.15s;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+/* idle */
+.btn-validate--idle {
+  background: #ebf8ff;
+  border-color: #90cdf4;
+  color: #2b6cb0;
+}
+.btn-validate--idle:hover {
+  background: #bee3f8;
+  transform: scale(1.08);
+  box-shadow: 0 1px 4px rgba(43,108,176,0.2);
+}
+
+/* loading */
+.btn-validate--loading {
+  background: #fffaf0;
+  border-color: #f6ad55;
+  color: #c05621;
+  cursor: not-allowed;
+}
+
+/* ok */
+.btn-validate--ok {
+  background: #f0fff4;
+  border-color: #68d391;
+  color: #276749;
+}
+.btn-validate--ok:hover {
+  background: #c6f6d5;
+  transform: scale(1.08);
+}
+
+/* error */
+.btn-validate--error {
+  background: #fff5f5;
+  border-color: #fc8181;
+  color: #c53030;
+}
+.btn-validate--error:hover {
+  background: #fed7d7;
+  transform: scale(1.08);
+}
+
+/* ── Spinner animado dentro del botón ── */
+
+.btn-validate__spinner {
+  display: inline-block;
+  width: 0.875rem;
+  height: 0.875rem;
+  border: 2px solid #f6ad55;
+  border-top-color: #c05621;
+  border-radius: 50%;
+  animation: validate-spin 0.7s linear infinite;
+}
+
+@keyframes validate-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Chip de resultado ── */
+
+.validation-chip {
+  display: inline-block;
+  padding: 0.125rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.validation-chip--ok {
+  background: #c6f6d5;
+  color: #22543d;
+}
+
+.validation-chip--error {
+  background: #fed7d7;
+  color: #c53030;
+}
