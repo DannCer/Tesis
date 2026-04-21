@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiService, ItemResponse, ItemCreate, GrupoResponse } from '@services/api';
 import { config, logger } from '@config/env';
+import ConfirmModal from '@components/common/ConfirmModal';
 import '@styles/CapasManager.css';
 
 interface CapasManagerProps {
@@ -149,6 +150,17 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
     /** Mapa de resultados de validación, indexado por ID de capa */
     const [validations, setValidations] = useState<Map<number, ValidationResult>>(new Map());
 
+    // Estado para el modal de confirmación
+    const [confirmModal, setConfirmModal] = useState<{
+        isOpen: boolean;
+        capaId: number | null;
+        capaNombre: string;
+    }>({
+        isOpen: false,
+        capaId: null,
+        capaNombre: '',
+    });
+
     const loadData = async () => {
         setLoading(true);
         setError(null);
@@ -189,10 +201,21 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
     };
 
     const handleDeleteCapa = async (id: number, name: string) => {
-        if (!confirm(`¿Estás seguro de eliminar la capa "${name}"?`)) return;
+        // Abrir modal de confirmación
+        setConfirmModal({
+            isOpen: true,
+            capaId: id,
+            capaNombre: name,
+        });
+    };
+
+    // Confirmar eliminación
+    const confirmDeleteCapa = async () => {
+        if (!confirmModal.capaId) return;
+
         try {
-            await apiService.deleteCapa(id);
-            setValidations(prev => { const next = new Map(prev); next.delete(id); return next; });
+            await apiService.deleteCapa(confirmModal.capaId);
+            setValidations(prev => { const next = new Map(prev); next.delete(confirmModal.capaId!); return next; });
             await loadData();
             onCapasChange?.();
         } catch (err: any) {
@@ -440,6 +463,19 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
                     </div>
                 )}
             </div>
+
+            {/* Modal de confirmación */}
+            <ConfirmModal
+                isOpen={confirmModal.isOpen}
+                title="Eliminar Capa"
+                message={`¿Estás seguro de que deseas eliminar la capa "${confirmModal.capaNombre}"? Esta acción no se puede deshacer y la capa ya no estará disponible en el geovisor.`}
+                confirmText="Eliminar"
+                cancelText="Cancelar"
+                confirmVariant="danger"
+                icon="🗑️"
+                onConfirm={confirmDeleteCapa}
+                onCancel={() => setConfirmModal({ isOpen: false, capaId: null, capaNombre: '' })}
+            />
         </div>
     );
 };

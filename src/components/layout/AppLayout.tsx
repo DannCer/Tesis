@@ -1,19 +1,21 @@
-// src/components/layout/AppLayout.tsx
 import { useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
-import { Routes, Route } from 'react-router-dom';
+import { useLocation, Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from '@hooks/useAuth';
 import LayoutPrincipal from '@components/layout/LayoutPrincipal';
 import LayoutGeovisor from '@components/layout/LayoutGeovisor';
+import { ProtectedRoute } from '@components/ProtectedRoute';  // ← AGREGAR
 import Principal from '@pages/Principal';
 import Arquitectura from '@pages/Arquitectura';
 import Geovisor from '@pages/Geovisor';
 import GestionProyectos from '@pages/GestionProyectos';
+import Login from '@pages/Login';  // ← AGREGAR
+import AdminDashboard from '@pages/AdminDashboard';  // ← AGREGAR
 import NotFound from '@pages/NotFound';
 
 const AppLayout = () => {
     const { pathname } = useLocation();
+    const { state } = useAuth();
 
-    // ScrollToTop directamente aquí
     useEffect(() => {
         window.scrollTo({
             top: 0,
@@ -22,8 +24,16 @@ const AppLayout = () => {
         });
     }, [pathname]);
 
+    if (state.loading) {
+        return <div className="loading-spinner">Cargando...</div>;
+    }
+
     return (
         <Routes>
+            {/* Ruta de Login (pública) */}
+            <Route path="/login" element={<Login />} />
+
+            {/* Rutas públicas */}
             <Route
                 path="/"
                 element={
@@ -40,6 +50,8 @@ const AppLayout = () => {
                     </LayoutPrincipal>
                 }
             />
+
+            {/* Geovisor (público) */}
             <Route
                 path="/geovisor"
                 element={
@@ -50,8 +62,24 @@ const AppLayout = () => {
             />
             <Route
                 path="/gestion-proyectos"
-                element={<GestionProyectos />}
+                element={
+                    <ProtectedRoute>
+                        <GestionProyectos />
+                    </ProtectedRoute>
+                }
             />
+
+            {/* Panel de Admin (solo admin) */}
+            <Route
+                path="/admin"
+                element={
+                    <ProtectedRoute requireAdmin={true}>
+                        <AdminDashboard />
+                    </ProtectedRoute>
+                }
+            />
+
+            {/* 404 */}
             <Route path="*" element={<NotFound />} />
         </Routes>
     );
