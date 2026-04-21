@@ -6,49 +6,7 @@
   padding-bottom: 2rem;
 }
 
-/* Header */
-.gestion-header {
-  background: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-primary) 100%);
-  color: white;
-  padding: 2rem 1rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.header-content {
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.btn-back {
-  background: rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  color: white;
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  margin-bottom: 1rem;
-  display: inline-block;
-}
-
-.btn-back:hover {
-  background: rgba(255, 255, 255, 0.3);
-  transform: translateX(-5px);
-}
-
-.gestion-header h1 {
-  font-size: 2rem;
-  margin: 0 0 0.5rem 0;
-  font-weight: 700;
-}
-
-.header-subtitle {
-  font-size: 1.1rem;
-  margin: 0;
-  opacity: 0.95;
-  line-height: 1.5;
-}
+/* Header — usa las clases de admin-dashboard.css */
 
 /* Tabs */
 .tabs-container {
@@ -262,18 +220,6 @@
 
 /* Responsive */
 @media (max-width: 768px) {
-  .gestion-header {
-    padding: 1.5rem 1rem;
-  }
-
-  .gestion-header h1 {
-    font-size: 1.5rem;
-  }
-
-  .header-subtitle {
-    font-size: 0.95rem;
-  }
-
   .tabs {
     flex-direction: column;
   }
@@ -322,4 +268,44 @@
 
 .mb-2 {
   margin-bottom: 1rem;
+}
+
+/* Header nav (botones de navegación en el header) */
+.header-top-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.header-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+/* Reutiliza las clases admin-header-right, admin-user-badge,
+   admin-role-tag, btn-logout definidas en admin-dashboard.css */
+
+.btn-admin {
+    background: var(--color-accent-1);
+    border: none;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+
+.btn-admin:hover {
+    background: #a6843f;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
 }

@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiService, GrupoResponse, GrupoCreate } from '@services/api';
+import ConfirmModal from '@components/common/ConfirmModal';
 import '@styles/GruposManager.css';
 
 interface GruposManagerProps {
@@ -19,6 +20,17 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
     const [newGrupo, setNewGrupo] = useState<GrupoCreate>({
         nombre: '',
         url_proyecto: '',
+    });
+
+    // Estado para el modal de confirmación
+    const [confirmModal, setConfirmModal] = useState<{
+        isOpen: boolean;
+        grupoId: number | null;
+        grupoNombre: string;
+    }>({
+        isOpen: false,
+        grupoId: null,
+        grupoNombre: '',
     });
 
     // Cargar grupos
@@ -59,12 +71,20 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
 
     // Eliminar grupo
     const handleDeleteGrupo = async (id: number, nombre: string) => {
-        if (!confirm(`¿Estás seguro de eliminar el grupo "${nombre}"?`)) {
-            return;
-        }
+        // Abrir modal de confirmación
+        setConfirmModal({
+            isOpen: true,
+            grupoId: id,
+            grupoNombre: nombre,
+        });
+    };
+
+    // Confirmar eliminación
+    const confirmDeleteGrupo = async () => {
+        if (!confirmModal.grupoId) return;
 
         try {
-            await apiService.deleteGrupo(id);
+            await apiService.deleteGrupo(confirmModal.grupoId);
             await loadGrupos();
             onGruposChange?.();
         } catch (err: any) {
@@ -121,13 +141,64 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                         </div>
                         <div className="form-field">
                             <label>Ruta Proyecto QGIS</label>
-                            <input
-                                type="text"
-                                className="input"
-                                value={newGrupo.url_proyecto || ''}
-                                onChange={e => setNewGrupo({ ...newGrupo, url_proyecto: e.target.value })}
-                                placeholder="C:/mis_proyectos/01_Geologicos.qgz"
-                            />
+                            <div className="input-with-file-selector">
+                                <input
+                                    type="text"
+                                    className="input"
+                                    value={newGrupo.url_proyecto || ''}
+                                    onChange={e => setNewGrupo({ ...newGrupo, url_proyecto: e.target.value })}
+                                    placeholder="C:/mis_proyectos/01_Geologicos.qgz"
+                                />
+                                <label className="btn btn-secondary btn-file-selector" title="Seleccionar archivo .qgz o .qgs">
+                                    📁 Explorar
+                                    <input
+                                        type="file"
+                                        accept=".qgz,.qgs"
+                                        style={{ display: 'none' }}
+                                        onChange={e => {
+                                            const file = e.target.files?.[0];
+                                            if (file) {
+                                                // Mostrar solo el nombre del archivo seleccionado
+                                                const fileName = file.name;
+                                                
+                                                // Si el usuario no ha escrito nada, sugerir una ruta base
+                                                if (!newGrupo.url_proyecto) {
+                                                    setNewGrupo({ 
+                                                        ...newGrupo, 
+                                                        url_proyecto: `C:/mis_proyectos/${fileName}`
+                                                    });
+                                                } else {
+                                                    // Si ya hay una ruta, reemplazar solo el nombre del archivo
+                                                    const currentPath = newGrupo.url_proyecto;
+                                                    const lastSlash = Math.max(
+                                                        currentPath.lastIndexOf('/'),
+                                                        currentPath.lastIndexOf('\\')
+                                                    );
+                                                    
+                                                    if (lastSlash > -1) {
+                                                        const directory = currentPath.substring(0, lastSlash + 1);
+                                                        setNewGrupo({ 
+                                                            ...newGrupo, 
+                                                            url_proyecto: directory + fileName
+                                                        });
+                                                    } else {
+                                                        setNewGrupo({ 
+                                                            ...newGrupo, 
+                                                            url_proyecto: `C:/mis_proyectos/${fileName}`
+                                                        });
+                                                    }
+                                                }
+                                                
+                                                // Resetear el input file para permitir seleccionar el mismo archivo nuevamente
+                                                e.target.value = '';
+                                            }
+                                        }}
+                                    />
+                                </label>
+                            </div>
+                            <small className="form-hint">
+                                💡 Escribe la ruta completa del servidor o usa "Explorar" para autocompletar el nombre del archivo
+                            </small>
                         </div>
                     </div>
                     <div className="form-actions">
@@ -183,6 +254,19 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                     </div>
                 )}
             </div>
+
+            {/* Modal de confirmación */}
+            <ConfirmModal
+                isOpen={confirmModal.isOpen}
+                title="Eliminar Grupo"
+                message={`¿Estás seguro de que deseas eliminar el grupo "${confirmModal.grupoNombre}"? Esta acción no se puede deshacer.`}
+                confirmText="Eliminar"
+                cancelText="Cancelar"
+                confirmVariant="danger"
+                icon="🗑️"
+                onConfirm={confirmDeleteGrupo}
+                onCancel={() => setConfirmModal({ isOpen: false, grupoId: null, grupoNombre: '' })}
+            />
         </div>
     );
 };

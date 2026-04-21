@@ -5,32 +5,56 @@
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@hooks/useAuth';
 import GruposManager from '@components/map/management/GruposManager';
 import CapasManager from '@components/map/management/CapasManager';
 import CapasPublicadas from '@components/map/management/CapasPublicadas';
 import '@styles/gestion-proyectos.css';
+import '@styles/admin-dashboard.css';
 
 const GestionProyectos: React.FC = () => {
     const navigate = useNavigate();
+    const { state, logout } = useAuth();
     const [activeTab, setActiveTab] = useState<'grupos' | 'capas' | 'publicadas'>('grupos');
+
+    const handleLogout = async () => {
+        await logout();
+        navigate('/');
+    };
 
     return (
         <div className="gestion-proyectos-page">
-            {/* Header */}
-            <div className="gestion-header">
-                <div className="header-content">
-                    <button
-                        className="btn-back"
-                        onClick={() => navigate('/geovisor')}
-                    >
-                        ← Volver al Geovisor
+            {/* Header — misma estructura que AdminDashboard */}
+            <header className="admin-header">
+                <div className="admin-header-left">
+                    <button className="btn-back-admin" onClick={() => navigate('/geovisor')}>
+                        ← Geovisor
                     </button>
-                    <h1>Gestión de Capas y Proyectos</h1>
-                    <p className="header-subtitle">
-                        Administra grupos (proyectos QGIS) y capas geográficas desde la API
-                    </p>
+                    <div>
+                        <h1>Gestión de Capas y Proyectos</h1>
+                        <p className="admin-header-sub">
+                            Administra grupos y capas geográficas desde la API
+                        </p>
+                    </div>
                 </div>
-            </div>
+                <div className="admin-header-right">
+                    {state.user?.es_admin && (
+                        <button className="btn-admin" onClick={() => navigate('/admin')}>
+                            🔐 Panel de Administrador
+                        </button>
+                    )}
+                    <div className="admin-user-badge">
+                        <span className="admin-user-icon">👤</span>
+                        <span>{state.user?.nombre_completo || state.user?.username}</span>
+                        {state.user?.es_admin && (
+                            <span className="admin-role-tag">Admin</span>
+                        )}
+                    </div>
+                    <button onClick={handleLogout} className="btn-logout">
+                        Cerrar sesión
+                    </button>
+                </div>
+            </header>
 
             {/* Tabs */}
             <div className="tabs-container">
@@ -63,8 +87,8 @@ const GestionProyectos: React.FC = () => {
                         <div className="info-box">
                             <h3>📁 Gestión de Grupos</h3>
                             <p>
-                                Los grupos representan proyectos QGIS Server. Cada grupo puede tener 
-                                asociada una URL del proyecto (.qgz) y contendrá múltiples capas 
+                                Los grupos representan proyectos QGIS Server. Cada grupo puede tener
+                                asociada una URL del proyecto (.qgz) y contendrá múltiples capas
                                 geográficas.
                             </p>
                         </div>
@@ -77,8 +101,8 @@ const GestionProyectos: React.FC = () => {
                         <div className="info-box">
                             <h3>➕ Gestión de Capas</h3>
                             <p>
-                                Administra las capas geográficas del sistema. Cada capa debe pertenecer 
-                                a un grupo y tener configurados sus nombres WFS y WMS para ser 
+                                Administra las capas geográficas del sistema. Cada capa debe pertenecer
+                                a un grupo y tener configurados sus nombres WFS y WMS para ser
                                 consumida por el geovisor.
                             </p>
                         </div>
@@ -127,7 +151,7 @@ const GestionProyectos: React.FC = () => {
                     </div>
                 </div>
                 <p className="help-note">
-                    <strong>Nota:</strong> Los cambios en la API se reflejan automáticamente en el 
+                    <strong>Nota:</strong> Los cambios en la API se reflejan automáticamente en el
                     geovisor. Asegúrate de que tu backend esté corriendo en http://localhost:8000
                 </p>
             </div>
