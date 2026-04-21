@@ -382,6 +382,13 @@ html, body {
 /* ── Viewport móvil ── */
 @media (max-width: 768px) {
     html, body, #root {
+        height: auto;
+        min-height: 100%;
+    }
+
+    /* Solo el geovisor bloquea el scroll — las demás páginas scrollean normal */
+    .layout-geovisor,
+    .layout-geovisor #root {
         height: 100dvh;
         overflow: hidden;
     }
@@ -391,32 +398,5 @@ html, body {
    Botón flotante: Gestión de Proyectos
    ========================================= */
 .btn-gestion-proyectos {
-    position: absolute;
-    bottom: 2rem;
-    right: 1rem;
-    z-index: 1000;
-    background: var(--color-primary-dark);
-    color: var(--color-white);
-    border: none;
-    border-radius: var(--radius-sm);
-    padding: 0.55rem 1.1rem;
-    font-size: 0.88rem;
-    font-weight: 600;
-    cursor: pointer;
-    box-shadow: var(--shadow-md);
-    transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    letter-spacing: 0.2px;
-}
-
-.btn-gestion-proyectos:hover {
-    background: var(--color-primary);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-lg);
-}
-
-.btn-gestion-proyectos:active {
-    transform: translateY(0);
+    display: none; /* Oculto - ahora en el header */
 }

@@ -33,6 +33,8 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
         grupoNombre: '',
     });
 
+    const [formError, setFormError] = useState<string | null>(null);
+
     // Cargar grupos
     const loadGrupos = async () => {
         setLoading(true);
@@ -136,7 +138,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                                 className="input"
                                 value={newGrupo.nombre}
                                 onChange={e => setNewGrupo({ ...newGrupo, nombre: e.target.value })}
-                                placeholder="ej: 🌋 Geológicos"
+                                placeholder="ej: Geológicos"
                             />
                         </div>
                         <div className="form-field">
@@ -149,8 +151,8 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                                     onChange={e => setNewGrupo({ ...newGrupo, url_proyecto: e.target.value })}
                                     placeholder="C:/mis_proyectos/01_Geologicos.qgz"
                                 />
-                                <label className="btn btn-secondary btn-file-selector" title="Seleccionar archivo .qgz o .qgs">
-                                    📁 Explorar
+                                <label className="btn btn-secondary btn-file-selector" style={{color: 'white'}} title="Seleccionar archivo .qgz o .qgs">
+                                    Explorar
                                     <input
                                         type="file"
                                         accept=".qgz,.qgs"
@@ -197,7 +199,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                                 </label>
                             </div>
                             <small className="form-hint">
-                                💡 Escribe la ruta completa del servidor o usa "Explorar" para autocompletar el nombre del archivo
+                                Escribe la ruta completa del servidor o usa "Explorar" para autocompletar el nombre del archivo
                             </small>
                         </div>
                     </div>
@@ -205,10 +207,16 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                         <button className="btn btn-primary" onClick={handleCreateGrupo}>
                             Crear Grupo
                         </button>
-                        <button className="btn btn-secondary" onClick={() => setIsAddingNew(false)}>
+                        <button className="btn btn-secondary" onClick={() => { setIsAddingNew(false); setFormError(null); }}>
                             Cancelar
                         </button>
                     </div>
+
+                    {formError && (
+                        <div className="form-error-banner">
+                            ⚠️ {formError}
+                        </div>
+                    )}
                 </div>
             )}
 

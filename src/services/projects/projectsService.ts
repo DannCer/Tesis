@@ -47,7 +47,7 @@ class ProjectsService {
         return [
             {
                 id: 'geologicos',
-                name: '🌋 Geológicos',
+                name: ' Geológicos',
                 serverUrl: serverUrl,
                 projectPath: 'C:/mis_proyectos/01_Geologicos.qgz',
                 fullUrl: `${serverUrl}?MAP=C:/mis_proyectos/01_Geologicos.qgz`,
@@ -57,7 +57,7 @@ class ProjectsService {
             },
             {
                 id: 'hidrometeorologicos',
-                name: '💧 Hidrometeorológicos',
+                name: ' Hidrometeorológicos',
                 serverUrl: serverUrl,
                 projectPath: 'C:/mis_proyectos/02_Hidrometeorologicos.qgz',
                 fullUrl: `${serverUrl}?MAP=C:/mis_proyectos/02_Hidrometeorologicos.qgz`,

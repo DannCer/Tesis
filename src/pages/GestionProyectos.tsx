@@ -32,15 +32,12 @@ const GestionProyectos: React.FC = () => {
                     </button>
                     <div>
                         <h1>Gestión de Capas y Proyectos</h1>
-                        <p className="admin-header-sub">
-                            Administra grupos y capas geográficas desde la API
-                        </p>
                     </div>
                 </div>
                 <div className="admin-header-right">
                     {state.user?.es_admin && (
                         <button className="btn-admin" onClick={() => navigate('/admin')}>
-                            🔐 Panel de Administrador
+                            Panel de Administrador
                         </button>
                     )}
                     <div className="admin-user-badge">
@@ -63,19 +60,19 @@ const GestionProyectos: React.FC = () => {
                         className={`tab ${activeTab === 'grupos' ? 'active' : ''}`}
                         onClick={() => setActiveTab('grupos')}
                     >
-                        📁 Grupos
+                        Grupos
                     </button>
                     <button
                         className={`tab ${activeTab === 'capas' ? 'active' : ''}`}
                         onClick={() => setActiveTab('capas')}
                     >
-                        ➕ Gestión de Capas
+                        Gestión de Capas
                     </button>
                     <button
                         className={`tab ${activeTab === 'publicadas' ? 'active' : ''}`}
                         onClick={() => setActiveTab('publicadas')}
                     >
-                        🗺️ Capas Publicadas
+                        Capas Publicadas
                     </button>
                 </div>
             </div>
@@ -85,7 +82,7 @@ const GestionProyectos: React.FC = () => {
                 {activeTab === 'grupos' && (
                     <div className="tab-panel">
                         <div className="info-box">
-                            <h3>📁 Gestión de Grupos</h3>
+                            <h3>Gestión de Grupos</h3>
                             <p>
                                 Los grupos representan proyectos QGIS Server. Cada grupo puede tener
                                 asociada una URL del proyecto (.qgz) y contendrá múltiples capas
@@ -99,7 +96,7 @@ const GestionProyectos: React.FC = () => {
                 {activeTab === 'capas' && (
                     <div className="tab-panel">
                         <div className="info-box">
-                            <h3>➕ Gestión de Capas</h3>
+                            <h3>Gestión de Capas</h3>
                             <p>
                                 Administra las capas geográficas del sistema. Cada capa debe pertenecer
                                 a un grupo y tener configurados sus nombres WFS y WMS para ser
@@ -119,7 +116,7 @@ const GestionProyectos: React.FC = () => {
 
             {/* Help Section */}
             <div className="help-section">
-                <h3>💡 Flujo de Trabajo Recomendado</h3>
+                <h3>Flujo de Trabajo Recomendado</h3>
                 <div className="workflow-steps">
                     <div className="workflow-step">
                         <div className="step-number">1</div>
@@ -152,7 +149,7 @@ const GestionProyectos: React.FC = () => {
                 </div>
                 <p className="help-note">
                     <strong>Nota:</strong> Los cambios en la API se reflejan automáticamente en el
-                    geovisor. Asegúrate de que tu backend esté corriendo en http://localhost:8000
+                    geovisor. 
                 </p>
             </div>
         </div>

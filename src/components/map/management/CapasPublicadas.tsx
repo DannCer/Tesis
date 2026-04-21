@@ -59,7 +59,7 @@ const CapasPublicadas: React.FC = () => {
         <div className="capas-publicadas">
             <div className="publicadas-header">
                 <div className="header-info">
-                    <h3>🗺️ Capas Publicadas</h3>
+                    <h3>Capas Publicadas</h3>
                     <p>Capas disponibles desde la API del backend</p>
                 </div>
                 <button className="btn btn-secondary" onClick={refresh}>
@@ -148,7 +148,6 @@ const CapasPublicadas: React.FC = () => {
                                                 <div key={layer.id} className="capa-card">
                                                     <div className="capa-header">
                                                         <h6>{layer.name}</h6>
-                                                        <span className="capa-id">{layer.id}</span>
                                                     </div>
                                                     {layer.description && (
                                                         <p className="capa-description">{layer.description}</p>

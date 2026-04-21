@@ -1079,8 +1079,11 @@
     background: #fff;
     border-radius: 20px 20px 0 0;
     box-shadow: 0 -4px 24px rgba(0,0,0,0.18);
-    max-height: 80vh;
-    overflow-y: auto;
+    max-height: 82vh;
+    /* Flex column: handle fijo arriba, contenido scrollea */
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
     transform: translateY(100%);
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1095,8 +1098,8 @@
     align-items: center;
     padding: 10px 16px 6px;
     cursor: pointer;
-    position: sticky;
-    top: 0;
+    /* Fijo arriba — no participa en el scroll */
+    flex-shrink: 0;
     background: #fff;
     z-index: 2;
     border-bottom: 1px solid #f0e0e8;
@@ -1114,6 +1117,14 @@
     width: 100%;
 }
 
+/* El contenido scrollea de forma independiente */
+.mobile-menu .layer-menu-content {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
 @media (max-width: 768px) {
     /* Ocultar menú de escritorio */
     .desktop-menu {
@@ -1123,6 +1134,8 @@
     /* Mostrar FAB y overlay */
     .layer-menu-fab {
         display: flex;
+        bottom: 80px;
+        right: 16px;
     }
 
     .layer-menu-overlay.open,
@@ -1130,9 +1143,9 @@
         display: block;
     }
 
-    /* Mostrar panel móvil */
+    /* Mostrar panel móvil como flex column */
     .mobile-menu {
-        display: block;
+        display: flex;
     }
 
     /* Tabla de atributos full-width en móvil */
@@ -1144,6 +1157,84 @@
         width: 100% !important;
         border-radius: 16px 16px 0 0;
         max-height: 60vh;
+    }
+
+    /* ── iOS: evitar autozoom en inputs (requiere font-size >= 16px) ── */
+    .search-input,
+    .add-layer-input,
+    .sym-expr-textarea,
+    .sym-select,
+    .sym-weight-input,
+    .sym-classes-input {
+        font-size: 16px !important;
+    }
+
+    /* ── Tap targets mínimo 44px ── */
+    .table-btn,
+    .dl-trigger,
+    .imported-delete-btn {
+        min-height: 44px;
+        min-width: 44px;
+        padding: 10px !important;
+    }
+
+    .layer-group-header {
+        min-height: 44px;
+    }
+
+    /* ── layer-item: acciones se van debajo del texto ── */
+    .layer-item {
+        flex-direction: column;
+    }
+
+    .layer-actions {
+        flex-direction: row;
+        align-items: center;
+        justify-content: flex-end;
+        margin-left: 0;
+        margin-top: 0.5rem;
+        gap: 0.5rem;
+        width: 100%;
+        padding-top: 0.5rem;
+        border-top: 1px solid var(--color-gray-100);
+    }
+
+    /* ── Nombres de capa: sin truncar ── */
+    .layer-name,
+    .layer-description {
+        white-space: normal;
+        word-break: break-word;
+    }
+
+    /* ── Add-layer: 3 columnas ── */
+    .add-layer-types {
+        grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .add-type-btn {
+        padding: 0.5rem 0.2rem;
+    }
+
+    /* ── Simbología: modo botones más compactos ── */
+    .sym-modes-3 .sym-mode-btn {
+        font-size: 0.65rem;
+        padding: 0.4rem 0.2rem;
+    }
+
+    /* ── DownloadDropdown: no salir de pantalla ── */
+    .dl-menu {
+        max-width: calc(100vw - 16px) !important;
+        max-height: 55vh;
+        overflow-y: auto;
+    }
+
+    /* ── Botón de gestión en geovisor: evitar colisión con FAB ── */
+    .btn-gestion-proyectos {
+        bottom: 80px;
+        left: 1rem;
+        right: auto;
+        font-size: 0.8rem;
+        padding: 0.5rem 0.9rem;
     }
 }
 
