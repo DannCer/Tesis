@@ -291,11 +291,21 @@ const DownloadDropdown: React.FC<{ layer: LayerConfig }> = ({ layer }) => {
         if (triggerRef.current) {
             const rect = triggerRef.current.getBoundingClientRect();
             const mw = 245;
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            // Clampar horizontalmente para no salir del viewport
+            const left = Math.max(8, Math.min(rect.right - mw, vw - mw - 8));
+            // Si no hay espacio abajo, abrir hacia arriba
+            const spaceBelow = vh - rect.bottom;
+            const menuH = Math.min(320, vh * 0.55);
+            const top = spaceBelow < menuH
+                ? rect.top - menuH - 6 + window.scrollY
+                : rect.bottom + 6 + window.scrollY;
             setMenuStyle({
                 position: 'absolute',
-                top: rect.bottom + 6 + window.scrollY,
-                left: Math.max(8, rect.right - mw),
-                width: mw,
+                top,
+                left,
+                width: Math.min(mw, vw - 16),
                 zIndex: 99999,
             });
         }

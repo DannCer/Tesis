@@ -295,7 +295,7 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
     return (
         <div className="capas-manager">
             <div className="manager-header">
-                <h3>🗺️ Capas Geográficas</h3>
+                <h3>Capas Geográficas</h3>
                 <button
                     className="btn btn-primary"
                     onClick={() => setIsAddingNew(!isAddingNew)}

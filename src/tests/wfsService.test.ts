@@ -11,7 +11,7 @@ vi.mock('../config/env', () => ({
     qgisServer: {
       wfsUrl: 'http://localhost/qgis/qgis_mapserv.fcgi.exe?MAP=/test.qgz',
       timeout: 30000,
-      maxFeatures: 5000,
+      maxFeatures: 10000,
     },
   },
   logger: {

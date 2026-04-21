@@ -121,7 +121,7 @@ const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onProjectsChange }) =
                             className="form-control"
                             value={newProject.name}
                             onChange={e => setNewProject({ ...newProject, name: e.target.value })}
-                            placeholder="ej: 🌋 Geológicos"
+                            placeholder="ej: Geológicos"
                         />
                     </div>
                     <div className="form-group">
