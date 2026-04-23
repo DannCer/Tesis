@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiService, GrupoResponse, GrupoCreate } from '@services/api';
 import ConfirmModal from '@components/common/ConfirmModal';
+import AlertModal from '@components/common/AlertModal';
 import '@styles/GruposManager.css';
 
 interface GruposManagerProps {
@@ -17,31 +18,26 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isAddingNew, setIsAddingNew] = useState(false);
-    const [newGrupo, setNewGrupo] = useState<GrupoCreate>({
-        nombre: '',
-        url_proyecto: '',
-    });
+    const [newGrupo, setNewGrupo] = useState<GrupoCreate>({ nombre: '', url_proyecto: '' });
 
-    // Estado para el modal de confirmación
-    const [confirmModal, setConfirmModal] = useState<{
-        isOpen: boolean;
-        grupoId: number | null;
-        grupoNombre: string;
-    }>({
-        isOpen: false,
-        grupoId: null,
-        grupoNombre: '',
+    const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; grupoId: number | null; grupoNombre: string }>({
+        isOpen: false, grupoId: null, grupoNombre: '',
+    });
+    const [alertModal, setAlertModal] = useState<{ isOpen: boolean; title: string; message: string; variant?: 'error' | 'warning' | 'success' | 'info' }>({
+        isOpen: false, title: '', message: '', variant: 'error',
     });
 
     const [formError, setFormError] = useState<string | null>(null);
 
-    // Cargar grupos
+    const showAlert = (title: string, message: string, variant: 'error' | 'warning' | 'success' | 'info' = 'error') => {
+        setAlertModal({ isOpen: true, title, message, variant });
+    };
+
     const loadGrupos = async () => {
         setLoading(true);
         setError(null);
         try {
-            const data = await apiService.getGrupos();
-            setGrupos(data);
+            setGrupos(await apiService.getGrupos());
         } catch (err: any) {
             setError(err.message);
         } finally {
@@ -49,17 +45,13 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
         }
     };
 
-    useEffect(() => {
-        loadGrupos();
-    }, []);
+    useEffect(() => { loadGrupos(); }, []);
 
-    // Crear grupo
     const handleCreateGrupo = async () => {
         if (!newGrupo.nombre.trim()) {
-            alert('El nombre del grupo es requerido');
+            showAlert('Campo requerido', 'El nombre del grupo es obligatorio.', 'warning');
             return;
         }
-
         try {
             await apiService.createGrupo(newGrupo);
             setNewGrupo({ nombre: '', url_proyecto: '' });
@@ -67,40 +59,29 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
             await loadGrupos();
             onGruposChange?.();
         } catch (err: any) {
-            alert(`Error: ${err.message}`);
+            showAlert('Error al crear el grupo', err.message, 'error');
         }
     };
 
-    // Eliminar grupo
-    const handleDeleteGrupo = async (id: number, nombre: string) => {
-        // Abrir modal de confirmación
-        setConfirmModal({
-            isOpen: true,
-            grupoId: id,
-            grupoNombre: nombre,
-        });
+    const handleDeleteGrupo = (id: number, nombre: string) => {
+        setConfirmModal({ isOpen: true, grupoId: id, grupoNombre: nombre });
     };
 
-    // Confirmar eliminación
     const confirmDeleteGrupo = async () => {
         if (!confirmModal.grupoId) return;
-
         try {
             await apiService.deleteGrupo(confirmModal.grupoId);
             await loadGrupos();
             onGruposChange?.();
         } catch (err: any) {
-            alert(`Error: ${err.message}`);
+            showAlert('Error al eliminar el grupo', err.message, 'error');
         }
     };
 
     if (loading) {
         return (
             <div className="grupos-manager">
-                <div className="loading-state">
-                    <div className="spinner"></div>
-                    <p>Cargando grupos...</p>
-                </div>
+                <div className="loading-state"><div className="spinner"></div><p>Cargando grupos...</p></div>
             </div>
         );
     }
@@ -109,10 +90,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
         <div className="grupos-manager">
             <div className="manager-header">
                 <h3>📁 Grupos (Proyectos QGIS)</h3>
-                <button
-                    className="btn btn-primary"
-                    onClick={() => setIsAddingNew(!isAddingNew)}
-                >
+                <button className="btn btn-primary" onClick={() => setIsAddingNew(!isAddingNew)}>
                     {isAddingNew ? 'Cancelar' : '+ Nuevo Grupo'}
                 </button>
             </div>
@@ -130,9 +108,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                     <h4>Nuevo Grupo</h4>
                     <div className="form-row">
                         <div className="form-field">
-                            <label>
-                                Nombre del Grupo <span className="required">*</span>
-                            </label>
+                            <label>Nombre del Grupo <span className="required">*</span></label>
                             <input
                                 type="text"
                                 className="input"
@@ -151,7 +127,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                                     onChange={e => setNewGrupo({ ...newGrupo, url_proyecto: e.target.value })}
                                     placeholder="C:/mis_proyectos/01_Geologicos.qgz"
                                 />
-                                <label className="btn btn-secondary btn-file-selector" style={{color: 'white'}} title="Seleccionar archivo .qgz o .qgs">
+                                <label className="btn btn-secondary btn-file-selector" style={{ color: 'white' }} title="Seleccionar archivo .qgz o .qgs">
                                     Explorar
                                     <input
                                         type="file"
@@ -160,38 +136,15 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                                         onChange={e => {
                                             const file = e.target.files?.[0];
                                             if (file) {
-                                                // Mostrar solo el nombre del archivo seleccionado
                                                 const fileName = file.name;
-                                                
-                                                // Si el usuario no ha escrito nada, sugerir una ruta base
                                                 if (!newGrupo.url_proyecto) {
-                                                    setNewGrupo({ 
-                                                        ...newGrupo, 
-                                                        url_proyecto: `C:/mis_proyectos/${fileName}`
-                                                    });
+                                                    setNewGrupo({ ...newGrupo, url_proyecto: `C:/mis_proyectos/${fileName}` });
                                                 } else {
-                                                    // Si ya hay una ruta, reemplazar solo el nombre del archivo
                                                     const currentPath = newGrupo.url_proyecto;
-                                                    const lastSlash = Math.max(
-                                                        currentPath.lastIndexOf('/'),
-                                                        currentPath.lastIndexOf('\\')
-                                                    );
-                                                    
-                                                    if (lastSlash > -1) {
-                                                        const directory = currentPath.substring(0, lastSlash + 1);
-                                                        setNewGrupo({ 
-                                                            ...newGrupo, 
-                                                            url_proyecto: directory + fileName
-                                                        });
-                                                    } else {
-                                                        setNewGrupo({ 
-                                                            ...newGrupo, 
-                                                            url_proyecto: `C:/mis_proyectos/${fileName}`
-                                                        });
-                                                    }
+                                                    const lastSlash = Math.max(currentPath.lastIndexOf('/'), currentPath.lastIndexOf('\\'));
+                                                    const directory = lastSlash > -1 ? currentPath.substring(0, lastSlash + 1) : 'C:/mis_proyectos/';
+                                                    setNewGrupo({ ...newGrupo, url_proyecto: directory + fileName });
                                                 }
-                                                
-                                                // Resetear el input file para permitir seleccionar el mismo archivo nuevamente
                                                 e.target.value = '';
                                             }
                                         }}
@@ -204,19 +157,10 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                         </div>
                     </div>
                     <div className="form-actions">
-                        <button className="btn btn-primary" onClick={handleCreateGrupo}>
-                            Crear Grupo
-                        </button>
-                        <button className="btn btn-secondary" onClick={() => { setIsAddingNew(false); setFormError(null); }}>
-                            Cancelar
-                        </button>
+                        <button className="btn btn-primary" onClick={handleCreateGrupo}>Crear Grupo</button>
+                        <button className="btn btn-secondary" onClick={() => { setIsAddingNew(false); setFormError(null); }}>Cancelar</button>
                     </div>
-
-                    {formError && (
-                        <div className="form-error-banner">
-                            ⚠️ {formError}
-                        </div>
-                    )}
+                    {formError && <div className="form-error-banner">⚠️ {formError}</div>}
                 </div>
             )}
 
@@ -224,23 +168,15 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                 {grupos.length === 0 ? (
                     <div className="empty-state">
                         <p>No hay grupos registrados</p>
-                        <button className="btn btn-primary" onClick={() => setIsAddingNew(true)}>
-                            Crear Primer Grupo
-                        </button>
+                        <button className="btn btn-primary" onClick={() => setIsAddingNew(true)}>Crear Primer Grupo</button>
                     </div>
                 ) : (
                     <div className="grupos-grid">
                         {grupos.map(grupo => (
                             <div key={grupo.id} className="grupo-card">
                                 <div className="grupo-header">
-                                    <div className="grupo-info">
-                                        <h4>{grupo.nombre}</h4>
-                                    </div>
-                                    <button
-                                        className="btn-delete"
-                                        onClick={() => handleDeleteGrupo(grupo.id, grupo.nombre)}
-                                        title="Eliminar grupo"
-                                    >
+                                    <div className="grupo-info"><h4>{grupo.nombre}</h4></div>
+                                    <button className="btn-delete" onClick={() => handleDeleteGrupo(grupo.id, grupo.nombre)} title="Eliminar grupo">
                                         🗑️
                                     </button>
                                 </div>
@@ -263,7 +199,6 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                 )}
             </div>
 
-            {/* Modal de confirmación */}
             <ConfirmModal
                 isOpen={confirmModal.isOpen}
                 title="Eliminar Grupo"
@@ -274,6 +209,14 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                 icon="🗑️"
                 onConfirm={confirmDeleteGrupo}
                 onCancel={() => setConfirmModal({ isOpen: false, grupoId: null, grupoNombre: '' })}
+            />
+
+            <AlertModal
+                isOpen={alertModal.isOpen}
+                title={alertModal.title}
+                message={alertModal.message}
+                variant={alertModal.variant}
+                onClose={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
             />
         </div>
     );

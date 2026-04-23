@@ -496,3 +496,43 @@
 .attr-btn-clear:hover {
     background: #e0d0c0;
 }
+
+/* =========================================
+   Redimensionamiento de columnas
+   ========================================= */
+.attr-resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
+    user-select: none;
+    z-index: 2;
+    background: transparent;
+    transition: background 0.15s ease;
+}
+
+.attr-resize-handle:hover {
+    background: rgba(141, 28, 61, 0.2);
+}
+
+.attr-resize-handle:active {
+    background: rgba(141, 28, 61, 0.4);
+}
+
+.attr-th-content {
+    padding-right: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* Evitar que el click en el divisor active el sort */
+.attr-th-sortable .attr-resize-handle {
+    pointer-events: auto;
+}
+
+.attr-th-sortable .attr-th-content {
+    pointer-events: auto;
+}

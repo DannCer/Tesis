@@ -5,6 +5,7 @@ import path from 'path';
 // https://vitejs.dev/config/
 export default defineConfig({
     plugins: [react()],
+
     resolve: {
         alias: {
             '@':           path.resolve(__dirname, './src'),
@@ -20,13 +21,24 @@ export default defineConfig({
             '@assets':     path.resolve(__dirname, './src/assets'),
         },
     },
+
     server: {
+        // Puerto por defecto de Vite — solo declarar si necesitas cambiarlo
         port: 5173,
         proxy: {
+            // Redirige /api al backend FastAPI en desarrollo.
+            // En producción Nginx maneja esto directamente.
             '/api': {
-                target: 'http://localhost:8000',
+                target: process.env.VITE_API_URL ?? 'http://localhost:8000',
                 changeOrigin: true,
             },
         },
+    },
+
+    build: {
+        // Genera sourcemaps en producción para facilitar el debugging
+        sourcemap: false,
+        // Avisa si algún chunk supera 800 KB
+        chunkSizeWarningLimit: 800,
     },
 });

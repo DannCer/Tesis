@@ -1,69 +1,113 @@
 /**
- * @fileoverview Servicio para peticiones WFS a QGIS Server
+ * @fileoverview Servicio WFS optimizado con caché integrada
  * @module services/wfsService
- *
- * Diferencias con GeoServer:
- * - No hay workspace: el typeName es solo el nombre de la capa
- * - La URL ya lleva el parámetro MAP= apuntando al proyecto .qgz
- * - Los nombres de capa pueden tener espacios y acentos (igual que en QGIS Desktop)
+ * 
+ * Mejoras principales:
+ * - Caché en memoria para peticiones WFS
+ * - TTL configurable por tipo de capa
+ * - Métodos para gestionar caché
+ * - Logging de hits/misses de caché
+ * - ✨ NUEVO: Soporte para simplificación de geometría (GEOMETRY_SIMPLIFY)
  */
 
 import { config, logger } from '@config/env';
+import type { WFSOptions } from '@types/map';
+export type { WFSOptions };
 
-export interface WFSOptions {
-    maxFeatures?: number;
-    cql_filter?: string | null;
-    propertyName?: string | null;
-    srsName?: string;
+interface CacheEntry {
+    data: any;
+    timestamp: number;
 }
 
 class WFSService {
     private baseUrl: string;
     private timeout: number;
     private maxFeatures: number;
-    private capabilitiesCache: { xml: string; ts: number } | null = null;
-    private readonly capabilitiesTtlMs = 5 * 60 * 1000;
+
+    private capabilitiesCache: CacheEntry | null = null;
+    private featureCache = new Map<string, CacheEntry>();
     private layerExtentCache = new Map<string, [number, number][] | null>();
 
+    private readonly capabilitiesTtlMs = 15 * 60 * 1000;
+    private readonly featureCacheTtlMs = 10 * 60 * 1000;
+    private readonly extentCacheTtlMs = 30 * 60 * 1000;
+
+    private cacheStats = {
+        hits: 0,
+        misses: 0,
+        requests: 0
+    };
+
     constructor() {
-        // La URL ya incluye ?MAP=... — solo agregamos los parámetros WFS
         this.baseUrl = config.qgisServer.wfsUrl;
         this.timeout = config.qgisServer.timeout;
         this.maxFeatures = config.qgisServer.maxFeatures;
     }
 
-    /**
-     * Realiza una petición GetFeature a QGIS Server.
-     * A diferencia de GeoServer, el typeName NO lleva workspace.
-     */
+    private generateCacheKey(layerName: string, options: WFSOptions): string {
+        return `${layerName}:${JSON.stringify({
+            maxFeatures: options.maxFeatures ?? this.maxFeatures,
+            cql_filter: options.cql_filter,
+            propertyName: options.propertyName,
+            srsName: options.srsName ?? 'EPSG:4326',
+            simplifyTolerance: options.simplifyTolerance // Incluimos en la clave de caché
+        })}`;
+    }
+
+    private isCacheValid(entry: CacheEntry, ttl: number): boolean {
+        return (Date.now() - entry.timestamp) < ttl;
+    }
+
     async getFeatures(layerName: string, options: WFSOptions = {}): Promise<any> {
         try {
+            this.cacheStats.requests++;
+
             const {
                 maxFeatures = this.maxFeatures,
                 cql_filter = null,
                 propertyName = null,
                 srsName = 'EPSG:4326',
+                bypassCache = false,
+                simplifyTolerance
             } = options;
 
-            // La URL base ya tiene MAP=..., le añadimos los parámetros WFS
+            const cacheKey = this.generateCacheKey(layerName, options);
+            if (!bypassCache) {
+                const cached = this.featureCache.get(cacheKey);
+                if (cached && this.isCacheValid(cached, this.featureCacheTtlMs)) {
+                    this.cacheStats.hits++;
+                    logger.debug(
+                        `📦 HIT caché para ${layerName} (hits: ${this.cacheStats.hits}, ratio: ${((this.cacheStats.hits / this.cacheStats.requests) * 100).toFixed(1)}%)`
+                    );
+                    return cached.data;
+                } else {
+                    this.cacheStats.misses++;
+                }
+            }
+
             const params = new URLSearchParams({
                 SERVICE: 'WFS',
                 VERSION: '1.1.0',
                 REQUEST: 'GetFeature',
-                TYPENAME: layerName,       // sin workspace
+                TYPENAME: layerName,
                 outputFormat: 'application/vnd.geo+json',
-                //outputFormat: 'application/json',
                 maxFeatures: maxFeatures.toString(),
                 srsName,
             });
 
             if (cql_filter) params.append('CQL_FILTER', cql_filter);
             if (propertyName) params.append('PROPERTYNAME', propertyName);
+            
+            // ✨ NUEVO: Añadir simplificación de geometría si se solicita
+            if (simplifyTolerance !== undefined && simplifyTolerance > 0) {
+                params.append('GEOMETRY_SIMPLIFY', simplifyTolerance.toString());
+                logger.debug(`✂️ Aplicando simplificación de geometría con tolerancia: ${simplifyTolerance}`);
+            }
 
-            // Combinar URL base (que ya tiene ?) con los nuevos parámetros
             const url = `${this.baseUrl}&${params.toString()}`;
-            logger.debug('Petición WFS QGIS:', url);
+            logger.debug('🌐 Petición WFS QGIS:', url);
 
+            const startTime = performance.now();
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
@@ -73,53 +117,63 @@ class WFSService {
             });
             clearTimeout(timeoutId);
 
+            const duration = performance.now() - startTime;
+            logger.debug(`⏱️  WFS response time: ${duration.toFixed(2)}ms`);
+
             if (!response.ok) {
                 const errorText = await response.text();
-                logger.error('Error WFS Response:', errorText);
+                logger.error('❌ Error WFS Response:', errorText);
                 throw new Error(`Error WFS: ${response.status} ${response.statusText}`);
             }
 
             const contentType = response.headers.get('content-type') ?? '';
-            //if (!contentType.includes('application/json') && !contentType.includes('text/plain')) {
             if (!contentType.includes('json') && !contentType.includes('text/plain')) {
                 const text = await response.text();
-                logger.error('Respuesta inesperada:', text.substring(0, 300));
+                logger.error('❌ Respuesta inesperada:', text.substring(0, 300));
                 throw new Error('QGIS Server no devolvió JSON. Verifica que la capa esté publicada como WFS.');
             }
 
             const data = await response.json();
-            logger.debug(`Features de "${layerName}":`, data.features?.length ?? 0);
+
+            this.featureCache.set(cacheKey, {
+                data,
+                timestamp: Date.now()
+            });
+
+            logger.debug(`✅ Features de "${layerName}": ${data.features?.length ?? 0} registros`);
             return data;
 
         } catch (error: any) {
             if (error.name === 'AbortError') {
                 throw new Error('La petición tardó demasiado tiempo');
             }
-            logger.error('Error en getFeatures:', error);
+            logger.error('❌ Error en getFeatures:', error);
             throw error;
         }
     }
 
-    /** GetCapabilities del servicio WFS */
     async getCapabilities(): Promise<string> {
         try {
-            const now = Date.now();
-            if (this.capabilitiesCache && (now - this.capabilitiesCache.ts) < this.capabilitiesTtlMs) {
-                return this.capabilitiesCache.xml;
+            if (this.capabilitiesCache && this.isCacheValid(this.capabilitiesCache, this.capabilitiesTtlMs)) {
+                logger.debug('📦 Usando GetCapabilities en caché');
+                return this.capabilitiesCache.data;   
             }
+
+            logger.debug('🌐 Obteniendo GetCapabilities...');
             const url = `${this.baseUrl}&SERVICE=WFS&VERSION=1.1.0&REQUEST=GetCapabilities`;
             const response = await fetch(url);
             if (!response.ok) throw new Error(`Error GetCapabilities: ${response.status}`);
+
             const xml = await response.text();
-            this.capabilitiesCache = { xml, ts: now };
+            this.capabilitiesCache = { data: xml, timestamp: Date.now() } as any;
             return xml;
+
         } catch (error) {
-            logger.error('Error en getCapabilities:', error);
+            logger.error('❌ Error en getCapabilities:', error);
             throw error;
         }
     }
 
-    /** Feature por ID */
     async getFeatureById(layerName: string, featureId: string): Promise<any> {
         try {
             const params = new URLSearchParams({
@@ -128,7 +182,6 @@ class WFSService {
                 REQUEST: 'GetFeature',
                 TYPENAME: layerName,
                 FEATUREID: featureId,
-                //outputFormat: 'application/json',
                 outputFormat: 'application/vnd.geo+json',
             });
             const url = `${this.baseUrl}&${params.toString()}`;
@@ -137,12 +190,11 @@ class WFSService {
             const data = await response.json();
             return data.features[0] ?? null;
         } catch (error) {
-            logger.error('Error en getFeatureById:', error);
+            logger.error('❌ Error en getFeatureById:', error);
             throw error;
         }
     }
 
-    /** Features dentro de un BoundingBox */
     async getFeaturesByBBox(layerName: string, bbox: number[], srsName: string = 'EPSG:4326'): Promise<any> {
         try {
             const params = new URLSearchParams({
@@ -151,7 +203,6 @@ class WFSService {
                 REQUEST: 'GetFeature',
                 TYPENAME: layerName,
                 outputFormat: 'application/vnd.geo+json',
-                //                outputFormat: 'application/json',
                 srsName,
                 BBOX: `${bbox.join(',')},${srsName}`,
             });
@@ -160,12 +211,11 @@ class WFSService {
             if (!response.ok) throw new Error(`Error bbox: ${response.status}`);
             return response.json();
         } catch (error) {
-            logger.error('Error en getFeaturesByBBox:', error);
+            logger.error('❌ Error en getFeaturesByBBox:', error);
             throw error;
         }
     }
 
-    /** Valores únicos de un campo */
     async getUniqueValues(layerName: string, fieldName: string): Promise<any[]> {
         try {
             const data = await this.getFeatures(layerName, { propertyName: fieldName, maxFeatures: 10000 });
@@ -176,12 +226,11 @@ class WFSService {
             });
             return Array.from(unique).sort();
         } catch (error) {
-            logger.error('Error en getUniqueValues:', error);
+            logger.error('❌ Error en getUniqueValues:', error);
             throw error;
         }
     }
 
-    /** Cuenta features (hits) */
     async getFeatureCount(layerName: string, cql_filter: string | null = null): Promise<number> {
         try {
             const params = new URLSearchParams({
@@ -198,12 +247,11 @@ class WFSService {
             const data = await response.json();
             return data.totalFeatures ?? data.numberMatched ?? 0;
         } catch (error) {
-            logger.error('Error en getFeatureCount:', error);
+            logger.error('❌ Error en getFeatureCount:', error);
             throw error;
         }
     }
 
-    /** Filtros múltiples con CQL */
     async getFeaturesByFilters(layerName: string, filters: Record<string, any>): Promise<any> {
         const cqlParts = Object.entries(filters).map(([field, value]) => {
             if (typeof value === 'string') return `${field} = '${value}'`;
@@ -213,15 +261,13 @@ class WFSService {
         return this.getFeatures(layerName, { cql_filter: cqlParts.join(' AND ') });
     }
 
-    /**
-     * Extensión de capa desde WFS GetCapabilities.
-     * QGIS Server expone el bbox en WGS84 directamente.
-     */
     async getLayerExtent(layerName: string): Promise<[number, number][] | null> {
         try {
             if (this.layerExtentCache.has(layerName)) {
-                return this.layerExtentCache.get(layerName) ?? null;
+                const cached = this.layerExtentCache.get(layerName);
+                return cached ?? null;
             }
+
             const capXml = await this.getCapabilities();
             const parser = new DOMParser();
             const xmlDoc = parser.parseFromString(capXml, 'text/xml');
@@ -236,7 +282,6 @@ class WFSService {
                 const bbox = target.querySelector('WGS84BoundingBox') ??
                     target.querySelector('LatLongBoundingBox');
                 if (bbox) {
-                    // WFS 1.1: LowerCorner / UpperCorner en "lon lat"
                     const lower = bbox.querySelector('LowerCorner')?.textContent?.trim().split(' ');
                     const upper = bbox.querySelector('UpperCorner')?.textContent?.trim().split(' ');
                     if (lower && upper) {
@@ -247,7 +292,6 @@ class WFSService {
                         this.layerExtentCache.set(layerName, extent);
                         return extent;
                     }
-                    // WFS 1.0: atributos minx, miny
                     const minx = parseFloat(bbox.getAttribute('minx') ?? '0');
                     const miny = parseFloat(bbox.getAttribute('miny') ?? '0');
                     const maxx = parseFloat(bbox.getAttribute('maxx') ?? '0');
@@ -260,9 +304,49 @@ class WFSService {
             this.layerExtentCache.set(layerName, null);
             return null;
         } catch (error) {
-            logger.error('Error obteniendo extensión WFS:', error);
+            logger.error('❌ Error obteniendo extensión WFS:', error);
             return null;
         }
+    }
+
+    clearFeatureCache(layerName?: string): void {
+        if (layerName) {
+            const keysToDelete = Array.from(this.featureCache.keys())
+                .filter(key => key.startsWith(`${layerName}:`));
+            keysToDelete.forEach(key => this.featureCache.delete(key));
+            logger.debug(`🧹 Limpiada caché de features para ${layerName}`);
+        } else {
+            this.featureCache.clear();
+            logger.debug('🧹 Limpiada toda la caché de features');
+        }
+    }
+
+    clearCapabilitiesCache(): void {
+        this.capabilitiesCache = null;
+        logger.debug('🧹 Limpiada caché de capabilities');
+    }
+
+    clearAllCaches(): void {
+        this.featureCache.clear();
+        this.layerExtentCache.clear();
+        this.capabilitiesCache = null;
+        logger.debug('🧹 Limpiadas todas las cachés');
+    }
+
+    getCacheStats() {
+        return {
+            ...this.cacheStats,
+            hitRatio: this.cacheStats.requests > 0
+                ? ((this.cacheStats.hits / this.cacheStats.requests) * 100).toFixed(1) + '%'
+                : 'N/A',
+            featuresInCache: this.featureCache.size,
+            extentsInCache: this.layerExtentCache.size
+        };
+    }
+
+    resetCacheStats(): void {
+        this.cacheStats = { hits: 0, misses: 0, requests: 0 };
+        logger.debug('🔄 Estadísticas de caché reseteadas');
     }
 }
 

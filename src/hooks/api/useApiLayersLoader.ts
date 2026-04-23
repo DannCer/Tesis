@@ -1,49 +1,48 @@
-import { useEffect, useState } from 'react';
-import { apiService } from '@services/api';
-import { LayerConfig, updateAvailableLayers } from '@config/layers';
-import { logger } from '@config/env';
+/**
+ * @fileoverview Convierte las capas del LayersContext al formato LayerConfig
+ * agrupado por grupo. Ya NO hace fetch propio — reutiliza los datos que
+ * LayersProvider ya obtuvo, eliminando la petición duplicada a la API.
+ * @module hooks/api/useApiLayersLoader
+ */
+
+import { useMemo } from 'react';
+import { useLayersContext } from '@contexts/LayersContext';
+import { LayerConfig } from '@config/layers';
 
 export const useApiLayersLoader = () => {
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [layersByGroup, setLayersByGroup] = useState<Record<string, LayerConfig[]>>({});
+    const { vectorLayers, rasterLayers, loading, error } = useLayersContext();
 
-    useEffect(() => {
-        const loadLayers = async () => {
-            try {
-                const capas = await apiService.getCapas();
-                
-                const converted: LayerConfig[] = capas.map((item, idx) => ({
-                    id: `api_layer_${item.id}`,
-                    name: item.name,
-                    description: item.description || '',
-                    type: item.type === 'raster' ? 'raster' : 'vector',
-                    group: item.group,
-                    wfsName: item.wfsName,
-                    wmsLayer: item.wmsLayer,
-                    showLegend: true,
-                }));
+    const layersByGroup = useMemo(() => {
+        const allLayers: LayerConfig[] = [
+            ...vectorLayers.map((l): LayerConfig => ({
+                id:          l.id,
+                name:        l.name,
+                description: l.description,
+                type:        'vector',
+                group:       l.group,
+                wfsName:     l.wfsName,
+                wmsLayer:    l.wmsLayer,
+                showLegend:  true,
+            })),
+            ...rasterLayers.map((l): LayerConfig => ({
+                id:          l.id,
+                name:        l.name,
+                description: l.description,
+                type:        'raster',
+                group:       l.group,
+                wmsLayer:    l.wmsLayer,
+                year:        l.year,
+                timeValue:   l.timeValue,
+                showLegend:  true,
+            })),
+        ];
 
-                updateAvailableLayers(converted);
-
-                const grouped = converted.reduce((acc, layer) => {
-                    if (!acc[layer.group]) acc[layer.group] = [];
-                    acc[layer.group].push(layer);
-                    return acc;
-                }, {} as Record<string, LayerConfig[]>);
-
-                setLayersByGroup(grouped);
-                setLoading(false);
-                logger.log('Capas cargadas desde API:', converted.length);
-            } catch (err: any) {
-                logger.error('Error cargando capas:', err);
-                setError(err.message || 'Error desconocido');
-                setLoading(false);
-            }
-        };
-
-        loadLayers();
-    }, []);
+        return allLayers.reduce((acc, layer) => {
+            if (!acc[layer.group]) acc[layer.group] = [];
+            acc[layer.group].push(layer);
+            return acc;
+        }, {} as Record<string, LayerConfig[]>);
+    }, [vectorLayers, rasterLayers]);
 
     return { loading, error, layersByGroup };
 };

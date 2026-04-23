@@ -174,8 +174,46 @@ const AttributeTable: React.FC<AttributeTableProps> = memo(({ layerName, feature
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
     const [currentPage,   setCurrentPage]   = useState(1);
 
+    // ✅ Estado para redimensionamiento de columnas
+    const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+    const resizingRef = useRef<{ column: string; startX: number; startWidth: number } | null>(null);
+
     const sortColumnRef    = useRef<string | null>(null);
     const sortDirectionRef = useRef<'asc' | 'desc'>('asc');
+
+    // ✅ Funciones de redimensionamiento de columnas
+    const handleResizeStart = useCallback((column: string, e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const startX = e.clientX;
+        const startWidth = columnWidths[column] || 150;
+        resizingRef.current = { column, startX, startWidth };
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    }, [columnWidths]);
+
+    const handleResizeMove = useCallback((e: MouseEvent) => {
+        if (!resizingRef.current) return;
+        const { column, startX, startWidth } = resizingRef.current;
+        const diff = e.clientX - startX;
+        const newWidth = Math.max(60, startWidth + diff); // mínimo 60px
+        setColumnWidths(prev => ({ ...prev, [column]: newWidth }));
+    }, []);
+
+    const handleResizeEnd = useCallback(() => {
+        resizingRef.current = null;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+    }, []);
+
+    useEffect(() => {
+        document.addEventListener('mousemove', handleResizeMove);
+        document.addEventListener('mouseup', handleResizeEnd);
+        return () => {
+            document.removeEventListener('mousemove', handleResizeMove);
+            document.removeEventListener('mouseup', handleResizeEnd);
+        };
+    }, [handleResizeMove, handleResizeEnd]);
 
     useEffect(() => {
         const timeoutId = window.setTimeout(() => {
@@ -421,14 +459,31 @@ const AttributeTable: React.FC<AttributeTableProps> = memo(({ layerName, feature
                                         <th
                                             key={col}
                                             className={`attr-th attr-th-sortable${sortColumn === col ? ' sorted' : ''}`}
-                                            onClick={() => handleSort(col)}
+                                            style={{ 
+                                                width: columnWidths[col] ? `${columnWidths[col]}px` : '150px',
+                                                minWidth: '60px',
+                                                position: 'relative'
+                                            }}
                                         >
-                                            {col}
-                                            <span className="sort-icon">
-                                                {sortColumn === col
-                                                    ? (sortDirection === 'asc' ? ' ▲' : ' ▼')
-                                                    : ' ⇅'}
-                                            </span>
+                                            <div
+                                                className="attr-th-content"
+                                                onClick={() => handleSort(col)}
+                                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                                            >
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {col}
+                                                </span>
+                                                <span className="sort-icon">
+                                                    {sortColumn === col
+                                                        ? (sortDirection === 'asc' ? ' ▲' : ' ▼')
+                                                        : ' ⇅'}
+                                                </span>
+                                            </div>
+                                            <div
+                                                className="attr-resize-handle"
+                                                onMouseDown={(e) => handleResizeStart(col, e)}
+                                                title="Arrastrar para redimensionar"
+                                            />
                                         </th>
                                     ))}
                                 </tr>

@@ -7,6 +7,7 @@
 import { createContext } from 'react';
 import type { VectorLayerDef, RasterLayerDef } from '@types/geo';
 import type { GrupoResponse } from '@types/api';
+import type { LayerConfig } from '@config/layers';
 
 export interface LayersContextValue {
     /** Capas vectoriales disponibles desde la API */
@@ -15,6 +16,13 @@ export interface LayersContextValue {
     rasterLayers: RasterLayerDef[];
     /** Grupos (proyectos QGIS) disponibles */
     grupos: GrupoResponse[];
+    /**
+     * Lista plana de todas las capas en formato LayerConfig.
+     * Sustituye al antiguo AVAILABLE_LAYERS global mutable.
+     * Los componentes que la lean se re-renderizan automáticamente
+     * cuando cambian las capas, a diferencia del let global.
+     */
+    availableLayers: LayerConfig[];
     /** Estado de carga inicial */
     loading: boolean;
     /** Error de carga, si existe */

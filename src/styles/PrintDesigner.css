@@ -360,3 +360,81 @@
     font-size:8px; background:rgba(255,255,255,.8);
     padding:1px 4px; border-radius:2px; pointer-events:none;
 }
+
+/* ══ Toggle de vista previa (Esquema / WMS en vivo) ══ */
+.pd-preview-toggle {
+    display: flex;
+    gap: 3px;
+    margin-left: auto;
+    background: #f0ebf4;
+    border-radius: 20px;
+    padding: 2px;
+}
+.pd-preview-tab {
+    padding: 2px 10px;
+    font-size: .63rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 16px;
+    background: transparent;
+    color: #999;
+    cursor: pointer;
+    transition: all .13s;
+    white-space: nowrap;
+}
+.pd-preview-tab:hover { color: var(--color-primary,#8d1c3d); }
+.pd-preview-tab.active {
+    background: var(--color-primary,#8d1c3d);
+    color: #fff;
+}
+
+/* ══ Contenedor live preview ══ */
+.pd-live-wrap {
+    position: relative;
+    border-radius: 3px;
+    overflow: hidden;
+    border: 1.5px solid #4a90d9;
+    box-shadow: 3px 4px 12px rgba(0,0,0,.2), 0 1px 3px rgba(0,0,0,.1);
+    background: #d4e8f5;
+    flex-shrink: 0;
+}
+.pd-live-img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: fill;
+}
+.pd-live-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: .72rem;
+    color: #555;
+    background: rgba(212,232,245,.9);
+    text-align: center;
+    padding: 10px;
+    line-height: 1.4;
+}
+.pd-live-overlay small {
+    font-size: .62rem;
+    color: #999;
+}
+.pd-live-overlay--err {
+    color: #c0392b;
+    background: rgba(253,240,238,.95);
+}
+.pd-live-overlay--empty {
+    color: #888;
+}
+.pd-live-note {
+    font-size: .62rem;
+    color: #bbb;
+    text-align: center;
+    line-height: 1.4;
+    margin: 0;
+    padding: 0 4px;
+}

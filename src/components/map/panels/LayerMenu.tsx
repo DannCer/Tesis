@@ -2,23 +2,28 @@ import React, { useState, useRef, useEffect, useCallback, useMemo, memo } from '
 import ReactDOM from 'react-dom';
 import '@styles/LayerMenu.css';
 import { LayerData } from '@hooks/map';
-import { AVAILABLE_LAYERS, LayerConfig } from '@config/layers';
-import { config } from '@config/env';
+import { LayerConfig } from '@config/layers';
+import { useLayersContext } from '@contexts/LayersContext';
+import { config, logger } from '@config/env';
 import AttributeTable from './AttributeTable';
 import { fileToGeoJSON, VECTOR_ACCEPT } from '@utils/geo/fileToGeoJSON';
 import { loadGeoTIFF } from '@utils/geo/georasterLoader';
-import { useApiLayersLoader } from '@hooks/api';
 import {
     SymbologyStyle, SymbologyMode, GeomType, DEFAULT_SYMBOLOGY,
     detectGeomType, extractFields, autoCategorize,
     classifyFeatures, getRampGradientCSS, RAMP_NAMES,
 } from '@utils/geo/symbologyUtils';
+import type { ExternalLayer, DownloadFormat } from '@types/geo';
+import { VECTOR_DOWNLOAD_FORMATS, RASTER_DOWNLOAD_FORMATS } from '@types/geo';
+
+export type { ExternalLayer };
 
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 interface LayerMenuProps {
-    layers: Record<string, LayerData | any>;
+    layerState: Record<string, LayerData | any>;
+    layersByGroup: Record<string, LayerConfig[]>;
     loading: Record<string, boolean>;
     errors: Record<string, string | null>;
     onLayerToggle: (id: string, isActive: boolean, type: 'vector' | 'raster') => void;
@@ -36,106 +41,117 @@ interface LayerMenuProps {
 
 export type AddLayerType = 'vector' | 'raster' | 'ogc';
 
-export interface ExternalLayer {
-    id: string;
-    name: string;
-    type: 'vector' | 'raster' | 'wms' | 'wfs';
-    url: string;
-    layerName?: string;
-    file?: File;
-    geojsonData?: GeoJSON.FeatureCollection;
-    georasterData?: unknown;
-    georasterBounds?: [[number, number], [number, number]];
-    symbology?: SymbologyStyle;
-}
-
-// ─── Descarga ─────────────────────────────────────────────────────────────────
-
-interface DownloadFormat { label: string; ext: string; icon: string; outputFormat: string; description: string; color: string; }
-
-const VECTOR_FORMATS: DownloadFormat[] = [
-    { label: 'Shapefile', ext: 'shp.zip', icon: '\uD83D\uDDC2\uFE0F', outputFormat: 'SHAPE-ZIP',                            description: 'Compatible con ArcGIS, QGIS', color: '#e67e22' },
-    { label: 'GeoJSON',   ext: 'geojson', icon: '{ }',               outputFormat: 'application/json',                     description: 'Ideal para web y código',      color: '#27ae60' },
-    { label: 'KML',       ext: 'kml',     icon: '\uD83C\uDF0D',       outputFormat: 'application/vnd.google-earth.kml+xml', description: 'Google Earth / Maps',          color: '#2980b9' },
-];
-const RASTER_FORMATS = [{ label: 'GeoTIFF', ext: 'tif', icon: '\uD83D\uDDFA\uFE0F', description: 'GeoTIFF con georeferenciación (WCS)', color: '#c0392b' }];
-
 // ─── URLs ─────────────────────────────────────────────────────────────────────
 
-const getVectorDownloadUrl = (layer: LayerConfig, outputFormat: string): string => {
+/**
+ * Construye la URL base de QGIS Server con el proyecto correcto según el grupo
+ * Si no se proporciona grupo o no se encuentra su proyecto, usa la URL por defecto
+ */
+/**
+ * Devuelve la URL del proyecto QGIS para el grupo de una capa.
+ * Fallback a wfsUrl si el grupo no tiene proyecto configurado.
+ */
+const getProjectUrlForLayer = (layer: LayerConfig, grupos: any[]): string => {
+    if (!layer.group) return config.qgisServer.wfsUrl;
+    const grupo = grupos.find(g => g.nombre === layer.group);
+    if (!grupo?.url_proyecto) {
+        logger.warn(`No se encontró proyecto para el grupo "${layer.group}", usando URL por defecto`);
+        return config.qgisServer.wfsUrl;
+    }
+    return `${config.qgisServer.url}?MAP=${encodeURIComponent(grupo.url_proyecto)}`;
+};
+
+const getVectorDownloadUrl = (layer: LayerConfig, outputFormat: string, grupos: any[] = []): string => {
     const wfsName = (layer as any).wfsName ?? layer.id;
-    const url = new URL(config.qgisServer.wfsUrl);
-    url.searchParams.set('SERVICE',      'WFS');
-    url.searchParams.set('VERSION',      '1.1.0');
-    url.searchParams.set('REQUEST',      'GetFeature');
-    url.searchParams.set('TYPENAME',     wfsName);
+    const baseUrl = getProjectUrlForLayer(layer, grupos);
+
+    const url = new URL(baseUrl);
+    url.searchParams.set('SERVICE', 'WFS');
+    url.searchParams.set('VERSION', '1.1.0');
+    url.searchParams.set('REQUEST', 'GetFeature');
+    url.searchParams.set('TYPENAME', wfsName);
     url.searchParams.set('outputFormat', outputFormat);
     return url.toString();
 };
 
-const getRasterDownloadUrl = (layer: LayerConfig): string => {
-    const url = new URL(config.qgisServer.wmsRasterUrl);
+const getRasterDownloadUrl = (layer: LayerConfig, grupos: any[] = []): string => {
+    // Para raster, por ahora seguimos usando la URL de raster por defecto
+    // Esto se puede mejorar si los raster también tienen grupos con proyectos específicos
+    const baseUrl = layer.group
+        ? getProjectUrlForLayer(layer, grupos)
+        : config.qgisServer.wmsRasterUrl;
+
+    const url = new URL(baseUrl);
     url.searchParams.set('SERVICE', 'WMS');
     url.searchParams.set('VERSION', '1.3.0');
     url.searchParams.set('REQUEST', 'GetMap');
-    url.searchParams.set('LAYERS',  layer.wmsLayer ?? layer.id);
-    url.searchParams.set('CRS',     'EPSG:4326');
-    url.searchParams.set('BBOX',    '14.532,-118.454,32.718,-86.710');
-    url.searchParams.set('WIDTH',   '4096');
-    url.searchParams.set('HEIGHT',  '3072');
-    url.searchParams.set('FORMAT',  'image/tiff');
+    url.searchParams.set('LAYERS', layer.wmsLayer ?? layer.id);
+    url.searchParams.set('CRS', 'EPSG:4326');
+    url.searchParams.set('BBOX', '14.532,-118.454,32.718,-86.710');
+    url.searchParams.set('WIDTH', '4096');
+    url.searchParams.set('HEIGHT', '3072');
+    url.searchParams.set('FORMAT', 'image/tiff');
     if (layer.timeValue) url.searchParams.set('TIME', layer.timeValue);
     return url.toString();
 };
 
 /** Devuelve { baseUrl, capabilitiesUrl, layerName } para el modal de servicio */
-const getServiceInfo = (layer: LayerConfig, type: 'wfs' | 'wms') => {
-    const wfsName  = (layer as any).wfsName  ?? layer.id;
+const getServiceInfo = (layer: LayerConfig, type: 'wfs' | 'wms', grupos: any[] = []) => {
+    const wfsName = (layer as any).wfsName ?? layer.id;
     const wmsLayer = (layer as any).wmsLayer ?? layer.id;
 
     if (type === 'wfs') {
-        const base = new URL(config.qgisServer.wfsUrl);
+        const baseUrl = getProjectUrlForLayer(layer, grupos);
+
+        const base = new URL(baseUrl);
         base.searchParams.set('SERVICE', 'WFS');
         base.searchParams.set('VERSION', '2.0.0');
         base.searchParams.set('REQUEST', 'GetCapabilities');
-        const full = new URL(config.qgisServer.wfsUrl);
-        full.searchParams.set('SERVICE',  'WFS');
-        full.searchParams.set('VERSION',  '2.0.0');
-        full.searchParams.set('REQUEST',  'GetFeature');
+
+        const full = new URL(baseUrl);
+        full.searchParams.set('SERVICE', 'WFS');
+        full.searchParams.set('VERSION', '2.0.0');
+        full.searchParams.set('REQUEST', 'GetFeature');
         full.searchParams.set('TYPENAME', wfsName);
+
         return {
             type: 'WFS' as const,
-            connectionUrl:    config.qgisServer.wfsUrl,
-            capabilitiesUrl:  base.toString(),
-            getFeatureUrl:    full.toString(),
-            layerName:        wfsName,
+            connectionUrl: baseUrl,
+            capabilitiesUrl: base.toString(),
+            getFeatureUrl: full.toString(),
+            layerName: wfsName,
         };
     } else {
-        const base = new URL(config.qgisServer.wmsUrl);
+        const baseUrl = layer.group
+            ? getProjectUrlForLayer(layer, grupos)
+            : config.qgisServer.wmsUrl;
+
+        const base = new URL(baseUrl);
         base.searchParams.set('SERVICE', 'WMS');
         base.searchParams.set('VERSION', '1.3.0');
         base.searchParams.set('REQUEST', 'GetCapabilities');
+
         return {
             type: 'WMS' as const,
-            connectionUrl:   config.qgisServer.wmsUrl,
+            connectionUrl: baseUrl,
             capabilitiesUrl: base.toString(),
-            getFeatureUrl:   '',
-            layerName:       wmsLayer,
+            getFeatureUrl: '',
+            layerName: wmsLayer,
         };
     }
 };
 
 // ─── Descarga programática (fetch → blob) ────────────────────────────────────
 
-async function downloadVectorFormat(layer: LayerConfig, fmt: DownloadFormat): Promise<void> {
-    const url = getVectorDownloadUrl(layer, fmt.outputFormat);
+async function downloadVectorFormat(layer: LayerConfig, fmt: DownloadFormat, grupos: any[] = []): Promise<void> {
+    const url = getVectorDownloadUrl(layer, fmt.outputFormat, grupos);
     try {
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const blob = await res.blob();
         const blobUrl = URL.createObjectURL(blob);
         const a = Object.assign(document.createElement('a'), {
-            href:     blobUrl,
+            href: blobUrl,
             download: `${layer.id}.${fmt.ext}`,
         });
         document.body.appendChild(a);
@@ -185,8 +201,8 @@ const ServiceModal: React.FC<ServiceModalProps> = ({ info, layerName, onClose })
             title="Copiar"
         >
             {copied === id
-                ? <><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16"><path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425a.267.267 0 0 1 .02-.022z"/></svg> Copiado</>
-                : <><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5H3.5A1.5 1.5 0 0 0 2 3h12a1.5 1.5 0 0 0-1.5-1.5H11A1.5 1.5 0 0 0 9.5 0h-3z"/></svg> Copiar</>
+                ? <><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16"><path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425a.267.267 0 0 1 .02-.022z" /></svg> Copiado</>
+                : <><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z" /><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5H3.5A1.5 1.5 0 0 0 2 3h12a1.5 1.5 0 0 0-1.5-1.5H11A1.5 1.5 0 0 0 9.5 0h-3z" /></svg> Copiar</>
             }
         </button>
     );
@@ -195,23 +211,23 @@ const ServiceModal: React.FC<ServiceModalProps> = ({ info, layerName, onClose })
         {
             label: 'URL de conexión (pegar en QGIS / ArcGIS)',
             value: info.connectionUrl,
-            id:    'conn',
+            id: 'conn',
         },
         {
             label: `Nombre de capa / ${info.type === 'WFS' ? 'TypeName' : 'LAYER'}`,
             value: info.layerName,
-            id:    'lyr',
-            mono:  true,
+            id: 'lyr',
+            mono: true,
         },
         {
             label: 'URL GetCapabilities',
             value: info.capabilitiesUrl,
-            id:    'caps',
+            id: 'caps',
         },
         ...(info.type === 'WFS' && info.getFeatureUrl ? [{
             label: 'URL GetFeature completa',
             value: info.getFeatureUrl,
-            id:    'feat',
+            id: 'feat',
         }] : []),
     ];
 
@@ -229,7 +245,7 @@ const ServiceModal: React.FC<ServiceModalProps> = ({ info, layerName, onClose })
                     </div>
                     <button className="svc-close" onClick={onClose} title="Cerrar">
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
-                            <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854z"/>
+                            <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854z" />
                         </svg>
                     </button>
                 </div>
@@ -267,8 +283,8 @@ const ServiceModal: React.FC<ServiceModalProps> = ({ info, layerName, onClose })
                         onClick={() => copy(rows.map(r => `${r.label}:\n${r.value}`).join('\n\n'), 'all')}
                     >
                         {copied === 'all'
-                            ? <><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425a.267.267 0 0 1 .02-.022z"/></svg> Todo copiado</>
-                            : <><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5H3.5A1.5 1.5 0 0 0 2 3h12a1.5 1.5 0 0 0-1.5-1.5H11A1.5 1.5 0 0 0 9.5 0h-3z"/></svg> Copiar todo</>
+                            ? <><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425a.267.267 0 0 1 .02-.022z" /></svg> Todo copiado</>
+                            : <><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z" /><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5H3.5A1.5 1.5 0 0 0 2 3h12a1.5 1.5 0 0 0-1.5-1.5H11A1.5 1.5 0 0 0 9.5 0h-3z" /></svg> Copiar todo</>
                         }
                     </button>
                 </div>
@@ -281,9 +297,9 @@ const ServiceModal: React.FC<ServiceModalProps> = ({ info, layerName, onClose })
 
 // ─── DownloadDropdown ─────────────────────────────────────────────────────────
 
-const DownloadDropdown: React.FC<{ layer: LayerConfig }> = ({ layer }) => {
-    const [open, setOpen]               = useState(false);
-    const [menuStyle, setMenuStyle]     = useState<React.CSSProperties>({});
+const DownloadDropdown: React.FC<{ layer: LayerConfig; grupos?: any[] }> = ({ layer, grupos = [] }) => {
+    const [open, setOpen] = useState(false);
+    const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
     const [serviceModal, setServiceModal] = useState<ReturnType<typeof getServiceInfo> | null>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -314,7 +330,7 @@ const DownloadDropdown: React.FC<{ layer: LayerConfig }> = ({ layer }) => {
 
     useEffect(() => {
         if (!open) return;
-        const close  = (e: MouseEvent) => { if (!triggerRef.current?.contains(e.target as Node)) setOpen(false); };
+        const close = (e: MouseEvent) => { if (!triggerRef.current?.contains(e.target as Node)) setOpen(false); };
         const scroll = () => setOpen(false);
         document.addEventListener('mousedown', close);
         document.addEventListener('scroll', scroll, true);
@@ -326,7 +342,7 @@ const DownloadDropdown: React.FC<{ layer: LayerConfig }> = ({ layer }) => {
 
     const openService = (type: 'wfs' | 'wms') => {
         setOpen(false);
-        setServiceModal(getServiceInfo(layer, type));
+        setServiceModal(getServiceInfo(layer, type, grupos));
     };
 
     const [downloading, setDownloading] = useState<string | null>(null);
@@ -334,7 +350,7 @@ const DownloadDropdown: React.FC<{ layer: LayerConfig }> = ({ layer }) => {
     const handleDownload = async (fmt: DownloadFormat) => {
         setOpen(false);
         setDownloading(fmt.ext);
-        await downloadVectorFormat(layer, fmt);
+        await downloadVectorFormat(layer, fmt, grupos);
         setDownloading(null);
     };
 
@@ -343,7 +359,7 @@ const DownloadDropdown: React.FC<{ layer: LayerConfig }> = ({ layer }) => {
             {/* ── Sección descargas ── */}
             <div className="dl-menu-header">Descargar como</div>
             {layer.type === 'vector'
-                ? VECTOR_FORMATS.map(fmt => (
+                ? VECTOR_DOWNLOAD_FORMATS.map(fmt => (
                     <button key={fmt.ext} className="dl-item dl-item-btn" onClick={() => handleDownload(fmt)}>
                         <span className="dl-item-icon" style={{ background: `${fmt.color}18`, color: fmt.color }}>{fmt.icon}</span>
                         <span className="dl-item-info">
@@ -353,8 +369,8 @@ const DownloadDropdown: React.FC<{ layer: LayerConfig }> = ({ layer }) => {
                         <span className="dl-item-ext">.{fmt.ext.replace('.zip', '')}</span>
                     </button>
                 ))
-                : RASTER_FORMATS.map(fmt => (
-                    <a key={fmt.ext} href={getRasterDownloadUrl(layer)} className="dl-item"
+                : RASTER_DOWNLOAD_FORMATS.map(fmt => (
+                    <a key={fmt.ext} href={getRasterDownloadUrl(layer, grupos)} className="dl-item"
                         target="_blank" rel="noopener noreferrer"
                         download={`${layer.id}.${fmt.ext}`}
                         onClick={() => setOpen(false)}>
@@ -373,7 +389,7 @@ const DownloadDropdown: React.FC<{ layer: LayerConfig }> = ({ layer }) => {
             {layer.type === 'vector' && (
                 <button className="dl-item dl-item-btn dl-item-service" onClick={() => openService('wfs')}>
                     <span className="dl-item-icon dl-item-icon-svc" style={{ background: '#1a73e818', color: '#1a73e8' }}>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M0 3.5A1.5 1.5 0 0 1 1.5 2h13A1.5 1.5 0 0 1 16 3.5v2A1.5 1.5 0 0 1 14.5 7h-13A1.5 1.5 0 0 1 0 5.5v-2zm1.5-.5a.5.5 0 0 0-.5.5v2a.5.5 0 0 0 .5.5h13a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 0-.5-.5h-13zM0 10.5A1.5 1.5 0 0 1 1.5 9h13a1.5 1.5 0 0 1 1.5 1.5v2a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 0 12.5v-2z"/></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M0 3.5A1.5 1.5 0 0 1 1.5 2h13A1.5 1.5 0 0 1 16 3.5v2A1.5 1.5 0 0 1 14.5 7h-13A1.5 1.5 0 0 1 0 5.5v-2zm1.5-.5a.5.5 0 0 0-.5.5v2a.5.5 0 0 0 .5.5h13a.5.5 0 0 0 .5-.5v-2a.5.5 0 0 0-.5-.5h-13zM0 10.5A1.5 1.5 0 0 1 1.5 9h13a1.5 1.5 0 0 1 1.5 1.5v2a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 0 12.5v-2z" /></svg>
                     </span>
                     <span className="dl-item-info">
                         <span className="dl-item-label">WFS</span>
@@ -384,7 +400,7 @@ const DownloadDropdown: React.FC<{ layer: LayerConfig }> = ({ layer }) => {
             )}
             <button className="dl-item dl-item-btn dl-item-service" onClick={() => openService('wms')}>
                 <span className="dl-item-icon dl-item-icon-svc" style={{ background: '#9c27b018', color: '#9c27b0' }}>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M8 0C3.582 0 0 3.582 0 8s3.582 8 8 8 8-3.582 8-8-3.582-8-8-8zm.25 11.5v1.25a.25.25 0 0 1-.5 0V11.5a.25.25 0 0 1 .5 0zm0-8.5v5.25a.25.25 0 0 1-.5 0V3a.25.25 0 0 1 .5 0z"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M8 0C3.582 0 0 3.582 0 8s3.582 8 8 8 8-3.582 8-8-3.582-8-8-8zm.25 11.5v1.25a.25.25 0 0 1-.5 0V11.5a.25.25 0 0 1 .5 0zm0-8.5v5.25a.25.25 0 0 1-.5 0V3a.25.25 0 0 1 .5 0z" /></svg>
                 </span>
                 <span className="dl-item-info">
                     <span className="dl-item-label">WMS</span>
@@ -399,10 +415,10 @@ const DownloadDropdown: React.FC<{ layer: LayerConfig }> = ({ layer }) => {
         <div className="dl-dropdown">
             <button ref={triggerRef} className={`dl-trigger ${downloading ? 'dl-trigger-loading' : ''}`} title="Opciones de descarga y servicios" onClick={openMenu}>
                 {downloading
-                    ? <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" className="spin"><path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/></svg>
-                    : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/></svg>
+                    ? <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" className="spin"><path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z" /><path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z" /></svg>
+                    : <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" /><path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z" /></svg>
                 }
-                <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" fill="currentColor" viewBox="0 0 16 16" className={`dl-caret ${open ? 'open' : ''}`}><path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" fill="currentColor" viewBox="0 0 16 16" className={`dl-caret ${open ? 'open' : ''}`}><path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z" /></svg>
             </button>
             {open && ReactDOM.createPortal(menu, document.body)}
             {serviceModal && (
@@ -418,7 +434,7 @@ const DownloadDropdown: React.FC<{ layer: LayerConfig }> = ({ layer }) => {
 
 const TableIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16">
-        <path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm15 2h-4v3h4V4zm0 4h-4v3h4V8zm0 4h-4v3h3a1 1 0 0 0 1-1v-2zm-5 3v-3H6v3h4zm-5 0v-3H1v2a1 1 0 0 0 1 1h3zm-4-4h4V8H1v3zm0-4h4V4H1v3zm5-3v3h4V4H6zm4 4H6v3h4V8z"/>
+        <path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm15 2h-4v3h4V4zm0 4h-4v3h4V8zm0 4h-4v3h3a1 1 0 0 0 1-1v-2zm-5 3v-3H6v3h4zm-5 0v-3H1v2a1 1 0 0 0 1 1h3zm-4-4h4V8H1v3zm0-4h4V4H1v3zm5-3v3h4V4H6zm4 4H6v3h4V8z" />
     </svg>
 );
 
@@ -476,10 +492,10 @@ const SymbologyEditor: React.FC<SymbologyEditorProps> = ({ features, geomType, s
         } else {
             set({
                 mode,
-                expression:  symbology.expression  ?? (fields[0] ?? ''),
-                numClasses:  symbology.numClasses   ?? 5,
-                colorRamp:   symbology.colorRamp    ?? RAMP_NAMES[0],
-                classMethod: symbology.classMethod  ?? 'equal',
+                expression: symbology.expression ?? (fields[0] ?? ''),
+                numClasses: symbology.numClasses ?? 5,
+                colorRamp: symbology.colorRamp ?? RAMP_NAMES[0],
+                classMethod: symbology.classMethod ?? 'equal',
             });
         }
     };
@@ -490,9 +506,9 @@ const SymbologyEditor: React.FC<SymbologyEditorProps> = ({ features, geomType, s
         if (!expr) { setClassError('Escribe una expresión o selecciona un campo'); return; }
         const result = classifyFeatures(
             features, expr,
-            symbology.numClasses  ?? 5,
+            symbology.numClasses ?? 5,
             symbology.classMethod ?? 'equal',
-            symbology.colorRamp   ?? RAMP_NAMES[0],
+            symbology.colorRamp ?? RAMP_NAMES[0],
         );
         if (!result) {
             setClassError('No se pudo evaluar la expresión. Verifica los nombres de campo y que los valores sean numéricos.');
@@ -510,9 +526,9 @@ const SymbologyEditor: React.FC<SymbologyEditorProps> = ({ features, geomType, s
         <div className="sym-editor">
             {/* Pestañas de modo */}
             <div className="sym-modes sym-modes-3">
-                <button className={`sym-mode-btn ${symbology.mode === 'single'      ? 'selected' : ''}`} onClick={() => handleModeChange('single')}>Color único</button>
+                <button className={`sym-mode-btn ${symbology.mode === 'single' ? 'selected' : ''}`} onClick={() => handleModeChange('single')}>Color único</button>
                 <button className={`sym-mode-btn ${symbology.mode === 'categorical' ? 'selected' : ''}`} onClick={() => handleModeChange('categorical')}>Por campo</button>
-                <button className={`sym-mode-btn ${symbology.mode === 'classified'  ? 'selected' : ''}`} onClick={() => handleModeChange('classified')}>Clasificado</button>
+                <button className={`sym-mode-btn ${symbology.mode === 'classified' ? 'selected' : ''}`} onClick={() => handleModeChange('classified')}>Clasificado</button>
             </div>
 
             {/* Color único */}
@@ -688,22 +704,22 @@ const SymbologyEditor: React.FC<SymbologyEditorProps> = ({ features, geomType, s
 type PanelStep = 'form' | 'symbology';
 
 const LAYER_TYPE_OPTIONS = [
-    { value: 'vector' as AddLayerType, label: 'Vectorial',    icon: '\uD83D\uDCC1', desc: 'GeoJSON, KML, KMZ o Shapefile (.zip)' },
-    { value: 'raster' as AddLayerType, label: 'GeoTIFF',      icon: '\uD83D\uDDFA\uFE0F', desc: 'GeoTIFF local' },
-    { value: 'ogc'    as AddLayerType, label: 'Servicio OGC', icon: '\uD83C\uDF10', desc: 'WMS o WFS (auto-detectado)' },
+    { value: 'vector' as AddLayerType, label: 'Vectorial', icon: '\uD83D\uDCC1', desc: 'GeoJSON, KML, KMZ o Shapefile (.zip)' },
+    { value: 'raster' as AddLayerType, label: 'GeoTIFF', icon: '\uD83D\uDDFA\uFE0F', desc: 'GeoTIFF local' },
+    { value: 'ogc' as AddLayerType, label: 'Servicio OGC', icon: '\uD83C\uDF10', desc: 'WMS o WFS (auto-detectado)' },
 ];
 
 const AddLayerPanel: React.FC<{ onAddLayer: (layer: ExternalLayer) => void }> = ({ onAddLayer }) => {
-    const [open, setOpen]     = useState(false);
-    const [step, setStep]     = useState<PanelStep>('form');
-    const [type, setType]     = useState<AddLayerType>('vector');
-    const [name, setName]     = useState('');
-    const [url, setUrl]       = useState('');
+    const [open, setOpen] = useState(false);
+    const [step, setStep] = useState<PanelStep>('form');
+    const [type, setType] = useState<AddLayerType>('vector');
+    const [name, setName] = useState('');
+    const [url, setUrl] = useState('');
     const [layerName, setLayerName] = useState('');
-    const [file, setFile]     = useState<File | null>(null);
-    const [error, setError]   = useState('');
-    const [loading, setLoading]   = useState(false);
-    const [probing, setProbing]   = useState(false);
+    const [file, setFile] = useState<File | null>(null);
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [probing, setProbing] = useState(false);
     const [detectedOGC, setDetectedOGC] = useState<'wms' | 'wfs' | null>(null);
     const [pendingFeatures, setPendingFeatures] = useState<GeoJSON.Feature[]>([]);
     const [geomType, setGeomType] = useState<GeomType>('polygon');
@@ -770,7 +786,7 @@ const AddLayerPanel: React.FC<{ onAddLayer: (layer: ExternalLayer) => void }> = 
             try {
                 const result = await loadGeoTIFF(file);
                 if (!result.ok) { setError(result.error); return; }
-                onAddLayer({ id:`ext_${Date.now()}`, name: displayName, type:'raster', url:'', file, georasterData:result.georaster, georasterBounds:result.bounds });
+                onAddLayer({ id: `ext_${Date.now()}`, name: displayName, type: 'raster', url: '', file, georasterData: result.georaster, georasterBounds: result.bounds });
                 reset();
             } catch (e: unknown) {
                 setError(e instanceof Error ? e.message : 'Error al cargar el GeoTIFF');
@@ -784,29 +800,29 @@ const AddLayerPanel: React.FC<{ onAddLayer: (layer: ExternalLayer) => void }> = 
         if (!detectedOGC) { setError('Primero detecta el tipo de servicio (WMS/WFS)'); return; }
         let cleanUrl = url.trim();
         try { const u = new URL(cleanUrl); u.search = ''; cleanUrl = u.toString(); } catch { /**/ }
-        onAddLayer({ id:`ext_${Date.now()}`, name: displayName || layerName, type: detectedOGC, url: cleanUrl, layerName: layerName.trim() });
+        onAddLayer({ id: `ext_${Date.now()}`, name: displayName || layerName, type: detectedOGC, url: cleanUrl, layerName: layerName.trim() });
         reset();
     }, [type, name, url, layerName, file, detectedOGC, onAddLayer]);
 
     const handleAddWithSymbology = useCallback(() => {
-        const fc: GeoJSON.FeatureCollection = { type:'FeatureCollection', features: pendingFeatures };
-        onAddLayer({ id:`ext_${Date.now()}`, name, type:'vector', url:'', file: file ?? undefined, geojsonData: fc, symbology });
+        const fc: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: pendingFeatures };
+        onAddLayer({ id: `ext_${Date.now()}`, name, type: 'vector', url: '', file: file ?? undefined, geojsonData: fc, symbology });
         reset();
     }, [pendingFeatures, name, file, symbology, onAddLayer]);
 
     const SpinIcon = () => (
         <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16" className="spin">
-            <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
-            <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+            <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z" />
+            <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z" />
         </svg>
     );
 
     return (
         <div className="add-layer-panel">
             <button className={`add-layer-toggle ${open ? 'open' : ''}`} onClick={() => { setOpen(o => !o); if (open) reset(); }}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z" /></svg>
                 Agregar capa
-                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="currentColor" viewBox="0 0 16 16" style={{ marginLeft:'auto', transform: open ? 'rotate(180deg)' : 'none', transition:'transform 0.2s' }}><path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" fill="currentColor" viewBox="0 0 16 16" style={{ marginLeft: 'auto', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}><path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z" /></svg>
             </button>
 
             {open && (
@@ -838,10 +854,10 @@ const AddLayerPanel: React.FC<{ onAddLayer: (layer: ExternalLayer) => void }> = 
                                         {file
                                             ? <span className="add-layer-filename"> {file.name}</span>
                                             : <span className="add-layer-droptext">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/></svg>
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" /><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z" /></svg>
                                                 {type === 'vector' ? 'GeoJSON \u00B7 KML \u00B7 KMZ \u00B7 Shapefile (.zip)' : 'Arrastra o haz clic para seleccionar'}
-                                              </span>}
-                                        <input ref={fileRef} type="file" accept={type === 'vector' ? VECTOR_ACCEPT : '.tif,.tiff'} style={{ display:'none' }} onChange={handleFileChange} />
+                                            </span>}
+                                        <input ref={fileRef} type="file" accept={type === 'vector' ? VECTOR_ACCEPT : '.tif,.tiff'} style={{ display: 'none' }} onChange={handleFileChange} />
                                     </div>
                                 </div>
                             )}
@@ -857,7 +873,7 @@ const AddLayerPanel: React.FC<{ onAddLayer: (layer: ExternalLayer) => void }> = 
                                                 ? <span className={`ogc-badge ogc-badge-${detectedOGC}`}>{detectedOGC.toUpperCase()}</span>
                                                 : <button className="ogc-probe-btn" onClick={handleProbe} disabled={probing}>
                                                     {probing ? <SpinIcon /> : 'Detectar'}
-                                                  </button>}
+                                                </button>}
                                         </div>
                                         <span className="add-layer-hint">El tipo (WMS/WFS) se detecta por la URL o haciendo clic en "Detectar"</span>
                                     </div>
@@ -875,7 +891,7 @@ const AddLayerPanel: React.FC<{ onAddLayer: (layer: ExternalLayer) => void }> = 
 
                             {error && (
                                 <div className="add-layer-error">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M7.002 11a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 4.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 4.995z"/></svg>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z" /><path d="M7.002 11a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 4.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 4.995z" /></svg>
                                     {error}
                                 </div>
                             )}
@@ -883,8 +899,8 @@ const AddLayerPanel: React.FC<{ onAddLayer: (layer: ExternalLayer) => void }> = 
                             <button className="add-layer-submit" onClick={handleContinue} disabled={loading || probing}>
                                 {loading
                                     ? <span className="add-layer-loading"><SpinIcon /> Cargando...</span>
-                                    : <><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
-                                    {type === 'vector' ? 'Continuar \u2192 Simbología' : 'Agregar al mapa'}</>}
+                                    : <><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z" /></svg>
+                                        {type === 'vector' ? 'Continuar \u2192 Simbología' : 'Agregar al mapa'}</>}
                             </button>
                         </>
                     )}
@@ -896,21 +912,21 @@ const AddLayerPanel: React.FC<{ onAddLayer: (layer: ExternalLayer) => void }> = 
                                 <span className="sym-header-title">Simbología <strong>{name}</strong></span>
                             </div>
                             <div className="sym-geom-badge">
-                                {geomType === 'point'   && '\u25CF Puntos'}
-                                {geomType === 'line'    && '\u254C L\xEDneas'}
+                                {geomType === 'point' && '\u25CF Puntos'}
+                                {geomType === 'line' && '\u254C L\xEDneas'}
                                 {geomType === 'polygon' && '\u25AD Pol\xEDgonos'}
-                                {geomType === 'mixed'   && '\u2B61 Mixto'}
+                                {geomType === 'mixed' && '\u2B61 Mixto'}
                                 {' \u00B7 '}{pendingFeatures.length} elementos
                             </div>
                             <SymbologyEditor features={pendingFeatures} geomType={geomType} symbology={symbology} onChange={setSymbology} />
                             {error && (
                                 <div className="add-layer-error">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M7.002 11a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 4.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 4.995z"/></svg>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z" /><path d="M7.002 11a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 4.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 4.995z" /></svg>
                                     {error}
                                 </div>
                             )}
                             <button className="add-layer-submit" onClick={handleAddWithSymbology}>
-                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z" /></svg>
                                 Agregar al mapa
                             </button>
                         </>
@@ -923,12 +939,13 @@ const AddLayerPanel: React.FC<{ onAddLayer: (layer: ExternalLayer) => void }> = 
 
 // ─── LayerMenu principal ──────────────────────────────────────────────────────
 
-const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onLayerToggle, onOpacityChange, externalLayers, externalVisible, externalOpacity, onAddExternalLayer, onRemoveExternalLayer, onToggleExternalLayer, onExternalOpacityChange }) => {
-    const { loading: apiLoading, error: apiError, layersByGroup } = useApiLayersLoader();
-    
-    const [menuOpen, setMenuOpen]         = useState(false);
-    const [collapsed, setCollapsed]       = useState(false);
-    const [searchTerm, setSearchTerm]     = useState('');
+const LayerMenu: React.FC<LayerMenuProps> = memo(({ layerState: layers, layersByGroup, loading, errors, onLayerToggle, onOpacityChange, externalLayers, externalVisible, externalOpacity, onAddExternalLayer, onRemoveExternalLayer, onToggleExternalLayer, onExternalOpacityChange }) => {
+    // Una sola llamada al contexto — antes se llamaba dos veces seguidas
+    const { availableLayers: AVAILABLE_LAYERS, grupos, loading: apiLoading, error: apiError } = useLayersContext();
+
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [collapsed, setCollapsed] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
     const [attributeTableLayerId, setAttributeTableLayerId] = useState<string | null>(null);
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
@@ -944,55 +961,50 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
         });
 
     const handleCheckboxChange = (layer: LayerConfig, isChecked: boolean) => onLayerToggle(layer.id, isChecked, layer.type);
-    const isLayerActive  = (id: string) => layers[id]?.visible || false;
+    const isLayerActive = (id: string) => layers[id]?.visible || false;
     const isLayerLoading = (id: string) => loading[id] || false;
-    const getLayerError  = (id: string) => errors[id] || null;
+    const getLayerError = (id: string) => errors[id] || null;
 
     const normalizedSearch = searchTerm.toLowerCase();
-    const filteredLayers = useMemo(() => (
-        AVAILABLE_LAYERS.filter(l =>
-            l.name.toLowerCase().includes(normalizedSearch) ||
-            l.description.toLowerCase().includes(normalizedSearch)
-        )
-    ), [normalizedSearch]);
 
-    // Usar layersByGroup de la API si está cargado
+    /**
+     * Mapa grupo→capas filtrado y ordenado.
+     * Usa directamente el prop layersByGroup (que ya incluye capas de proyecto),
+     * eliminando la llamada interna duplicada a useApiLayersLoader.
+     * filteredLayers/AVAILABLE_LAYERS ya no se necesitan aquí.
+     */
     const groupedLayers = useMemo(() => {
-        if (Object.keys(layersByGroup).length > 0) {
-            const grouped = new Map<string, LayerConfig[]>();
-            Object.entries(layersByGroup).forEach(([group, groupLayers]) => {
-                const filtered = groupLayers.filter(l =>
+        const grouped = new Map<string, LayerConfig[]>();
+        Object.entries(layersByGroup).forEach(([group, groupLayers]) => {
+            const filtered = normalizedSearch
+                ? groupLayers.filter(l =>
                     l.name.toLowerCase().includes(normalizedSearch) ||
                     l.description.toLowerCase().includes(normalizedSearch)
-                );
-                if (filtered.length > 0) {
-                    grouped.set(group, filtered);
-                }
-            });
-            return grouped;
-        }
-        
-        const grouped = new Map<string, LayerConfig[]>();
-        filteredLayers.forEach((layer) => {
-            const list = grouped.get(layer.group);
-            if (list) {
-                list.push(layer);
-            } else {
-                grouped.set(layer.group, [layer]);
+                )
+                : groupLayers;
+            if (filtered.length > 0) {
+                // ✅ Ordenamiento numérico por ID en vez de alfabético
+                grouped.set(group, [...filtered].sort((a, b) => {
+                    // Extraer números del ID (ej: "layer_10" -> 10, "10" -> 10)
+                    const numA = parseInt(a.id.replace(/\D/g, '')) || 0;
+                    const numB = parseInt(b.id.replace(/\D/g, '')) || 0;
+                    return numA - numB;
+                }));
             }
         });
         return grouped;
-    }, [filteredLayers, layersByGroup, normalizedSearch]);
+    }, [layersByGroup, normalizedSearch]);
 
-    const activeCount      = Object.values(layers).filter(l => l?.visible).length;
+    // layers aquí es layerState (Record<layerId, LayerData>) — .visible funciona correctamente
+    const activeCount = Object.values(layers).filter(l => l?.visible).length;
     const activeTableLayer = attributeTableLayerId ? AVAILABLE_LAYERS.find(l => l.id === attributeTableLayerId) : null;
     const activeTableFeatures = attributeTableLayerId ? (layers[attributeTableLayerId]?.data?.features ?? []) : [];
 
     const renderLayerItem = (layer: LayerConfig) => {
-        const isActive  = layer.type === 'vector' ? isLayerActive(layer.id) : (layers[layer.id]?.visible || false);
+        const isActive = layer.type === 'vector' ? isLayerActive(layer.id) : (layers[layer.id]?.visible || false);
         const isLoading = isLayerLoading(layer.id);
-        const err       = getLayerError(layer.id);
-        const fc        = layers[layer.id]?.data?.features?.length;
+        const err = getLayerError(layer.id);
+        const fc = layers[layer.id]?.data?.features?.length;
 
         return (
             <div key={layer.id} className={`layer-item ${isActive ? 'active' : ''}`}>
@@ -1026,7 +1038,7 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
                             <TableIcon />
                         </button>
                     )}
-                    <DownloadDropdown layer={layer} />
+                    <DownloadDropdown layer={layer} grupos={grupos} />
                 </div>
 
                 {isActive && (
@@ -1074,70 +1086,71 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
                 {/* Estado de carga de API */}
                 {apiLoading && (
                     <div style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
-                        <div style={{ marginBottom: '0.5rem' }}>Cargando capas desde API...</div>
-                        <div style={{ fontSize: '0.875rem', color: '#999' }}>
-                            Conectando con http://localhost:8000/api/v1/gestion/
-                        </div>
+                        <div style={{ marginBottom: '0.5rem' }}>Cargando capas...</div>
                     </div>
                 )}
 
                 {/* Estado de error de API */}
                 {apiError && !apiLoading && (
-                    <div style={{ 
-                        padding: '1rem', 
-                        margin: '1rem', 
-                        background: '#fff5f5', 
+                    <div style={{
+                        padding: '1rem',
+                        margin: '1rem',
+                        background: '#fff5f5',
                         border: '1px solid #feb2b2',
                         borderRadius: '6px',
                         color: '#c53030',
                         fontSize: '0.875rem'
                     }}>
                         <strong>Error al cargar capas:</strong> {apiError}
-                        <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#666' }}>
-                            Verifica que el backend esté corriendo en http://localhost:8000
-                        </div>
+
                     </div>
                 )}
 
                 {/* ── Grupos unificados (vector + ráster) ── */}
-                {!apiLoading && [...groupedLayers.entries()].map(([group, groupLayers]) => {
-                    if (groupLayers.length === 0) return null;
-                    const isGroupCollapsed = collapsedGroups.has(group);
-                    const activeInGroup    = groupLayers.filter(l => isLayerActive(l.id)).length;
+                {!apiLoading && [...groupedLayers.entries()]
+                    .sort(([groupA], [groupB]) => {
+                        const idA = grupos?.find(g => g.nombre === groupA)?.id ?? Infinity;
+                        const idB = grupos?.find(g => g.nombre === groupB)?.id ?? Infinity;
+                        return Number(idA) - Number(idB);
+                    })
+                    .map(([group, groupLayers]) => {
+                        if (groupLayers.length === 0) return null;
+                        const isGroupCollapsed = collapsedGroups.has(group);
+                        const activeInGroup = groupLayers.filter(l => isLayerActive(l.id)).length;
 
-                    return (
-                        <div key={group} className="layer-group">
-                            {/* Cabecera colapsable */}
-                            <button
-                                className={`layer-group-header ${isGroupCollapsed ? 'collapsed' : ''}`}
-                                onClick={() => toggleGroup(group)}
-                                aria-expanded={!isGroupCollapsed}
-                            >
-                                <span className="group-title-text">{group}</span>
-                                <span className="group-meta">
-                                    {activeInGroup > 0 && (
-                                        <span className="group-active-badge">{activeInGroup}</span>
-                                    )}
-                                    <span className="group-count">{groupLayers.length}</span>
-                                    <svg
-                                        className={`group-chevron ${isGroupCollapsed ? 'closed' : ''}`}
-                                        xmlns="http://www.w3.org/2000/svg" width="12" height="12"
-                                        fill="currentColor" viewBox="0 0 16 16"
-                                    >
-                                        <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/>
-                                    </svg>
-                                </span>
-                            </button>
+                        return (
+                            <div key={group} className="layer-group">
+                                {/* Cabecera colapsable */}
+                                <button
+                                    className={`layer-group-header ${isGroupCollapsed ? 'collapsed' : ''}`}
+                                    onClick={() => toggleGroup(group)}
+                                    aria-expanded={!isGroupCollapsed}
+                                >
+                                    <span className="group-title-text">{group}</span>
+                                    <span className="group-meta">
+                                        {activeInGroup > 0 && (
+                                            <span className="group-active-badge">{activeInGroup}</span>
+                                        )}
+                                        <span className="group-count">{groupLayers.length}</span>
+                                        <svg
+                                            className={`group-chevron ${isGroupCollapsed ? 'closed' : ''}`}
+                                            xmlns="http://www.w3.org/2000/svg" width="12" height="12"
+                                            fill="currentColor" viewBox="0 0 16 16"
+                                        >
+                                            <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z" />
+                                        </svg>
+                                    </span>
+                                </button>
 
-                            {/* Capas del grupo */}
-                            {!isGroupCollapsed && (
-                                <div className="layer-group-body">
-                                    {groupLayers.map(renderLayerItem)}
-                                </div>
-                            )}
-                        </div>
-                    );
-                })}
+                                {/* Capas del grupo */}
+                                {!isGroupCollapsed && (
+                                    <div className="layer-group-body">
+                                        {groupLayers.map(renderLayerItem)}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
 
                 {/* ── Capas importadas ── */}
                 {externalLayers.length > 0 && (() => {
@@ -1151,8 +1164,8 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
                             >
                                 <span className="group-title-text">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" fill="currentColor" viewBox="0 0 16 16" style={{ marginRight: 5 }}>
-                                        <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
-                                        <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
+                                        <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z" />
+                                        <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z" />
                                     </svg>
                                     Capas importadas
                                 </span>
@@ -1163,7 +1176,7 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
                                         xmlns="http://www.w3.org/2000/svg" width="12" height="12"
                                         fill="currentColor" viewBox="0 0 16 16"
                                     >
-                                        <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z"/>
+                                        <path d="M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z" />
                                     </svg>
                                 </span>
                             </button>
@@ -1172,12 +1185,12 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
                                 <div className="layer-group-body">
                                     {externalLayers.map(ext => {
                                         const isVisible = externalVisible[ext.id] ?? true;
-                                        const opacity   = externalOpacity[ext.id]  ?? 0.8;
+                                        const opacity = externalOpacity[ext.id] ?? 0.8;
                                         const fmt =
-                                            ext.type === 'wms'    ? `WMS · ${ext.layerName}` :
-                                            ext.type === 'wfs'    ? `WFS · ${ext.layerName}` :
-                                            ext.type === 'raster' ? 'GeoTIFF local' :
-                                            ext.file ? (ext.file.name.split('.').pop()?.toUpperCase() + ' local') : 'Vectorial';
+                                            ext.type === 'wms' ? `WMS · ${ext.layerName}` :
+                                                ext.type === 'wfs' ? `WFS · ${ext.layerName}` :
+                                                    ext.type === 'raster' ? 'GeoTIFF local' :
+                                                        ext.file ? (ext.file.name.split('.').pop()?.toUpperCase() + ' local') : 'Vectorial';
                                         return (
                                             <div key={ext.id} className={`layer-item ${isVisible ? 'active' : ''}`}>
                                                 <div className="layer-checkbox-wrapper">
@@ -1191,7 +1204,7 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
                                                 </div>
                                                 <div className="layer-actions">
                                                     <button className="imported-delete-btn" title="Eliminar capa" onClick={() => onRemoveExternalLayer(ext.id)}>
-                                                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fillRule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg>
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" fill="currentColor" viewBox="0 0 16 16"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z" /><path fillRule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z" /></svg>
                                                     </button>
                                                 </div>
                                                 {isVisible && (
@@ -1222,7 +1235,7 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layers, loading, errors, onL
                 aria-label="Abrir menú de capas"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
-                    <path d="M8.235 1.559a.5.5 0 0 0-.47 0l-7.5 4a.5.5 0 0 0 0 .882L3.188 8 .264 9.559a.5.5 0 0 0 0 .882l7.5 4a.5.5 0 0 0 .47 0l7.5-4a.5.5 0 0 0 0-.882L12.813 8l2.922-1.559a.5.5 0 0 0 0-.882l-7.5-4z"/>
+                    <path d="M8.235 1.559a.5.5 0 0 0-.47 0l-7.5 4a.5.5 0 0 0 0 .882L3.188 8 .264 9.559a.5.5 0 0 0 0 .882l7.5 4a.5.5 0 0 0 .47 0l7.5-4a.5.5 0 0 0 0-.882L12.813 8l2.922-1.559a.5.5 0 0 0 0-.882l-7.5-4z" />
                 </svg>
                 {activeCount > 0 && <span className="fab-badge">{activeCount}</span>}
             </button>

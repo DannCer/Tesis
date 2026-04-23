@@ -59,6 +59,8 @@ const SwipeControl: React.FC<SwipeControlProps> = ({ leftLayer, rightLayer, onCl
             transparent: true,
             opacity:     1,
             zIndex:      450,
+            tiled:       true,          // ✅ Mejora de renderizado
+            buffer:      128,            // ✅ Evita que se corten los WMS en los bordes
             ...(leftLayer.params ?? {}),
         });
 
@@ -69,6 +71,8 @@ const SwipeControl: React.FC<SwipeControlProps> = ({ leftLayer, rightLayer, onCl
             transparent: true,
             opacity:     1,
             zIndex:      451,
+            tiled:       true,          // ✅ Mejora de renderizado
+            buffer:      128,            // ✅ Evita que se corten los WMS en los bordes
             ...(rightLayer.params ?? {}),
         });
 

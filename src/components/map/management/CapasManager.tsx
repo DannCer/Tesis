@@ -3,76 +3,42 @@
  * @module components/map/CapasManager
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiService, ItemResponse, ItemCreate, GrupoResponse } from '@services/api';
 import { config, logger } from '@config/env';
 import ConfirmModal from '@components/common/ConfirmModal';
+import AlertModal from '@components/common/AlertModal';
 import '@styles/CapasManager.css';
 
 interface CapasManagerProps {
     onCapasChange?: () => void;
 }
 
-// ── Tipos para el estado de validación por capa ─────────────────────────────
-
 type ValidationStatus = 'idle' | 'loading' | 'ok' | 'error';
+interface ValidationResult { status: ValidationStatus; message?: string; }
 
-interface ValidationResult {
-    status: ValidationStatus;
-    message?: string;
-}
+type SortField = 'id' | 'name' | 'group' | 'type' | 'wfsName' | 'wmsLayer';
+type SortDir = 'asc' | 'desc';
 
-// ── Lógica de validación ─────────────────────────────────────────────────────
+// ── Validación ────────────────────────────────────────────────────────────────
 
-/**
- * Construye la URL de GetCapabilities para QGIS Server con el orden correcto:
- * primero SERVICE/VERSION/REQUEST y MAP al final, sin codificar la ruta del
- * proyecto (QGIS Server en Windows necesita C:/ruta/proyecto.qgz).
- *
- * Resultado:
- *   http://localhost/qgis/qgis_mapserv.fcgi.exe
- *     ?SERVICE=WFS&VERSION=1.1.0&REQUEST=GetCapabilities
- *     &MAP=C:/mis_proyectos/02_Hidrometeorologicos.qgz
- */
-function buildCapabilitiesUrl(
-    serverUrl: string,
-    service: 'WFS' | 'WMS',
-    version: string,
-    projectPath: string
-): string {
+function buildCapabilitiesUrl(serverUrl: string, service: 'WFS' | 'WMS', version: string, projectPath: string): string {
     return `${serverUrl}?SERVICE=${service}&VERSION=${version}&REQUEST=GetCapabilities&MAP=${projectPath}`;
 }
 
-async function validateVectorLayer(
-    wfsName: string,
-    serverUrl: string,
-    projectPath: string
-): Promise<void> {
+async function validateVectorLayer(wfsName: string, serverUrl: string, projectPath: string): Promise<void> {
     const url = buildCapabilitiesUrl(serverUrl, 'WFS', '1.1.0', projectPath);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15_000);
-
     try {
         const response = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
-
-        if (!response.ok) {
-            throw new Error(`El servidor WFS respondió con HTTP ${response.status}`);
-        }
-
-        const xml = await response.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(xml, 'text/xml');
-
+        if (!response.ok) throw new Error(`El servidor WFS respondió con HTTP ${response.status}`);
+        const doc = new DOMParser().parseFromString(await response.text(), 'text/xml');
         const exceptionText = doc.querySelector('ExceptionText')?.textContent;
         if (exceptionText) throw new Error(`Error del servidor: ${exceptionText}`);
-
-        const published = Array.from(doc.querySelectorAll('FeatureType > Name'))
-            .map(n => n.textContent ?? '');
-        const found = published.some(
-            name => name === wfsName || name.endsWith(`:${wfsName}`)
-        );
-
+        const published = Array.from(doc.querySelectorAll('FeatureType > Name')).map(n => n.textContent ?? '');
+        const found = published.some(name => name === wfsName || name.endsWith(`:${wfsName}`));
         if (!found) {
             const hint = published.length > 0
                 ? `Capas disponibles: ${published.slice(0, 5).join(', ')}${published.length > 5 ? '…' : ''}`
@@ -81,42 +47,24 @@ async function validateVectorLayer(
         }
     } catch (err: any) {
         clearTimeout(timeoutId);
-        if (err.name === 'AbortError')
-            throw new Error('Tiempo de espera agotado. Verifica la conectividad con el servidor.');
+        if (err.name === 'AbortError') throw new Error('Tiempo de espera agotado. Verifica la conectividad con el servidor.');
         throw err;
     }
 }
 
-async function validateWmsLayer(
-    wmsLayer: string,
-    serverUrl: string,
-    projectPath: string
-): Promise<void> {
+async function validateWmsLayer(wmsLayer: string, serverUrl: string, projectPath: string): Promise<void> {
     const url = buildCapabilitiesUrl(serverUrl, 'WMS', '1.3.0', projectPath);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15_000);
-
     try {
         const response = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
-
-        if (!response.ok) {
-            throw new Error(`El servidor WMS respondió con HTTP ${response.status}`);
-        }
-
-        const xml = await response.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(xml, 'text/xml');
-
+        if (!response.ok) throw new Error(`El servidor WMS respondió con HTTP ${response.status}`);
+        const doc = new DOMParser().parseFromString(await response.text(), 'text/xml');
         const exceptionText = doc.querySelector('ExceptionText')?.textContent;
         if (exceptionText) throw new Error(`Error del servidor: ${exceptionText}`);
-
-        const published = Array.from(doc.querySelectorAll('Layer > Name'))
-            .map(n => n.textContent ?? '')
-            .filter(Boolean);
-        const found = published.some(name => name === wmsLayer);
-
-        if (!found) {
+        const published = Array.from(doc.querySelectorAll('Layer > Name')).map(n => n.textContent ?? '').filter(Boolean);
+        if (!published.some(name => name === wmsLayer)) {
             const hint = published.length > 0
                 ? `Capas disponibles: ${published.slice(0, 5).join(', ')}${published.length > 5 ? '…' : ''}`
                 : 'El servidor no publicó ninguna capa WMS';
@@ -124,13 +72,12 @@ async function validateWmsLayer(
         }
     } catch (err: any) {
         clearTimeout(timeoutId);
-        if (err.name === 'AbortError')
-            throw new Error('Tiempo de espera agotado. Verifica la conectividad con el servidor.');
+        if (err.name === 'AbortError') throw new Error('Tiempo de espera agotado. Verifica la conectividad con el servidor.');
         throw err;
     }
 }
 
-// ── Componente ───────────────────────────────────────────────────────────────
+// ── Componente ────────────────────────────────────────────────────────────────
 
 const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
     const [capas, setCapas] = useState<ItemResponse[]>([]);
@@ -139,36 +86,32 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
     const [error, setError] = useState<string | null>(null);
     const [isAddingNew, setIsAddingNew] = useState(false);
     const [newCapa, setNewCapa] = useState<ItemCreate>({
-        name: '',
-        description: '',
-        group_id: 0,
-        tipo: 'vector',
-        wfsName: '',
-        wmsLayer: '',
+        name: '', description: '', group_id: 0, tipo: 'vector', wfsName: '', wmsLayer: '',
     });
-
-    /** Mapa de resultados de validación, indexado por ID de capa */
     const [validations, setValidations] = useState<Map<number, ValidationResult>>(new Map());
 
-    // Estado para el modal de confirmación
-    const [confirmModal, setConfirmModal] = useState<{
-        isOpen: boolean;
-        capaId: number | null;
-        capaNombre: string;
-    }>({
-        isOpen: false,
-        capaId: null,
-        capaNombre: '',
+    // Modales
+    const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; capaId: number | null; capaNombre: string }>({
+        isOpen: false, capaId: null, capaNombre: '',
     });
+    const [alertModal, setAlertModal] = useState<{ isOpen: boolean; title: string; message: string; variant?: 'error' | 'warning' | 'success' | 'info' }>({
+        isOpen: false, title: '', message: '', variant: 'error',
+    });
+
+    // Búsqueda y orden
+    const [search, setSearch] = useState('');
+    const [sortField, setSortField] = useState<SortField>('id');
+    const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+    const showAlert = (title: string, message: string, variant: 'error' | 'warning' | 'success' | 'info' = 'error') => {
+        setAlertModal({ isOpen: true, title, message, variant });
+    };
 
     const loadData = async () => {
         setLoading(true);
         setError(null);
         try {
-            const [capasData, gruposData] = await Promise.all([
-                apiService.getCapas(),
-                apiService.getGrupos(),
-            ]);
+            const [capasData, gruposData] = await Promise.all([apiService.getCapas(), apiService.getGrupos()]);
             setCapas(capasData);
             setGrupos(gruposData);
         } catch (err: any) {
@@ -180,13 +123,51 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
 
     useEffect(() => { loadData(); }, []);
 
+    // ── Capas filtradas + ordenadas ───────────────────────────────────────────
+    const capasFiltradas = useMemo(() => {
+        const q = search.toLowerCase().trim();
+        const filtered = q
+            ? capas.filter(c =>
+                c.id.toString().includes(q) ||
+                c.name.toLowerCase().includes(q) ||
+                c.group.toLowerCase().includes(q) ||
+                c.type.toLowerCase().includes(q) ||
+                c.wfsName.toLowerCase().includes(q) ||
+                c.wmsLayer.toLowerCase().includes(q) ||
+                (c.description ?? '').toLowerCase().includes(q)
+            )
+            : capas;
+
+        return [...filtered].sort((a, b) => {
+            let va: string | number = (a as any)[sortField] ?? '';
+            let vb: string | number = (b as any)[sortField] ?? '';
+            if (sortField === 'id') { va = Number(va); vb = Number(vb); }
+            else { va = String(va).toLowerCase(); vb = String(vb).toLowerCase(); }
+            if (va < vb) return sortDir === 'asc' ? -1 : 1;
+            if (va > vb) return sortDir === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }, [capas, search, sortField, sortDir]);
+
+    const handleSort = (field: SortField) => {
+        if (field === sortField) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'));
+        else { setSortField(field); setSortDir('asc'); }
+    };
+
+    const sortIcon = (field: SortField) => {
+        if (field !== sortField) return <span className="sort-icon sort-icon--inactive">⇅</span>;
+        return <span className="sort-icon sort-icon--active">{sortDir === 'asc' ? '↑' : '↓'}</span>;
+    };
+
+    // ── CRUD ──────────────────────────────────────────────────────────────────
+
     const handleCreateCapa = async () => {
         if (!newCapa.name.trim() || !newCapa.wfsName.trim() || !newCapa.wmsLayer.trim()) {
-            alert('Nombre, wfsName y wmsLayer son requeridos');
+            showAlert('Campos requeridos', 'Nombre, WFS Name y WMS Layer son obligatorios.', 'warning');
             return;
         }
         if (!newCapa.group_id || newCapa.group_id === 0) {
-            alert('Debes seleccionar un grupo');
+            showAlert('Grupo requerido', 'Debes seleccionar un grupo antes de crear la capa.', 'warning');
             return;
         }
         try {
@@ -196,98 +177,63 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
             await loadData();
             onCapasChange?.();
         } catch (err: any) {
-            alert(`Error: ${err.message}`);
+            showAlert('Error al crear la capa', err.message, 'error');
         }
     };
 
-    const handleDeleteCapa = async (id: number, name: string) => {
-        // Abrir modal de confirmación
-        setConfirmModal({
-            isOpen: true,
-            capaId: id,
-            capaNombre: name,
-        });
+    const handleDeleteCapa = (id: number, name: string) => {
+        setConfirmModal({ isOpen: true, capaId: id, capaNombre: name });
     };
 
-    // Confirmar eliminación
     const confirmDeleteCapa = async () => {
         if (!confirmModal.capaId) return;
-
         try {
             await apiService.deleteCapa(confirmModal.capaId);
             setValidations(prev => { const next = new Map(prev); next.delete(confirmModal.capaId!); return next; });
             await loadData();
             onCapasChange?.();
         } catch (err: any) {
-            alert(`Error: ${err.message}`);
+            showAlert('Error al eliminar la capa', err.message, 'error');
         }
     };
 
-    /**
-     * Resuelve el servidor y la ruta del proyecto a partir del grupo de la capa.
-     * Si el grupo tiene url_proyecto se usa esa ruta; si no, cae al proyecto
-     * vectorial por defecto configurado en el .env.
-     */
     const resolveProject = useCallback(
         (grupoNombre: string): { serverUrl: string; projectPath: string } => {
             const grupo = grupos.find(g => g.nombre === grupoNombre);
-            const serverUrl = config.qgisServer.url;
-            const projectPath = grupo?.url_proyecto ?? config.qgisServer.vectorProject;
-            return { serverUrl, projectPath };
+            return { serverUrl: config.qgisServer.url, projectPath: grupo?.url_proyecto ?? config.qgisServer.vectorProject };
         },
         [grupos]
     );
 
-    /**
-     * Valida que la capa exista en el servidor QGIS usando el proyecto
-     * asociado al grupo al que pertenece.
-     * - Vector: verifica WFS GetCapabilities + WMS GetCapabilities
-     * - Ráster: verifica WMS GetCapabilities
-     */
     const handleValidateCapa = useCallback(async (capa: ItemResponse) => {
         setValidations(prev => new Map(prev).set(capa.id, { status: 'loading' }));
-
         try {
-            // Resolver servidor y ruta del proyecto según el grupo de la capa
             const { serverUrl, projectPath } = resolveProject(capa.group);
-            logger.debug(
-                `Validando capa [${capa.id}] "${capa.name}" (${capa.type})`,
-                `→ ${serverUrl}?...&MAP=${projectPath}`
-            );
-
+            logger.debug(`Validando capa [${capa.id}] "${capa.name}" (${capa.type})`, `→ ${serverUrl}?...&MAP=${projectPath}`);
             if (capa.type === 'vector') {
                 await validateVectorLayer(capa.wfsName, serverUrl, projectPath);
                 await validateWmsLayer(capa.wmsLayer, serverUrl, projectPath);
             } else {
                 await validateWmsLayer(capa.wmsLayer, serverUrl, projectPath);
             }
-
-            setValidations(prev =>
-                new Map(prev).set(capa.id, {
-                    status: 'ok',
-                    message: capa.type === 'vector'
-                        ? `WFS "${capa.wfsName}" y WMS "${capa.wmsLayer}" están disponibles en el servidor`
-                        : `WMS "${capa.wmsLayer}" está disponible en el servidor`,
-                })
-            );
+            setValidations(prev => new Map(prev).set(capa.id, {
+                status: 'ok',
+                message: capa.type === 'vector'
+                    ? `WFS "${capa.wfsName}" y WMS "${capa.wmsLayer}" están disponibles`
+                    : `WMS "${capa.wmsLayer}" está disponible`,
+            }));
         } catch (err: any) {
             logger.error(`Error validando capa "${capa.name}":`, err);
-            setValidations(prev =>
-                new Map(prev).set(capa.id, {
-                    status: 'error',
-                    message: err.message ?? 'Error desconocido al validar la capa',
-                })
-            );
+            setValidations(prev => new Map(prev).set(capa.id, {
+                status: 'error', message: err.message ?? 'Error desconocido al validar la capa',
+            }));
         }
     }, [resolveProject]);
 
     if (loading) {
         return (
             <div className="capas-manager">
-                <div className="loading-state">
-                    <div className="spinner"></div>
-                    <p>Cargando capas...</p>
-                </div>
+                <div className="loading-state"><div className="spinner"></div><p>Cargando capas...</p></div>
             </div>
         );
     }
@@ -296,11 +242,7 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
         <div className="capas-manager">
             <div className="manager-header">
                 <h3>Capas Geográficas</h3>
-                <button
-                    className="btn btn-primary"
-                    onClick={() => setIsAddingNew(!isAddingNew)}
-                    disabled={grupos.length === 0}
-                >
+                <button className="btn btn-primary" onClick={() => setIsAddingNew(!isAddingNew)} disabled={grupos.length === 0}>
                     {isAddingNew ? 'Cancelar' : '+ Nueva Capa'}
                 </button>
             </div>
@@ -374,32 +316,56 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
                 </div>
             )}
 
+            {capas.length > 0 && (
+                <div className="table-toolbar">
+                    <div className="search-wrapper">
+                        <span className="search-icon">🔎</span>
+                        <input
+                            type="text"
+                            className="input search-input"
+                            placeholder="Buscar por nombre, grupo, tipo, WFS, WMS…"
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                        />
+                        {search && (
+                            <button className="search-clear" onClick={() => setSearch('')} title="Limpiar búsqueda">✕</button>
+                        )}
+                    </div>
+                    <span className="table-count">
+                        {capasFiltradas.length} de {capas.length} capa{capas.length !== 1 ? 's' : ''}
+                    </span>
+                </div>
+            )}
+
             <div className="capas-list">
                 {capas.length === 0 ? (
                     <div className="empty-state">
                         <p>No hay capas registradas</p>
                         {grupos.length > 0 && (
-                            <button className="btn btn-primary" onClick={() => setIsAddingNew(true)}>
-                                Crear Primera Capa
-                            </button>
+                            <button className="btn btn-primary" onClick={() => setIsAddingNew(true)}>Crear Primera Capa</button>
                         )}
+                    </div>
+                ) : capasFiltradas.length === 0 ? (
+                    <div className="empty-state">
+                        <p>No se encontraron capas para <strong>"{search}"</strong></p>
+                        <button className="btn btn-secondary" onClick={() => setSearch('')}>Limpiar búsqueda</button>
                     </div>
                 ) : (
                     <div className="capas-table">
                         <table>
                             <thead>
                                 <tr>
-                                    <th>ID</th>
-                                    <th>Nombre</th>
-                                    <th>Grupo</th>
-                                    <th>Tipo</th>
-                                    <th>WFS Name</th>
-                                    <th>WMS Layer</th>
+                                    <th className="th-sortable" onClick={() => handleSort('id')}>ID {sortIcon('id')}</th>
+                                    <th className="th-sortable" onClick={() => handleSort('name')}>Nombre {sortIcon('name')}</th>
+                                    <th className="th-sortable" onClick={() => handleSort('group')}>Grupo {sortIcon('group')}</th>
+                                    <th className="th-sortable" onClick={() => handleSort('type')}>Tipo {sortIcon('type')}</th>
+                                    <th className="th-sortable" onClick={() => handleSort('wfsName')}>WFS Name {sortIcon('wfsName')}</th>
+                                    <th className="th-sortable" onClick={() => handleSort('wmsLayer')}>WMS Layer {sortIcon('wmsLayer')}</th>
                                     <th>Acciones</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {capas.map(capa => {
+                                {capasFiltradas.map(capa => {
                                     const v = validations.get(capa.id) ?? { status: 'idle' };
                                     return (
                                         <tr key={capa.id}>
@@ -416,8 +382,6 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
                                             <td><code>{capa.wmsLayer}</code></td>
                                             <td>
                                                 <div className="acciones-cell">
-
-                                                    {/* ── Botón Validar ── */}
                                                     <button
                                                         className={`btn-validate-small btn-validate--${v.status}`}
                                                         onClick={() => handleValidateCapa(capa)}
@@ -434,23 +398,12 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
                                                         {v.status === 'ok'      && '✅'}
                                                         {v.status === 'error'   && '❌'}
                                                     </button>
-
-                                                    {/* ── Chip de resultado ── */}
                                                     {(v.status === 'ok' || v.status === 'error') && (
-                                                        <span
-                                                            className={`validation-chip validation-chip--${v.status}`}
-                                                            title={v.message}
-                                                        >
+                                                        <span className={`validation-chip validation-chip--${v.status}`} title={v.message}>
                                                             {v.status === 'ok' ? 'OK' : 'Error'}
                                                         </span>
                                                     )}
-
-                                                    {/* ── Botón Eliminar ── */}
-                                                    <button
-                                                        className="btn-delete-small"
-                                                        onClick={() => handleDeleteCapa(capa.id, capa.name)}
-                                                        title="Eliminar capa"
-                                                    >
+                                                    <button className="btn-delete-small" onClick={() => handleDeleteCapa(capa.id, capa.name)} title="Eliminar capa">
                                                         🗑️
                                                     </button>
                                                 </div>
@@ -464,7 +417,6 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
                 )}
             </div>
 
-            {/* Modal de confirmación */}
             <ConfirmModal
                 isOpen={confirmModal.isOpen}
                 title="Eliminar Capa"
@@ -475,6 +427,14 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
                 icon="🗑️"
                 onConfirm={confirmDeleteCapa}
                 onCancel={() => setConfirmModal({ isOpen: false, capaId: null, capaNombre: '' })}
+            />
+
+            <AlertModal
+                isOpen={alertModal.isOpen}
+                title={alertModal.title}
+                message={alertModal.message}
+                variant={alertModal.variant}
+                onClose={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
             />
         </div>
     );
