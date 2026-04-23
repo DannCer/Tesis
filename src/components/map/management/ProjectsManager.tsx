@@ -6,6 +6,8 @@
 import React, { useState, useEffect } from 'react';
 import { projectsService } from '../../services/projectsService';
 import { QgisProject, ProjectCapabilities } from '../../types/projects';
+import ConfirmModal from '@components/common/ConfirmModal';
+import AlertModal from '@components/common/AlertModal';
 import '@styles/ProjectsManager.css';
 
 interface ProjectsManagerProps {
@@ -26,21 +28,29 @@ const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onProjectsChange }) =
     const [capabilities, setCapabilities] = useState<Record<string, ProjectCapabilities>>({});
     const [loadingCapabilities, setLoadingCapabilities] = useState<Record<string, boolean>>({});
 
-    useEffect(() => {
-        loadProjects();
-    }, []);
+    // Modales
+    const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; projectId: string; projectName: string }>({
+        isOpen: false, projectId: '', projectName: '',
+    });
+    const [alertModal, setAlertModal] = useState<{ isOpen: boolean; title: string; message: string; variant?: 'error' | 'warning' | 'success' | 'info' }>({
+        isOpen: false, title: '', message: '', variant: 'error',
+    });
+
+    const showAlert = (title: string, message: string, variant: 'error' | 'warning' | 'success' | 'info' = 'error') => {
+        setAlertModal({ isOpen: true, title, message, variant });
+    };
+
+    useEffect(() => { loadProjects(); }, []);
 
     const loadProjects = () => {
-        const loaded = projectsService.getProjects();
-        setProjects(loaded);
+        setProjects(projectsService.getProjects());
     };
 
     const handleAddProject = () => {
         if (!newProject.name || !newProject.projectPath) {
-            alert('Por favor completa el nombre y la ruta del proyecto');
+            showAlert('Campos requeridos', 'Por favor completa el nombre y la ruta del proyecto.', 'warning');
             return;
         }
-
         projectsService.addProject(newProject);
         setNewProject({
             name: '',
@@ -61,12 +71,14 @@ const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onProjectsChange }) =
         onProjectsChange?.();
     };
 
-    const handleDeleteProject = (id: string) => {
-        if (confirm('¿Estás seguro de eliminar este proyecto?')) {
-            projectsService.deleteProject(id);
-            loadProjects();
-            onProjectsChange?.();
-        }
+    const handleDeleteProject = (id: string, name: string) => {
+        setConfirmModal({ isOpen: true, projectId: id, projectName: name });
+    };
+
+    const confirmDeleteProject = () => {
+        projectsService.deleteProject(confirmModal.projectId);
+        loadProjects();
+        onProjectsChange?.();
     };
 
     const handleToggleProject = (id: string, enabled: boolean) => {
@@ -79,12 +91,10 @@ const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onProjectsChange }) =
         setLoadingCapabilities(prev => ({ ...prev, [projectId]: true }));
         try {
             const caps = await projectsService.getProjectCapabilities(projectId);
-            if (caps) {
-                setCapabilities(prev => ({ ...prev, [projectId]: caps }));
-            }
+            if (caps) setCapabilities(prev => ({ ...prev, [projectId]: caps }));
         } catch (error) {
             console.error('Error cargando capacidades:', error);
-            alert('Error al cargar las capacidades del proyecto');
+            showAlert('Error de conexión', 'No se pudieron cargar las capacidades del proyecto. Verifica que el servidor QGIS esté disponible.', 'error');
         } finally {
             setLoadingCapabilities(prev => ({ ...prev, [projectId]: false }));
         }
@@ -103,10 +113,7 @@ const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onProjectsChange }) =
         <div className="projects-manager">
             <div className="projects-header">
                 <h3>Proyectos QGIS Server</h3>
-                <button
-                    className="btn btn-sm btn-primary"
-                    onClick={() => setIsAddingNew(!isAddingNew)}
-                >
+                <button className="btn btn-sm btn-primary" onClick={() => setIsAddingNew(!isAddingNew)}>
                     {isAddingNew ? 'Cancelar' : '+ Agregar Proyecto'}
                 </button>
             </div>
@@ -116,55 +123,34 @@ const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onProjectsChange }) =
                     <h4>Nuevo Proyecto</h4>
                     <div className="form-group">
                         <label>Nombre del Proyecto</label>
-                        <input
-                            type="text"
-                            className="form-control"
-                            value={newProject.name}
+                        <input type="text" className="form-control" value={newProject.name}
                             onChange={e => setNewProject({ ...newProject, name: e.target.value })}
-                            placeholder="ej: Geológicos"
-                        />
+                            placeholder="ej: Geológicos" />
                     </div>
                     <div className="form-group">
                         <label>URL del Servidor QGIS</label>
-                        <input
-                            type="text"
-                            className="form-control"
-                            value={newProject.serverUrl}
+                        <input type="text" className="form-control" value={newProject.serverUrl}
                             onChange={e => setNewProject({ ...newProject, serverUrl: e.target.value })}
-                            placeholder="http://localhost/qgis/qgis_mapserv.fcgi.exe"
-                        />
+                            placeholder="http://localhost/qgis/qgis_mapserv.fcgi.exe" />
                     </div>
                     <div className="form-group">
                         <label>Ruta del Proyecto (.qgz)</label>
-                        <input
-                            type="text"
-                            className="form-control"
-                            value={newProject.projectPath}
+                        <input type="text" className="form-control" value={newProject.projectPath}
                             onChange={e => setNewProject({ ...newProject, projectPath: e.target.value })}
-                            placeholder="C:/mis_proyectos/01_Geologicos.qgz"
-                        />
+                            placeholder="C:/mis_proyectos/01_Geologicos.qgz" />
                     </div>
                     <div className="form-group">
                         <label>Color Identificador</label>
-                        <select
-                            className="form-control"
-                            value={newProject.color}
-                            onChange={e => setNewProject({ ...newProject, color: e.target.value })}
-                        >
+                        <select className="form-control" value={newProject.color}
+                            onChange={e => setNewProject({ ...newProject, color: e.target.value })}>
                             {colorOptions.map(opt => (
-                                <option key={opt.value} value={opt.value}>
-                                    {opt.label}
-                                </option>
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
                             ))}
                         </select>
                     </div>
                     <div className="form-actions">
-                        <button className="btn btn-primary" onClick={handleAddProject}>
-                            Agregar Proyecto
-                        </button>
-                        <button className="btn btn-secondary" onClick={() => setIsAddingNew(false)}>
-                            Cancelar
-                        </button>
+                        <button className="btn btn-primary" onClick={handleAddProject}>Agregar Proyecto</button>
+                        <button className="btn btn-secondary" onClick={() => setIsAddingNew(false)}>Cancelar</button>
                     </div>
                 </div>
             )}
@@ -174,10 +160,7 @@ const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onProjectsChange }) =
                     <div key={project.id} className="project-card">
                         <div className="project-header">
                             <div className="project-info">
-                                <div
-                                    className="project-color"
-                                    style={{ backgroundColor: project.color }}
-                                />
+                                <div className="project-color" style={{ backgroundColor: project.color }} />
                                 {editingProject?.id === project.id ? (
                                     <input
                                         type="text"
@@ -186,49 +169,31 @@ const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onProjectsChange }) =
                                         onChange={e => setEditingProject({ ...editingProject, name: e.target.value })}
                                         onBlur={() => handleUpdateProject(project.id, { name: editingProject.name })}
                                         onKeyPress={e => {
-                                            if (e.key === 'Enter') {
-                                                handleUpdateProject(project.id, { name: editingProject.name });
-                                            }
+                                            if (e.key === 'Enter') handleUpdateProject(project.id, { name: editingProject.name });
                                         }}
                                         autoFocus
                                     />
                                 ) : (
-                                    <h4
-                                        onClick={() => setEditingProject(project)}
-                                        style={{ cursor: 'pointer' }}
-                                        title="Clic para editar"
-                                    >
+                                    <h4 onClick={() => setEditingProject(project)} style={{ cursor: 'pointer' }} title="Clic para editar">
                                         {project.name}
                                     </h4>
                                 )}
                             </div>
                             <div className="project-actions">
                                 <label className="toggle-switch">
-                                    <input
-                                        type="checkbox"
-                                        checked={project.enabled}
-                                        onChange={e => handleToggleProject(project.id, e.target.checked)}
-                                    />
+                                    <input type="checkbox" checked={project.enabled}
+                                        onChange={e => handleToggleProject(project.id, e.target.checked)} />
                                     <span className="toggle-slider"></span>
                                 </label>
-                                <button
-                                    className="btn btn-sm btn-danger"
-                                    onClick={() => handleDeleteProject(project.id)}
-                                    title="Eliminar proyecto"
-                                >
+                                <button className="btn btn-sm btn-danger" onClick={() => handleDeleteProject(project.id, project.name)} title="Eliminar proyecto">
                                     🗑️
                                 </button>
                             </div>
                         </div>
 
                         <div className="project-details">
-                            <p className="project-path">
-                                <strong>Ruta:</strong> {project.projectPath}
-                            </p>
-                            <p className="project-url">
-                                <strong>URL:</strong>{' '}
-                                <code>{project.serverUrl}</code>
-                            </p>
+                            <p className="project-path"><strong>Ruta:</strong> {project.projectPath}</p>
+                            <p className="project-url"><strong>URL:</strong> <code>{project.serverUrl}</code></p>
                         </div>
 
                         <div className="project-capabilities">
@@ -237,42 +202,26 @@ const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onProjectsChange }) =
                                 onClick={() => handleLoadCapabilities(project.id)}
                                 disabled={loadingCapabilities[project.id]}
                             >
-                                {loadingCapabilities[project.id]
-                                    ? 'Cargando...'
-                                    : capabilities[project.id]
-                                    ? 'Recargar Capas'
-                                    : 'Detectar Capas'}
+                                {loadingCapabilities[project.id] ? 'Cargando...' : capabilities[project.id] ? 'Recargar Capas' : 'Detectar Capas'}
                             </button>
 
                             {capabilities[project.id] && (
                                 <div className="capabilities-info">
-                                    <div className="cap-stat">
-                                        <strong>WMS:</strong> {capabilities[project.id].wmsLayers.length} capas
-                                    </div>
-                                    <div className="cap-stat">
-                                        <strong>WFS:</strong> {capabilities[project.id].wfsLayers.length} capas
-                                    </div>
+                                    <div className="cap-stat"><strong>WMS:</strong> {capabilities[project.id].wmsLayers.length} capas</div>
+                                    <div className="cap-stat"><strong>WFS:</strong> {capabilities[project.id].wfsLayers.length} capas</div>
                                     <details className="layers-list">
                                         <summary>Ver capas detectadas</summary>
                                         <div className="layers-content">
                                             <h5>Capas WMS:</h5>
                                             <ul>
                                                 {capabilities[project.id].wmsLayers.map((layer, idx) => (
-                                                    <li key={idx}>
-                                                        <strong>{layer.title}</strong>
-                                                        <br />
-                                                        <small>{layer.name}</small>
-                                                    </li>
+                                                    <li key={idx}><strong>{layer.title}</strong><br /><small>{layer.name}</small></li>
                                                 ))}
                                             </ul>
                                             <h5>Capas WFS:</h5>
                                             <ul>
                                                 {capabilities[project.id].wfsLayers.map((layer, idx) => (
-                                                    <li key={idx}>
-                                                        <strong>{layer.title}</strong>
-                                                        <br />
-                                                        <small>{layer.name}</small>
-                                                    </li>
+                                                    <li key={idx}><strong>{layer.title}</strong><br /><small>{layer.name}</small></li>
                                                 ))}
                                             </ul>
                                         </div>
@@ -287,11 +236,29 @@ const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onProjectsChange }) =
             {projects.length === 0 && (
                 <div className="empty-state">
                     <p>No hay proyectos configurados</p>
-                    <button className="btn btn-primary" onClick={() => setIsAddingNew(true)}>
-                        Agregar Primer Proyecto
-                    </button>
+                    <button className="btn btn-primary" onClick={() => setIsAddingNew(true)}>Agregar Primer Proyecto</button>
                 </div>
             )}
+
+            <ConfirmModal
+                isOpen={confirmModal.isOpen}
+                title="Eliminar Proyecto"
+                message={`¿Estás seguro de que deseas eliminar el proyecto "${confirmModal.projectName}"? Esta acción no se puede deshacer.`}
+                confirmText="Eliminar"
+                cancelText="Cancelar"
+                confirmVariant="danger"
+                icon="🗑️"
+                onConfirm={confirmDeleteProject}
+                onCancel={() => setConfirmModal({ isOpen: false, projectId: '', projectName: '' })}
+            />
+
+            <AlertModal
+                isOpen={alertModal.isOpen}
+                title={alertModal.title}
+                message={alertModal.message}
+                variant={alertModal.variant}
+                onClose={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+            />
         </div>
     );
 };

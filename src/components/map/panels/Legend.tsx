@@ -4,14 +4,17 @@
  * La simbología de todas las capas viene de GeoServer vía WMS GetLegendGraphic.
  * Soporta todos los tipos: polygon, point, ranged-*, categorical-*, variant.
  * Incluye un panel WMS para capas ráster y un botón para minimizar.
+ * MEJORADO: Ahora soporta simbología dinámica por proyecto/grupo
  */
 
 import React, { useEffect, useRef, useState, useMemo, memo } from 'react';
 import L from 'leaflet';
-import { config } from '@config/env';
-import { AVAILABLE_LAYERS, LayerConfig } from '@config/layers';
+import { config, logger } from '@config/env';
+import { LayerConfig } from '@config/layers';
+import { useLayersContext } from '@contexts/LayersContext';
 import { LayerData } from '@hooks/map';
 import type { ExternalLayer } from '@types/geo';
+import type { GrupoResponse } from '@types/api';
 import { SymbologyStyle, DEFAULT_SYMBOLOGY, getRampGradientCSS } from '@utils/geo/symbologyUtils';
 
 // ============================================================================
@@ -24,12 +27,37 @@ interface LegendProps {
     /** Capas externas importadas por el usuario */
     externalLayers?: ExternalLayer[];
     externalVisible?: Record<string, boolean>;
+    /** Grupos (proyectos) para resolver URLs dinámicas de leyenda */
+    grupos?: GrupoResponse[];
 }
 
 // ============================================================================
 // HELPERS
 // ============================================================================
 
+/**
+ * Obtiene la URL del proyecto correspondiente al grupo de una capa
+ * Usa los grupos cargados desde la API para resolver dinámicamente
+ * @param layer Configuración de la capa
+ * @param grupos Lista de grupos/proyectos disponibles
+ * @returns URL base del proyecto para GetLegendGraphic
+ */
+const getProjectUrlForLayer = (layer: LayerConfig, grupos: GrupoResponse[] = []): string => {
+    // Si no hay grupo o grupos vacío, usar URL por defecto
+    if (!layer.group || grupos.length === 0) {
+        return config.qgisServer.wmsUrl;
+    }
+    
+    // Buscar el grupo que coincida con el de la capa
+    const grupo = grupos.find(g => g.nombre === layer.group);
+    if (!grupo || !grupo.url_proyecto) {
+        logger.warn(`No se encontró proyecto para el grupo "${layer.group}", usando URL por defecto`);
+        return config.qgisServer.wmsUrl;
+    }
+    
+    // Construir URL base con el proyecto correcto
+    return `${config.qgisServer.url}?MAP=${encodeURIComponent(grupo.url_proyecto)}`;
+};
 
 // ============================================================================
 // HELPERS DE UI
@@ -90,7 +118,7 @@ const VectorSection: React.FC<{
     layer: LayerConfig;
     collapsed: boolean;
     onToggle: () => void;
-    getWMSLegendUrl: (layerName: string, time?: string) => string;
+    getWMSLegendUrl: (layerName: string, layer: LayerConfig) => string;
 }> = ({ layer, collapsed, onToggle, getWMSLegendUrl }) => {
     const wmsName = layer.wmsLayer ?? layer.id;
 
@@ -99,7 +127,7 @@ const VectorSection: React.FC<{
             <SectionHeader name={layer.name} collapsed={collapsed} onToggle={onToggle} />
             {!collapsed && (
                 <img
-                    src={getWMSLegendUrl(wmsName)}
+                    src={getWMSLegendUrl(wmsName, layer)}
                     alt={`Leyenda ${layer.name}`}
                     className="legend-image"
                     onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -162,23 +190,14 @@ const ExternalLayerSection: React.FC<{ layer: ExternalLayer; collapsed: boolean;
                                 Expresión: <strong style={{ color: '#777' }}>{sym.expression}</strong>
                             </div>
                         )}
-                        {/* Barra de rampa continua */}
-                        {sym.colorRamp && (
-                            <div style={{ height: 8, borderRadius: 3, marginBottom: 6, background: getRampGradientCSS(sym.colorRamp) }} />
-                        )}
-                        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                        <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: 0 }}>
                             {sym.classes.map((cls, i) => (
-                                <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px', fontSize: '11px', color: '#333' }}>
-                                    <span style={{ display: 'inline-block', width: 12, height: 12, backgroundColor: cls.color, border: `1.5px solid ${sym.strokeColor}`, borderRadius: '2px', flexShrink: 0 }} />
-                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 145, color: '#555' }}>{cls.label}</span>
+                                <li key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', fontSize: '11px', color: '#333' }}>
+                                    <span style={{ display: 'inline-block', width: 12, height: 12, backgroundColor: cls.color, border: `1.5px solid ${sym.strokeColor}`, borderRadius: '3px', flexShrink: 0 }} />
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{cls.range}</span>
                                 </li>
                             ))}
                         </ul>
-                        {sym.classMethod && (
-                            <div style={{ fontSize: '9px', color: '#bbb', marginTop: 4, fontStyle: 'italic' }}>
-                                {sym.classMethod === 'equal' ? 'Intervalos iguales' : 'Cuantiles'} · {sym.classes.length} clases
-                            </div>
-                        )}
                     </>
                 )}
             </>)}
@@ -190,34 +209,21 @@ const ExternalLayerSection: React.FC<{ layer: ExternalLayer; collapsed: boolean;
 // COMPONENTE PRINCIPAL
 // ============================================================================
 
-const Legend: React.FC<LegendProps> = memo(({
-    activeLayers,
-    vectorLayers = {},
-    externalLayers = [],
-    externalVisible = {},
-}) => {
+const Legend: React.FC<LegendProps> = memo((props) => {
+    const { availableLayers: AVAILABLE_LAYERS } = useLayersContext();
+    const { activeLayers, vectorLayers, externalLayers = [], externalVisible = {}, grupos = [] } = props;
     const legendRef = useRef<HTMLDivElement>(null);
     const bodyRef = useRef<HTMLDivElement>(null);
     const [minimized, setMinimized] = useState(false);
     const [collapsedLayers, setCollapsedLayers] = useState<Record<string, boolean>>({});
 
-    const toggleLayerCollapse = (id: string) =>
-        setCollapsedLayers(prev => ({ ...prev, [id]: !prev[id] }));
+    const toggleLayerCollapse = (id: string) => setCollapsedLayers(s => ({ ...s, [id]: !s[id] }));
 
-    // Bloquea clicks para que no lleguen al mapa
-    useEffect(() => {
-        if (legendRef.current) L.DomEvent.disableClickPropagation(legendRef.current);
-    }, []);
-
-    // Bloquea el zoom de Leaflet cuando el ratón está sobre la leyenda.
-    //
-    // El handler se pone en legendRef (contenedor externo), NO en bodyRef.
-    // Así cualquier evento wheel que venga de cualquier hijo queda detenido
-    // antes de llegar al MapContainer donde Leaflet escucha el zoom.
-    //
-    // El scroll CSS del legend-body sigue funcionando porque es la acción
-    // por defecto del evento en el elemento con overflow-y:auto — no depende
-    // de que el evento llegue a ningún padre, solo de que no se llame
+    // Prevenir scroll-chaining al mapa — no queremos que scroll en la leyenda
+    // afecte el zoom del mapa. Usamos stopPropagation() para eso.
+    // PERO: scroll-chaining es una característica del navegador que ocurre naturalmente
+    // cuando el elemento con overflow-y:auto ha llegado al final del scroll.
+    // No depende de que el evento llegue a ningún padre, solo de que no se llame
     // preventDefault() en ese elemento. Al no llamar preventDefault() el
     // navegador aplica el scroll nativo aunque luego cortemos la propagación.
     useEffect(() => {
@@ -258,17 +264,37 @@ const Legend: React.FC<LegendProps> = memo(({
     const hasContent = activeVectorIds.length > 0 || activeRasterLayers.length > 0 || visibleExternalLayers.length > 0;
     if (!hasContent) return null;
 
-    const getWMSLegendUrl = (layerName: string) => {
-        // QGIS Server: la URL base ya incluye ?MAP=..., añadimos los parámetros con &
-        const params = new URLSearchParams({
-            SERVICE: 'WMS',
-            REQUEST: 'GetLegendGraphic',
-            VERSION: '1.3.0',
-            FORMAT: 'image/png',
-            LAYER: layerName,   // sin workspace — QGIS Server no usa workspace
-            TRANSPARENT: 'true',
-        });
-        return `${config.qgisServer.wmsUrl}&${params.toString()}`;
+    /**
+     * MEJORADO: Construye URL de GetLegendGraphic usando proyecto correcto
+     * @param layerName Nombre de la capa en WMS
+     * @param layer Configuración de la capa (para obtener su grupo/proyecto)
+     * @returns URL completa para GetLegendGraphic
+     */
+    const getWMSLegendUrl = (layerName: string, layer: LayerConfig) => {
+        // Resolver la URL base del proyecto para esta capa
+        const baseUrl = getProjectUrlForLayer(layer, grupos);
+        
+        // Crear objeto URL para construir parámetros
+        const url = new URL(baseUrl);
+        
+        // Asegurar que tiene el parámetro MAP con el proyecto correcto
+        if (!url.searchParams.has('MAP') && layer.group) {
+            const grupo = grupos.find(g => g.nombre === layer.group);
+            if (grupo?.url_proyecto) {
+                url.searchParams.set('MAP', grupo.url_proyecto);
+            }
+        }
+        
+        // Agregar parámetros WMS estándar para GetLegendGraphic
+        url.searchParams.set('SERVICE', 'WMS');
+        url.searchParams.set('REQUEST', 'GetLegendGraphic');
+        url.searchParams.set('VERSION', '1.3.0');
+        url.searchParams.set('FORMAT', 'image/png');
+        url.searchParams.set('LAYER', layerName);
+        url.searchParams.set('TRANSPARENT', 'true');
+        
+        logger.debug(`GetLegendGraphic URL para ${layerName}: ${url.toString()}`);
+        return url.toString();
     };
 
     return (
@@ -343,7 +369,7 @@ const Legend: React.FC<LegendProps> = memo(({
                                         </div>
                                     ) : (
                                         <img
-                                            src={getWMSLegendUrl(wmsName)}
+                                            src={getWMSLegendUrl(wmsName, layer)}
                                             alt={`Leyenda ${wmsName}`}
                                             style={{ maxWidth: '100%', display: 'block' }}
                                         />

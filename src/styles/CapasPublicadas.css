@@ -284,3 +284,78 @@
     gap: 0.5rem;
   }
 }
+
+/* ── Controles de colapso global ───────────────────────────────────────────── */
+
+.grupos-collapse-controls {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+
+.btn-collapse-all {
+    background: none;
+    border: 1px solid var(--border-color, #d1d5db);
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--text-secondary, #555);
+    transition: background 0.15s, color 0.15s;
+}
+.btn-collapse-all:hover {
+    background: var(--surface-hover, rgba(0,0,0,0.05));
+    color: var(--text-primary, #222);
+}
+
+/* ── Cabecera de grupo clickable ───────────────────────────────────────────── */
+
+.grupo-header--collapsible {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-radius: 8px;
+    padding: 10px 14px;
+    transition: background 0.15s;
+    gap: 12px;
+}
+.grupo-header--collapsible:hover {
+    background: var(--surface-hover, rgba(0,0,0,0.04));
+}
+
+.grupo-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.grupo-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+/* Chevron animado */
+.grupo-chevron {
+    display: inline-block;
+    font-size: 18px;
+    line-height: 1;
+    transition: transform 0.2s ease;
+    color: var(--text-muted, #888);
+    transform: rotate(0deg);
+}
+.grupo-chevron--collapsed {
+    transform: rotate(-90deg);
+}
+
+/* Cuerpo del grupo */
+.grupo-body {
+    padding: 0 4px 4px;
+}
+
+/* Estado colapsado: sin sombra extra */
+.grupo-section--collapsed {
+    padding-bottom: 2px;
+}

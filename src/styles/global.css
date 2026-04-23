@@ -346,6 +346,43 @@ html, body {
 .legend-image {
     max-width: 100%;
     display: block;
+    min-height: 20px;
+    height: auto;
+    margin-bottom: 6px;
+    border-radius: 3px;
+    background: white;
+    padding: 2px;
+}
+
+/* Mejorar visibilidad de items en la leyenda */
+.legend-section .legend-image:last-child {
+    margin-bottom: 0;
+}
+
+/* Contenedor para legendas de raster/WMS */
+.legend-wms-container {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px;
+    background: #fafafa;
+    border-radius: 4px;
+    border: 1px solid #f0f0f0;
+}
+
+.legend-wms-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #555;
+}
+
+.legend-wms-item img {
+    max-width: 40px;
+    height: auto;
+    object-fit: contain;
+    display: block;
 }
 
 /* ============================================

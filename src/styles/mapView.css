@@ -432,3 +432,15 @@
         bottom: 72px !important;
     }
 }
+
+/* ── Barra de herramientas (comparar capas + perfil de elevación) ──────────── */
+.map-tools-toolbar {
+    position: absolute;
+    top: 70px;
+    right: 52px;
+    z-index: 1050;
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 8px;
+}

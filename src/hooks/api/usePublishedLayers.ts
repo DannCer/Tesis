@@ -1,94 +1,26 @@
 /**
- * @fileoverview Hook para cargar capas publicadas desde la API
+ * @fileoverview Re-exporta los datos de capas desde LayersContext.
+ * Este hook existía como copia independiente que hacía su propio fetch;
+ * ahora es un wrapper delgado que reutiliza el contexto ya cargado.
  * @module hooks/usePublishedLayers
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { apiService, ItemResponse, GrupoResponse } from '@services/api';
-import { logger } from '@config/env';
-import { VectorLayerDef, RasterLayerDef } from '../config/layersConfig';
-
-interface PublishedLayersData {
-    vectorLayers: VectorLayerDef[];
-    rasterLayers: RasterLayerDef[];
-    grupos: GrupoResponse[];
-    loading: boolean;
-    error: string | null;
-    refresh: () => Promise<void>;
-}
+import { useLayersContext } from '@contexts/LayersContext';
 
 /**
- * Hook para gestionar capas publicadas desde la API
+ * Hook para gestionar capas publicadas desde la API.
+ * Consume LayersContext en lugar de hacer un fetch propio.
  */
-export const usePublishedLayers = (): PublishedLayersData => {
-    const [vectorLayers, setVectorLayers] = useState<VectorLayerDef[]>([]);
-    const [rasterLayers, setRasterLayers] = useState<RasterLayerDef[]>([]);
-    const [grupos, setGrupos] = useState<GrupoResponse[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-
-    /**
-     * Cargar capas desde la API
-     */
-    const loadLayers = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-
-        try {
-            // Cargar capas y grupos en paralelo
-            const [capas, gruposData] = await Promise.all([
-                apiService.getCapas(),
-                apiService.getGrupos(),
-            ]);
-
-            logger.log('Capas cargadas desde API:', capas.length);
-            logger.log('Grupos cargados desde API:', gruposData.length);
-
-            // Separar capas vectoriales y ráster
-            const vectoriales: VectorLayerDef[] = [];
-            const raster: RasterLayerDef[] = [];
-
-            capas.forEach(item => {
-                if (item.type === 'vector') {
-                    vectoriales.push(apiService.convertItemToVectorLayer(item));
-                } else if (item.type === 'raster') {
-                    raster.push(apiService.convertItemToRasterLayer(item));
-                }
-            });
-
-            setVectorLayers(vectoriales);
-            setRasterLayers(raster);
-            setGrupos(gruposData);
-
-        } catch (err: any) {
-            logger.error('Error cargando capas desde API:', err);
-            setError(err.message || 'Error al cargar las capas');
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    // Cargar al montar el componente
-    useEffect(() => {
-        loadLayers();
-    }, [loadLayers]);
-
-    return {
-        vectorLayers,
-        rasterLayers,
-        grupos,
-        loading,
-        error,
-        refresh: loadLayers,
-    };
+export const usePublishedLayers = () => {
+    const { vectorLayers, rasterLayers, grupos, loading, error, refresh } = useLayersContext();
+    return { vectorLayers, rasterLayers, grupos, loading, error, refresh };
 };
 
 /**
- * Hook simplificado que combina todas las capas
+ * Hook simplificado que combina todas las capas.
  */
 export const useAllPublishedLayers = () => {
-    const { vectorLayers, rasterLayers, loading, error, refresh } = usePublishedLayers();
-
+    const { vectorLayers, rasterLayers, loading, error, refresh } = useLayersContext();
     return {
         allLayers: [...vectorLayers, ...rasterLayers],
         vectorLayers,

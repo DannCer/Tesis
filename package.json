@@ -15,12 +15,10 @@
   },
   "dependencies": {
     "bootstrap": "^5.3.8",
-    "css-polyfills": "^0.0.16",
     "georaster": "^1.6.0",
     "georaster-layer-for-leaflet": "^4.1.2",
     "jszip": "^3.10.1",
     "leaflet": "^1.9.4",
-    "prop-types": "^15.8.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-leaflet": "^5.0.0",
@@ -36,7 +34,6 @@
     "@types/node": "^25.1.0",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
-    "@types/shpjs": "^3.4.7",
     "@typescript-eslint/eslint-plugin": "^8.54.0",
     "@typescript-eslint/parser": "^8.54.0",
     "@vitejs/plugin-react": "^5.1.1",
@@ -49,6 +46,7 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.54.0",
     "vite": "^7.2.4",
-    "vitest": "^3.1.1"
+    "vitest": "^3.1.1",
+    "@types/shpjs": "^3.4.7"
   }
 }

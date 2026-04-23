@@ -2,22 +2,12 @@ import { useState, useCallback, useRef } from 'react';
 import { rasterService, PixelInfo } from '@services/geoserver';
 import { logger } from '@config/env';
 import L from 'leaflet';
-import { AVAILABLE_LAYERS } from '@config/layers';
+import type { LayerConfig } from '@config/layers';
+import type { EnrichedPixelInfo, MapPixelData } from '@types/map';
 
-export interface EnrichedPixelInfo extends PixelInfo {
-    serieId: string;
-    serieName: string;
-    year: number;
-}
+export type { EnrichedPixelInfo, MapPixelData };
 
-export interface MapPixelData {
-    coordinates: [number, number];
-    layers: EnrichedPixelInfo[];
-    timestamp: number;
-    error?: string;
-}
-
-export const useRasterLayers = () => {
+export const useRasterLayers = (availableLayers: LayerConfig[] = []) => {
     const [activeLayers, setActiveLayers] = useState<Record<string, boolean>>({});
     const [opacityLayers, setOpacityLayers] = useState<Record<string, number>>({});
     const [pixelInfo, setPixelInfo] = useState<MapPixelData | null>(null);
@@ -45,7 +35,7 @@ export const useRasterLayers = () => {
         pixelQueryControllerRef.current = controller;
 
         try {
-            const activeSeries = AVAILABLE_LAYERS.filter(l => 
+            const activeSeries = availableLayers.filter(l =>
                 l.type === 'raster' && activeLayers[l.id]
             );
 
@@ -112,7 +102,7 @@ export const useRasterLayers = () => {
                 setLoading(false);
             }
         }
-    }, [activeLayers]);
+    }, [activeLayers, availableLayers]);
 
     const clearPixelInfo = useCallback(() => {
         if (pixelQueryControllerRef.current) {

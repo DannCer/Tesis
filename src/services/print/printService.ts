@@ -494,7 +494,7 @@ html, body {
 <div class="toolbar">
     <div>
         🗺️ <strong>${job.title || 'Mapa'}</strong>
-        <span class="toolbar-info"> — ${job.paper.label} ${job.orientation === 'landscape' ? 'Apaisado' : 'Retrato'} · ${job.dpi} dpi · ${fmtScale(finalScale)}</span>
+        <span class="toolbar-info"> — ${job.paper.label} ${job.orientation === 'landscape' ? 'horizontal' : 'vertical'} · ${job.dpi} dpi · ${fmtScale(finalScale)}</span>
     </div>
     <button class="btn-print" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
 </div>

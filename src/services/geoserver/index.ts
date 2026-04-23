@@ -1,2 +1,4 @@
-export { wfsService }    from './wfsService';
-export { rasterService } from './rasterService';
+export { wfsService }        from './wfsService';
+export { dynamicWfsService } from './dynamicWfsService';
+export { rasterService }     from './rasterService';
+export type { WFSOptions }   from '@types/map';

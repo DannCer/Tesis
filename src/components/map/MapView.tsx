@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useMemo, useRef } from 'react';
+import React, { useCallback, useState, useMemo, useRef, useEffect, memo, lazy, Suspense } from 'react';
 import {
     MapContainer,
     WMSTileLayer,
@@ -11,37 +11,36 @@ import { GeoJSON } from 'react-leaflet';
 
 import MapContent from '@components/map/MapContent';
 import LayerMenu from '@components/map/panels/LayerMenu';
-import type { ExternalLayer } from '@components/map/panels/LayerMenu';
+import type { ExternalLayer } from '@types/geo';
 import SwipeControl from '@components/map/controls/SwipeControl';
 import SwipePanel from '@components/map/tools/SwipePanel';
+import ElevationProfile from '@components/map/tools/ElevationProfile';
 import type { SwipeLayerConfig } from '@components/map/controls/SwipeControl';
 import { featureStyle, DEFAULT_SYMBOLOGY } from '@utils/geo/symbologyUtils';
 import GeoRasterLayerComponent from '@components/map/layers/GeoRasterLayerComponent';
 import PixelInfoPanel from '@components/map/panels/PixelInfoPanel';
 import Legend from '@components/map/panels/Legend';
-import PrintDesigner from '@components/map/tools/PrintDesigner';
 import VectorLayer from '@components/map/layers/VectorLayer';
 import { useWFSLayers } from '@hooks/map';
 import { useRasterLayers } from '@hooks/map';
-import { wfsService } from '../../services/geoserver/wfsService';
-import { rasterService } from '../../services/geoserver/rasterService';
-import { config } from '@config/env';
-import { AVAILABLE_LAYERS, getLayerConfig } from '@config/layers';
+import { wfsService } from '@services/geoserver/wfsService';
+import { dynamicWfsService } from '@services/geoserver/dynamicWfsService';
+import { rasterService } from '@services/geoserver/rasterService';
+import { config, logger } from '@config/env';
+import type { LayerConfig } from '@config/layers';
+import type { WFSOptions } from '@types/map';
 import '@styles/mapView.css';
 import { useApiLayersLoader } from '@hooks/api';
+import { useLayersContext } from '@contexts/LayersContext';
+import { useSelectedProjectLayers } from '@hooks/map/useSelectedProjectLayers';
+import { ErrorBoundary } from '@components/common';
 
-/**
- * Filtramos las series ráster desde la configuración global
- */
-
+const PrintDesigner = lazy(() => import('@components/map/tools/PrintDesigner'));
 
 interface MapClickHandlerProps {
     onMapClick: (e: L.LeafletMouseEvent, map: L.Map) => void;
 }
 
-/**
- * Manejador de clics en el mapa (fondo) para consultas Ráster
- */
 const MapClickHandler: React.FC<MapClickHandlerProps> = ({ onMapClick }) => {
     const map = useMapEvents({
         click: (e) => {
@@ -51,31 +50,101 @@ const MapClickHandler: React.FC<MapClickHandlerProps> = ({ onMapClick }) => {
     return null;
 };
 
+// ─── Interfaces para componentes memoizados ────────────────────────────────────
+
+interface WMSTileLayerProps {
+    isActive: boolean;
+    url: string;
+    layers: string;
+    format: string;
+    transparent: boolean;
+    opacity: number;
+    params?: Record<string, unknown>;
+    zIndex?: number;
+    eventHandlers?: Record<string, () => void>;
+}
+
+interface VectorLayerMemoProps {
+    id: string;
+    wmsLayer: string;
+    data: any;
+    visible: boolean;
+    timestamp: number;
+    opacity: number;
+    selectedFeatureId: string | number | null;
+    onEachFeature: (feature: any, layer: L.Layer) => void;
+    zIndex?: number;
+    wmsBaseUrl?: string;
+}
+
+// ✨ Componentes memoizados para evitar re-renderizados innecesarios
+const MemoizedWMSTileLayer = memo(
+    ({ isActive, ...rest }: WMSTileLayerProps) => {
+        if (!isActive) return null;
+        return <WMSTileLayer {...(rest as any)} />;
+    },
+    (prev, next) =>
+        prev.isActive === next.isActive &&
+        prev.opacity === next.opacity &&
+        prev.url === next.url &&
+        prev.layers === next.layers &&
+        (prev.params as any)?.TIME === (next.params as any)?.TIME
+);
+MemoizedWMSTileLayer.displayName = 'MemoizedWMSTileLayer';
+
+const MemoizedVectorLayer = memo(
+    (props: VectorLayerMemoProps) => <VectorLayer {...props} />,
+    (prev, next) =>
+        prev.id === next.id &&
+        prev.visible === next.visible &&
+        prev.opacity === next.opacity &&
+        prev.timestamp === next.timestamp &&
+        prev.wmsBaseUrl === next.wmsBaseUrl
+);
+MemoizedVectorLayer.displayName = 'MemoizedVectorLayer';
+
+// ─── Utilidad: escapar HTML para prevenir XSS en popups ──────────────────────
+const escapeHtml = (value: unknown): string => {
+    const str = String(value ?? '—');
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+};
+
 const MapView: React.FC = () => {
     const mapConfig = config.map || {
         center: [19.4326, -99.1332],
         zoom: 10
     };
 
-     const { layersByGroup } = useApiLayersLoader();
+    const { layersByGroup } = useApiLayersLoader();
+    const { grupos, availableLayers: contextLayers } = useLayersContext();
+    const {
+        layers: projectLayers,
+        loading: projectLoading,
+        selectedProjectId,
+        selectedProjectName,
+    } = useSelectedProjectLayers();
 
     const RASTER_SERIES = useMemo(
         () => Object.values(layersByGroup).flat().filter(l => l.type === 'raster'),
         [layersByGroup]
     );
-    
+
     const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
-    const [printOpen,   setPrintOpen]   = useState(false);
+    const [printOpen, setPrintOpen] = useState(false);
     const [wmsError, setWmsError] = useState<string | null>(null);
     const [selectedFeature, setSelectedFeature] = useState<any>(null);
     const [externalLayers, setExternalLayers] = useState<ExternalLayer[]>([]);
     const [externalVisible, setExternalVisible] = useState<Record<string, boolean>>({});
     const [externalOpacity, setExternalOpacity] = useState<Record<string, number>>({});
 
-    // ===== SWIPE =====
-    const [swipeActive, setSwipeActive]       = useState(false);
-    const [swipeLeft,   setSwipeLeft]         = useState<SwipeLayerConfig | null>(null);
-    const [swipeRight,  setSwipeRight]        = useState<SwipeLayerConfig | null>(null);
+    const [swipeActive, setSwipeActive] = useState(false);
+    const [swipeLeft, setSwipeLeft] = useState<SwipeLayerConfig | null>(null);
+    const [swipeRight, setSwipeRight] = useState<SwipeLayerConfig | null>(null);
     const autoZoomedVectorLayersRef = useRef<Set<string>>(new Set());
 
     const handleSwipeActivate = useCallback((left: SwipeLayerConfig, right: SwipeLayerConfig) => {
@@ -94,13 +163,12 @@ const MapView: React.FC = () => {
         setExternalLayers(prev => [...prev, layer]);
         setExternalVisible(prev => ({ ...prev, [layer.id]: true }));
         setExternalOpacity(prev => ({ ...prev, [layer.id]: 0.8 }));
-        // Zoom automático a la capa si tiene datos GeoJSON
         if (layer.geojsonData && mapInstance) {
             try {
                 const gl = L.geoJSON(layer.geojsonData);
                 const bounds = gl.getBounds();
                 if (bounds.isValid()) mapInstance.fitBounds(bounds, { padding: [30, 30] });
-            } catch { /* sin bounds válidos */ }
+            } catch { /* ignore */ }
         }
     }, [mapInstance]);
 
@@ -118,7 +186,44 @@ const MapView: React.FC = () => {
         setExternalOpacity(prev => ({ ...prev, [id]: opacity }));
     }, []);
 
-    // ===== VECTOR (WFS) =====
+    const availableLayers = useMemo((): LayerConfig[] => {
+        const projectFlat = projectLayers ?? [];
+        return [...contextLayers, ...projectFlat];
+    }, [contextLayers, projectLayers]);
+
+    const availableLayersRef = useRef<LayerConfig[]>(availableLayers);
+    useEffect(() => {
+        availableLayersRef.current = availableLayers;
+    }, [availableLayers]);
+
+    // ✨ Índices para búsquedas O(1)
+    const layerIndexRef = useRef<Map<string, LayerConfig>>(new Map());
+    const grupoIndexRef = useRef<Map<string, any>>(new Map());
+
+    useEffect(() => {
+        const newLayerIndex = new Map<string, LayerConfig>();
+        availableLayers.forEach(layer => {
+            newLayerIndex.set(layer.id, layer);
+        });
+        layerIndexRef.current = newLayerIndex;
+
+        const newGrupoIndex = new Map<string, any>();
+        (grupos || []).forEach(grupo => {
+            newGrupoIndex.set(grupo.nombre, grupo);
+        });
+        grupoIndexRef.current = newGrupoIndex;
+
+        logger.debug(`📍 Índices actualizados: ${availableLayers.length} capas, ${grupos?.length || 0} grupos`);
+    }, [availableLayers, grupos]);
+
+    const combinedLayersByGroup = useMemo(() => {
+        const combined = { ...layersByGroup };
+        if (projectLayers && projectLayers.length > 0 && selectedProjectName) {
+            combined[selectedProjectName] = projectLayers;
+        }
+        return combined;
+    }, [layersByGroup, projectLayers, selectedProjectName]);
+
     const {
         layers: vectorLayers,
         loading: vectorLoading,
@@ -128,7 +233,6 @@ const MapView: React.FC = () => {
         setLayerOpacity
     } = useWFSLayers();
 
-    // ===== RÁSTER (WMS) =====
     const {
         activeLayers,
         opacityLayers,
@@ -138,70 +242,57 @@ const MapView: React.FC = () => {
         setRasterLayerOpacity,
         queryPixelValue,
         clearPixelInfo
-    } = useRasterLayers();
+    } = useRasterLayers(availableLayers);
 
-    // --- ZOOM A CAPA ---
     const zoomToLayer = useCallback(async (layerId: string, type: 'vector' | 'raster', data?: any) => {
         if (!mapInstance) return;
-
-        const layerCfg = getLayerConfig(layerId);
+        const layerCfg = layerIndexRef.current.get(layerId);
         if (!layerCfg) return;
 
         if (type === 'vector') {
-            // 1. Intentar obtener extensión dinámica desde GetCapabilities (WFS)
             const wfsName = layerCfg.wfsName ?? layerCfg.id;
-            const dynamicBounds = await wfsService.getLayerExtent(wfsName);
-            
+            const groupName = layerCfg.group;
+            const dynamicBounds = groupName
+                ? await dynamicWfsService.getLayerExtent(wfsName, groupName).catch(() => null)
+                : await wfsService.getLayerExtent(wfsName).catch(() => null);
             if (dynamicBounds) {
                 mapInstance.fitBounds(dynamicBounds as L.LatLngBoundsExpression, { padding: [20, 20] });
-            } 
-            // 2. Fallback a los datos ya cargados si existen
-            else if (data) {
+            } else if (data) {
                 try {
                     const geoJsonLayer = L.geoJSON(data);
                     const bounds = geoJsonLayer.getBounds();
-                    if (bounds.isValid()) {
-                        mapInstance.fitBounds(bounds, { padding: [20, 20] });
-                    }
+                    if (bounds.isValid()) mapInstance.fitBounds(bounds, { padding: [20, 20] });
                 } catch (err) {
-                    console.error("Error al calcular bounds para zoom:", err);
+                    logger.error("Error al calcular bounds para zoom:", err);
                 }
-            }
-            // 3. Fallback a configuración manual
-            else if (layerCfg.bounds) {
+            } else if (layerCfg.bounds) {
                 mapInstance.fitBounds(layerCfg.bounds as L.LatLngBoundsExpression, { padding: [20, 20] });
             }
         } else if (type === 'raster') {
-            // Intentar sacar extensión dinámica del servidor (WMS)
             const dynamicBounds = await rasterService.getLayerExtent(layerCfg.wmsLayer || 'usv_mosaico');
-            
             if (dynamicBounds) {
                 mapInstance.fitBounds(dynamicBounds as L.LatLngBoundsExpression, { padding: [20, 20] });
             } else if (layerCfg.bounds) {
-                // Fallback a configuración manual si falla GetCapabilities
                 mapInstance.fitBounds(layerCfg.bounds as L.LatLngBoundsExpression, { padding: [20, 20] });
             }
         }
     }, [mapInstance]);
 
-    // --- MANEJADOR DE CLICS EN VECTORES ---
     const onEachVectorFeature = useCallback((feature: any, layer: L.Layer) => {
         const props = feature.properties ?? {};
-
-        // Construir filas de la tabla de atributos
         const SKIP = new Set(['bbox', 'geometry', 'the_geom', 'geom']);
         const nombre =
-            props.NOMBRE   ?? props.nombre   ??
-            props.Estado   ?? props.estado   ??
+            props.NOMBRE ?? props.nombre ??
+            props.Estado ?? props.estado ??
             props.Municipio ?? props.municipio ??
             props.Localidad ?? props.localidad ??
-            props.NAME     ?? props.name     ?? 'Elemento';
+            props.NAME ?? props.name ?? 'Elemento';
 
         const rows = Object.entries(props)
             .filter(([k]) => !SKIP.has(k.toLowerCase()))
             .map(([k, v]) => `<tr>
-                <td style="padding:5px 12px 5px 0;font-weight:600;color:#555;white-space:nowrap;vertical-align:top;font-size:13px">${k}</td>
-                <td style="padding:5px 0;color:#222;font-size:13px;word-break:break-word">${v ?? '—'}</td>
+                <td style="padding:5px 12px 5px 0;font-weight:600;color:#555;white-space:nowrap;vertical-align:top;font-size:13px">${escapeHtml(k)}</td>
+                <td style="padding:5px 0;color:#222;font-size:13px;word-break:break-word">${escapeHtml(v)}</td>
             </tr>`).join('');
 
         const content = `
@@ -209,7 +300,7 @@ const MapView: React.FC = () => {
                 <div style="background:#8d1c3d;color:#fff;padding:10px 14px;margin:-13px -20px 10px;border-radius:4px 4px 0 0;font-size:15px;font-weight:600">${nombre}</div>
                 <div style="max-height:260px;overflow-y:auto">
                     <table style="border-collapse:collapse;width:100%">
-                        <tbody>${rows || '<tr><td style="color:#999;font-size:13px">Sin atributos</td></tr>'}</tbody>
+                        <tbody>${rows || '<tr><td style="color:#999;font-size:13px">Sin atributos</td>'}</tbody>
                     </table>
                 </div>
             </div>`;
@@ -227,25 +318,42 @@ const MapView: React.FC = () => {
         });
     }, []);
 
-
-    // --- MANEJO DE CAPAS ---
+    // ──────────────────────────────────────────────────────────────────────────
+    // ✨ MODIFICACIÓN IMPORTANTE: Aquí se añade simplifyTolerance para la capa de isolíneas
+    // ──────────────────────────────────────────────────────────────────────────
     const handleLayerToggle = useCallback(async (layerId: string, isActive: boolean, layerType: 'vector' | 'raster') => {
         if (layerType === 'vector') {
             if (vectorLayers[layerId]) {
-                // La capa ya existe en el estado — solo alternar visibilidad
                 toggleLayer(layerId);
                 if (isActive) {
                     autoZoomedVectorLayersRef.current.add(layerId);
                     zoomToLayer(layerId, 'vector', vectorLayers[layerId].data);
                 } else {
+                    // Limpiar el registro de autozoom para que funcione si se reactiva
                     autoZoomedVectorLayersRef.current.delete(layerId);
                 }
             } else if (isActive) {
-                // Cargar nueva capa: usar wfsName para la consulta WFS pero almacenar bajo layerId
-                const layerCfg = AVAILABLE_LAYERS.find(l => l.id === layerId);
+                const layerCfg = layerIndexRef.current.get(layerId);
                 const nameToLoad = layerCfg?.wfsName ?? layerId;
-                await loadLayer(nameToLoad, {}, layerId);
-                // El zoom se manejará en un useEffect separado cuando lleguen los datos
+                const groupName = layerCfg?.group;
+
+                // ✨ AÑADE AQUÍ LA LÓGICA PARA LA CAPA DE INCENDIOS (ISOLÍNEAS)
+                // Reemplaza 'incendios_recurrencia' con el ID real de tu capa
+                // Ajusta el valor de simplifyTolerance (prueba con 5, 10, 20, 50 según el detalle deseado)
+                let options: WFSOptions = {};
+                if (layerId === 'incendios_recurrencia') {
+                    options = {
+                        simplifyTolerance: 10, // tolerancia en metros (puedes ajustar)
+                        // Opcional: también puedes limitar maxFeatures si es necesario
+                        // maxFeatures: 500
+                    };
+                    logger.debug(`🔥 Cargando capa de incendios con simplificación (tolerancia=${options.simplifyTolerance})`);
+                }
+
+                await loadLayer(nameToLoad, groupName, options, layerId);
+            } else {
+                // Capa que se desactiva antes de terminar de cargar: limpiar autozoom
+                autoZoomedVectorLayersRef.current.delete(layerId);
             }
         } else if (layerType === 'raster') {
             toggleRasterLayer(layerId, isActive);
@@ -255,10 +363,8 @@ const MapView: React.FC = () => {
         }
     }, [vectorLayers, loadLayer, toggleLayer, toggleRasterLayer, zoomToLayer]);
 
-    // Efecto para hacer zoom a capas vectoriales cuando se terminan de cargar por primera vez
     React.useEffect(() => {
         if (!mapInstance) return;
-        
         const checkAndZoom = async () => {
             for (const [id, layer] of Object.entries(vectorLayers)) {
                 if (layer.visible && layer.data && !autoZoomedVectorLayersRef.current.has(id)) {
@@ -267,13 +373,10 @@ const MapView: React.FC = () => {
                 }
             }
         };
-        
         checkAndZoom();
     }, [vectorLayers, mapInstance, zoomToLayer]);
 
-
-    // --- MEMORIZACIÓN DE DATOS PARA COMPONENTES HIJOS ---
-    const activeRasterLayersList = useMemo(() => 
+    const activeRasterLayersList = useMemo(() =>
         Object.entries(activeLayers)
             .filter(([_, v]) => v)
             .map(([k]) => k),
@@ -285,11 +388,11 @@ const MapView: React.FC = () => {
         ...Object.fromEntries(
             RASTER_SERIES.map(s => [
                 s.id,
-                { 
+                {
                     name: s.name,
-                    visible: activeLayers[s.id], 
+                    visible: activeLayers[s.id],
                     opacity: opacityLayers[s.id] ?? 0.8,
-                    type: 'raster',                                
+                    type: 'raster',
                     description: `Año ${s.year}`
                 }
             ])
@@ -297,9 +400,18 @@ const MapView: React.FC = () => {
     }), [vectorLayers, activeLayers, opacityLayers]);
 
     const combinedLoading = useMemo(() => ({
-        ...vectorLoading, 
-        raster: rasterLoading
-    }), [vectorLoading, rasterLoading]);
+        ...vectorLoading,
+        ...Object.fromEntries(
+            RASTER_SERIES.map(s => [s.id, rasterLoading])
+        )
+    }), [vectorLoading, rasterLoading, RASTER_SERIES]);
+
+    const combinedErrors = useMemo(() => ({
+        ...vectorErrors,
+        ...Object.fromEntries(
+            RASTER_SERIES.map(s => [s.id, null])
+        )
+    }), [vectorErrors, RASTER_SERIES]);
 
     const handleMapClick = useCallback((e: L.LeafletMouseEvent, map: L.Map) => {
         setSelectedFeature(null);
@@ -314,15 +426,23 @@ const MapView: React.FC = () => {
         }
     }, [setLayerOpacity, setRasterLayerOpacity]);
 
-    
+    // Logging de estabilidad: mide el tiempo entre re-renders causados por cambios
+    // en capas activas. Útil para detectar re-renders excesivamente frecuentes.
+    useEffect(() => {
+        const ts = Date.now();
+        return () => {
+            const gap = Date.now() - ts;
+            logger.debug(`♻️  MapView re-render — intervalo desde el anterior: ${gap}ms`);
+        };
+    }, [activeLayers, vectorLayers, RASTER_SERIES]);
 
     return (
         <div className="map-view-container-full">
-
             <LayerMenu
-                layers={layerMenuData}
+                layerState={layerMenuData}
+                layersByGroup={combinedLayersByGroup}
                 loading={combinedLoading}
-                errors={vectorErrors}
+                errors={combinedErrors}
                 onLayerToggle={handleLayerToggle}
                 onOpacityChange={handleOpacityChange}
                 externalLayers={externalLayers}
@@ -340,12 +460,14 @@ const MapView: React.FC = () => {
                 onClose={clearPixelInfo}
             />
 
-            {/* ── Panel de comparación (swipe) fuera del mapa ── */}
-            <SwipePanel
-                active={swipeActive}
-                onActivate={handleSwipeActivate}
-                onDeactivate={handleSwipeDeactivate}
-            />
+            <div className="map-tools-toolbar">
+                <SwipePanel
+                    active={swipeActive}
+                    onActivate={handleSwipeActivate}
+                    onDeactivate={handleSwipeDeactivate}
+                />
+                <ElevationProfile mapInstance={mapInstance} />
+            </div>
 
             {wmsError && (
                 <div className="wms-error-alert">
@@ -361,13 +483,9 @@ const MapView: React.FC = () => {
                 ref={setMapInstance}
                 preferCanvas={true}
             >
-                <MapContent />
+                <MapContent layers={combinedLayersByGroup} />
+                <MapClickHandler onMapClick={handleMapClick} />
 
-                <MapClickHandler 
-                    onMapClick={handleMapClick}
-                />
-
-                {/* ── Swipe / Comparador de capas ── */}
                 {swipeActive && swipeLeft && swipeRight && (
                     <SwipeControl
                         leftLayer={swipeLeft}
@@ -377,12 +495,23 @@ const MapView: React.FC = () => {
                 )}
 
                 {RASTER_SERIES.map((serie, index) => {
-                    if (!activeLayers[serie.id]) return null;
+                    const serieConfig = layerIndexRef.current.get(serie.id);
+                    const groupName = serieConfig?.group;
+                    let wmsUrl = config.qgisServer.wmsRasterUrl;
+
+                    if (groupName && grupos && grupos.length > 0) {
+                        const grupo = grupoIndexRef.current.get(groupName);
+                        if (grupo && grupo.url_proyecto) {
+                            wmsUrl = `${config.qgisServer.url}?MAP=${encodeURIComponent(grupo.url_proyecto)}`;
+                            logger.debug(`WMS URL para ${serie.name} [${groupName}]:`, wmsUrl);
+                        }
+                    }
 
                     return (
-                        <WMSTileLayer
+                        <MemoizedWMSTileLayer
                             key={`${serie.id}-${serie.timeValue}`}
-                            url={config.qgisServer.wmsRasterUrl}
+                            isActive={activeLayers[serie.id] ?? false}
+                            url={wmsUrl}
                             layers={serie.wmsLayer || 'usv_mosaico'}
                             format="image/png"
                             transparent={true}
@@ -390,7 +519,7 @@ const MapView: React.FC = () => {
                             params={{
                                 TIME: serie.timeValue,
                                 TILED: true,
-                            } as any}
+                            }}
                             zIndex={500 + index}
                             eventHandlers={{
                                 tileerror: () => setWmsError(`Error cargando ${serie.name}`),
@@ -401,9 +530,18 @@ const MapView: React.FC = () => {
                 })}
 
                 {Object.entries(vectorLayers).map(([id, layer], index) => {
-                    const cfg = AVAILABLE_LAYERS.find(l => l.id === id);
+                    const cfg = layerIndexRef.current.get(id);
+                    let wmsBaseUrl: string | undefined;
+                    if (cfg?.group && grupos && grupos.length > 0) {
+                        const grupo = grupoIndexRef.current.get(cfg.group);
+                        if (grupo && grupo.url_proyecto) {
+                            wmsBaseUrl = `${config.qgisServer.url}?MAP=${encodeURIComponent(grupo.url_proyecto)}`;
+                            logger.debug(`WMS URL para capa vectorial ${cfg.name} [${cfg.group}]:`, wmsBaseUrl);
+                        }
+                    }
+
                     return (
-                        <VectorLayer
+                        <MemoizedVectorLayer
                             key={id}
                             id={id}
                             wmsLayer={cfg?.wmsLayer ?? cfg?.wfsName ?? id}
@@ -414,11 +552,11 @@ const MapView: React.FC = () => {
                             selectedFeatureId={selectedFeature}
                             onEachFeature={onEachVectorFeature}
                             zIndex={400 + index}
+                            wmsBaseUrl={wmsBaseUrl}
                         />
                     );
                 })}
 
-                {/* Resaltar el píxel seleccionado */}
                 {pixelInfo && pixelInfo.coordinates && (
                     <CircleMarker
                         center={pixelInfo.coordinates}
@@ -433,11 +571,8 @@ const MapView: React.FC = () => {
                     />
                 )}
 
-                {/* ── Capas externas (GeoJSON/KML/SHP/WMS/WFS cargadas por usuario) ── */}
                 {externalLayers.map(ext => {
                     if (!externalVisible[ext.id]) return null;
-
-                    // Vector local (GeoJSON parseado)
                     if ((ext.type === 'vector') && ext.geojsonData) {
                         const sym = ext.symbology ?? DEFAULT_SYMBOLOGY;
                         const opacity = externalOpacity[ext.id] ?? 0.8;
@@ -454,8 +589,6 @@ const MapView: React.FC = () => {
                             />
                         );
                     }
-
-                    // GeoTIFF local
                     if (ext.type === 'raster' && ext.georasterData) {
                         return (
                             <GeoRasterLayerComponent
@@ -467,8 +600,6 @@ const MapView: React.FC = () => {
                             />
                         );
                     }
-
-                    // WMS externo
                     if (ext.type === 'wms' && ext.url && ext.layerName) {
                         return (
                             <WMSTileLayer
@@ -482,45 +613,46 @@ const MapView: React.FC = () => {
                             />
                         );
                     }
-
                     return null;
                 })}
 
-                <Legend activeLayers={activeLayers} vectorLayers={vectorLayers as any} />
-
+                <Legend
+                    activeLayers={activeLayers}
+                    vectorLayers={vectorLayers as any}
+                    grupos={grupos}
+                />
             </MapContainer>
 
             {activeRasterLayersList.length > 0 && (
                 <div className="active-series-indicator">
-                    <span className="indicator-title">
-                        Series activas:
-                    </span>
+                    <span className="indicator-title">Series activas:</span>
                     {RASTER_SERIES.filter(s => activeLayers[s.id]).map(s => (
                         <span key={s.id} className="series-badge">
                             {s.name} ({s.year})
                         </span>
                     ))}
-                    <div style={{fontSize: '0.8rem', marginTop: '5px', opacity: 0.9}}>
+                    <div style={{ fontSize: '0.8rem', marginTop: '5px', opacity: 0.9 }}>
                         Haz clic en el mapa para consultar clasificación
                     </div>
                 </div>
             )}
-            {/* ── Botón flotante impresión ── */}
+
             <button className="pd-fab" onClick={() => setPrintOpen(true)} title="Diseñador de impresión">
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16">
-                    <path d="M2.5 8a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1z"/>
-                    <path d="M5 1a2 2 0 0 0-2 2v2H2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v1a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-1h1a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1V3a2 2 0 0 0-2-2H5zM4 3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2H4V3zm1 5a2 2 0 0 0-2 2v1H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v-1a2 2 0 0 0-2-2H5zm7 2v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1z"/>
+                    <path d="M2.5 8a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1z" />
+                    <path d="M5 1a2 2 0 0 0-2 2v2H2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v1a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-1h1a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1V3a2 2 0 0 0-2-2H5zM4 3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2H4V3zm1 5a2 2 0 0 0-2 2v1H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v-1a2 2 0 0 0-2-2H5zm7 2v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1z" />
                 </svg>
                 Imprimir mapa
             </button>
 
-            {/* ── Diseñador de impresión ── */}
             {printOpen && (
-                <PrintDesigner
-                    mapInstance={mapInstance}
-                    allLayers={layerMenuData}
-                    onClose={() => setPrintOpen(false)}
-                />
+                <Suspense fallback={<div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)', zIndex: 9999, color: '#fff' }}>Cargando diseñador…</div>}>
+                    <PrintDesigner
+                        mapInstance={mapInstance}
+                        allLayers={layerMenuData}
+                        onClose={() => setPrintOpen(false)}
+                    />
+                </Suspense>
             )}
         </div>
     );

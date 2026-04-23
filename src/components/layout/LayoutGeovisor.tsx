@@ -1,6 +1,7 @@
 import React, { ReactNode } from 'react';
 import Header from '@components/layout/Header';
 import '@styles/global.css';
+import { SelectedProjectProvider } from '@/contexts/SelectedProjectContext';
 
 interface LayoutGeovisorProps {
   children: ReactNode;
@@ -12,12 +13,15 @@ interface LayoutGeovisorProps {
  */
 const LayoutGeovisor: React.FC<LayoutGeovisorProps> = ({ children }) => {
   return (
-    <div className="layout-geovisor">
+    <SelectedProjectProvider>
+      <div className="layout-geovisor">
       <Header />
       <main className="geovisor-content">
         {children}
       </main>
     </div>
+    </SelectedProjectProvider>
+    
   );
 };
 

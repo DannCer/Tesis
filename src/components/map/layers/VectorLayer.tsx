@@ -13,6 +13,7 @@ interface VectorLayerProps {
     selectedFeatureId: string | number | null;
     onEachFeature: (feature: any, layer: L.Layer) => void;
     zIndex?: number;
+    wmsBaseUrl?: string;  // URL base del WMS (incluye ?MAP=proyecto.qgz)
 }
 
 interface ViewportWmsOverlayProps {
@@ -21,6 +22,7 @@ interface ViewportWmsOverlayProps {
     opacity: number;
     zIndex: number;
     timestamp: number;
+    wmsBaseUrl?: string;  // URL base del WMS
 }
 
 const ViewportWmsOverlay: React.FC<ViewportWmsOverlayProps> = ({
@@ -29,6 +31,7 @@ const ViewportWmsOverlay: React.FC<ViewportWmsOverlayProps> = ({
     opacity,
     zIndex,
     timestamp,
+    wmsBaseUrl,
 }) => {
     const map = useMap();
     const [overlay, setOverlay] = useState<{ url: string; bounds: L.LatLngBoundsExpression } | null>(null);
@@ -59,14 +62,17 @@ const ViewportWmsOverlay: React.FC<ViewportWmsOverlayProps> = ({
             _ts: String(timestamp),
         });
 
+        // Usar wmsBaseUrl si está disponible, sino usar la configuración por defecto
+        const baseUrl = wmsBaseUrl || config.qgisServer.wmsUrl;
+        
         setOverlay({
-            url: `${config.qgisServer.wmsUrl}&${params.toString()}`,
+            url: `${baseUrl}&${params.toString()}`,
             bounds: [
                 [bounds.getSouth(), bounds.getWest()],
                 [bounds.getNorth(), bounds.getEast()],
             ],
         });
-    }, [map, layerName, layerId, timestamp]);
+    }, [map, layerName, layerId, timestamp, wmsBaseUrl]);
 
     useEffect(() => {
         updateOverlay();
@@ -110,6 +116,7 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
     selectedFeatureId,
     onEachFeature,
     zIndex = 400,
+    wmsBaseUrl,  // URL base del WMS (con proyecto correcto)
 }) => {
     const layerMapRef = useRef<Map<string | number, L.Path>>(new Map());
     const prevSelRef  = useRef<string | number | null>(null);
@@ -175,8 +182,7 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
     if (!visible) return null;
 
     return (
-        <>
-            {/* Visual — puntos en imagen única (evita recorte por bordes de tile), resto en tiles */}
+        <>            
             {hasPoints ? (
                 <ViewportWmsOverlay
                     layerId={id}
@@ -184,12 +190,13 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
                     opacity={opacity}
                     zIndex={zIndex}
                     timestamp={timestamp}
+                    wmsBaseUrl={wmsBaseUrl}
                 />
             ) : (
                 <WMSTileLayer
                     key={`${id}-wms`}
-                    url={config.qgisServer.wmsUrl}   // URL con ?MAP=vectorProject
-                    layers={wmsLayer}                 // nombre exacto de la capa QGIS (sin workspace)
+                    url={wmsBaseUrl || config.qgisServer.wmsUrl}   // URL con proyecto dinámico o fallback
+                    layers={wmsLayer}                               // nombre exacto de la capa QGIS (sin workspace)
                     format="image/png"
                     transparent={true}
                     opacity={opacity}
@@ -217,7 +224,8 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
     prev.onEachFeature     === next.onEachFeature     &&
     prev.opacity           === next.opacity           &&
     prev.wmsLayer          === next.wmsLayer          &&
-    prev.selectedFeatureId === next.selectedFeatureId
+    prev.selectedFeatureId === next.selectedFeatureId &&
+    prev.wmsBaseUrl        === next.wmsBaseUrl
 );
 
 function applyStyle(layer: L.Path, selected: boolean, opacity: number) {

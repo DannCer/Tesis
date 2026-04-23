@@ -24,14 +24,14 @@ export interface LayerConfig {
 
 export const VECTOR_STYLE_DEFAULTS = { weight: 2, opacity: 1, fillOpacity: 0.15 };
 
-// Capa vacía inicial - se llena dinámicamente desde la API
+// Las capas disponibles ahora viven en LayersContext.availableLayers.
+// Los tres exports de abajo se mantienen solo para compatibilidad con código
+// que aún no fue migrado. Elimínalos progresivamente.
+/** @deprecated Usar useLayersContext().availableLayers */
 export let AVAILABLE_LAYERS: LayerConfig[] = [];
-
-// Función para actualizar las capas desde la API
-export const updateAvailableLayers = (layers: LayerConfig[]) => {
-    AVAILABLE_LAYERS = layers;
-};
-
+/** @deprecated Innecesario — las capas viven en contexto React */
+export const updateAvailableLayers = (layers: LayerConfig[]) => { AVAILABLE_LAYERS = layers; };
+/** @deprecated Usar availableLayers.find(l => l.id === id) */
 export const getLayerConfig = (id: string) => AVAILABLE_LAYERS.find(l => l.id === id);
 
 export const LAND_USE_CLASSES: Record<number, { nombre: string; color: string }> = {

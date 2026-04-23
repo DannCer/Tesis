@@ -111,13 +111,11 @@
 /* ── Panel flotante (SwipePanel) ────────────────────────────────────────── */
 
 .swipe-panel-wrapper {
-    position: absolute;
-    top: 70px;
-    right: 52px;         /* justo a la izquierda de los controles de zoom */
+    position: relative;
     z-index: 1050;
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
+    align-items: flex-start;
     gap: 8px;
 }
 

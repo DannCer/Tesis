@@ -267,3 +267,79 @@
   background: #fed7d7;
   color: #c53030;
 }
+/* ── Barra de búsqueda y ordenamiento ─────────────────────────────────────── */
+
+.table-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+
+.search-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 200px;
+}
+
+.search-icon {
+    position: absolute;
+    left: 10px;
+    font-size: 14px;
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+.search-input {
+    padding-left: 34px !important;
+    padding-right: 34px !important;
+    width: 100%;
+}
+
+.search-clear {
+    position: absolute;
+    right: 8px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-muted, #888);
+    padding: 2px 4px;
+    border-radius: 4px;
+    line-height: 1;
+    transition: background 0.15s;
+}
+.search-clear:hover {
+    background: var(--surface-hover, rgba(0,0,0,0.07));
+    color: var(--text-primary, #333);
+}
+
+.table-count {
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--text-muted, #888);
+}
+
+/* ── Columnas ordenables ───────────────────────────────────────────────────── */
+
+.th-sortable {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+.th-sortable:hover {
+    background: var(--surface-hover, rgba(0,0,0,0.05));
+}
+
+.sort-icon {
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 11px;
+    vertical-align: middle;
+    transition: opacity 0.15s;
+}
+.sort-icon--inactive { opacity: 0.35; }
+.sort-icon--active   { opacity: 1; color: var(--primary, #3b82f6); }

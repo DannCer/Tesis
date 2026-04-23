@@ -76,6 +76,10 @@ export interface WFSOptions {
     propertyName?: string | null;
     srsName?: string;
     outputFormat?: string;
+    /** Ignorar caché y forzar petición al servidor */
+    bypassCache?: boolean;
+    /** Simplificación de geometría en el servidor (unidades del mapa, p.ej. metros) */
+    simplifyTolerance?: number;
 }
 
 // ============================================================================

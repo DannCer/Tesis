@@ -8,17 +8,32 @@
 
 import React, { useMemo, useState } from 'react';
 import { useLayersContext } from '@contexts/LayersContext';
-import { config }           from '@config/env';
+import { config, logger }   from '@config/env';
 import type { SwipeLayerConfig } from '@components/map/controls/SwipeControl';
 import type { LayerDef }    from '@types/geo';
+import type { GrupoResponse } from '@types/api';
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
-function toSwipeLayer(layer: LayerDef): SwipeLayerConfig {
+/**
+ * Devuelve la URL del proyecto QGIS correcto para una capa según su grupo.
+ * Replica la lógica de getProjectUrlForLayer() de LayerMenu para que el swipe
+ * sea dinámico y no quede hardcodeado al proyecto por defecto.
+ */
+function getProjectUrlForLayer(layer: LayerDef, grupos: GrupoResponse[]): string {
+    const grupo = grupos.find(g => g.nombre === layer.group);
+    if (!grupo?.url_proyecto) {
+        logger.warn(`SwipePanel: No se encontró proyecto para el grupo "${layer.group}", usando URL por defecto`);
+        return layer.type === 'raster'
+            ? config.qgisServer.wmsRasterUrl
+            : config.qgisServer.wmsUrl;
+    }
+    return `${config.qgisServer.url}?MAP=${encodeURIComponent(grupo.url_proyecto)}`;
+}
+
+function toSwipeLayer(layer: LayerDef, grupos: GrupoResponse[]): SwipeLayerConfig {
     const wmsName = layer.wmsLayer ?? ('wfsName' in layer ? layer.wfsName : undefined) ?? layer.id;
-    const url = layer.type === 'raster'
-        ? config.qgisServer.wmsRasterUrl
-        : config.qgisServer.wmsUrl;
+    const url = getProjectUrlForLayer(layer, grupos);
     return { id: layer.id, name: layer.name, url, layers: wmsName ?? layer.id };
 }
 
@@ -33,8 +48,8 @@ interface SwipePanelProps {
 // ── Componente ────────────────────────────────────────────────────────────────
 
 const SwipePanel: React.FC<SwipePanelProps> = ({ active, onActivate, onDeactivate }) => {
-    // ✅ Capas dinámicas desde contexto — se actualiza cuando la API responde
-    const { vectorLayers, rasterLayers, loading } = useLayersContext();
+    // ✅ Capas y grupos dinámicos desde contexto — se actualiza cuando la API responde
+    const { vectorLayers, rasterLayers, grupos, loading } = useLayersContext();
 
     // Unión tipada de ambos arrays para el selector
     const allLayers = useMemo<LayerDef[]>(
@@ -58,7 +73,7 @@ const SwipePanel: React.FC<SwipePanelProps> = ({ active, onActivate, onDeactivat
         const left  = allLayers.find(l => l.id === leftId);
         const right = allLayers.find(l => l.id === rightId);
         if (!left || !right) return;
-        onActivate(toSwipeLayer(left), toSwipeLayer(right));
+        onActivate(toSwipeLayer(left, grupos), toSwipeLayer(right, grupos));
         setOpen(false);
     };
 
