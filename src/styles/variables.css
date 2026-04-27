@@ -1,33 +1,104 @@
+/* ============================================================
+   DESIGN TOKENS — Fuente única de verdad para todo el proyecto
+   Importar este archivo ANTES que cualquier otro CSS.
+   ============================================================ */
+
 :root {
-  /* Paleta Institucional Refinada */
-  --color-primary-dark: #691B31;
-  --color-primary: #cd171e;
-  --color-accent-1: #BC955B;
-  --color-accent-2: #DDC9A3;
-  --color-gray-dark: #6F7271;
-  --color-gray: #d8d8d8;
+  /* ── Paleta institucional ── */
+  --color-primary-dark:   #691B31;
+  --color-primary:        #cd171e;
+  --color-accent-1:       #BC955B;
+  --color-accent-2:       #DDC9A3;
 
-  /* Nuevos Tokens de Diseño */
-  --color-white: #ffffff;
-  --color-bg-light: #f8f9fa;
-  --color-gray-100: #f1f3f5;
-  --color-gray-200: #e9ecef;
-  --color-gray-300: #dee2e6;
-  --color-gray-400: #ced4da;
-  --color-gray-600: #6c757d;
-  --color-gray-800: #343a40;
+  /* ── Grises ── */
+  --color-gray-dark:  #6F7271;
+  --color-gray:       #d8d8d8;
+  --color-gray-100:   #f1f3f5;
+  --color-gray-200:   #e9ecef;
+  --color-gray-300:   #dee2e6;
+  --color-gray-400:   #ced4da;
+  --color-gray-600:   #6c757d;
+  --color-gray-800:   #343a40;
 
-  /* Sombras y Elevación */
-  --shadow-sm: 0 2px 4px rgba(0,0,0,0.05);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
-  --shadow-lg: 0 8px 24px rgba(0,0,0,0.15);
-  
-  /* Bordes */
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  /* ── Semánticos de estado ── */
+  --color-danger:         #c53030;
+  --color-danger-light:   #fff5f5;
+  --color-danger-border:  #feb2b2;
+  --color-danger-hover:   #9b2c2c;
 
-  --color-text-light: #ffffff;
-  --color-text-dark: #495057;
-  --color-text-muted: #6c757d;
+  --color-success:        #276749;
+  --color-success-light:  #f0fff4;
+  --color-success-border: #68d391;
+  --color-success-bg:     #c6f6d5;
+  --color-success-hover:  #2f855a;
+
+  --color-warning:        #c05621;
+  --color-warning-light:  #fffaf0;
+  --color-warning-border: #f6ad55;
+
+  --color-info:           #2c5282;
+  --color-info-light:     #ebf8ff;
+  --color-info-border:    #90cdf4;
+  --color-info-bg:        #bee3f8;
+
+  /* ── Superficie y fondo ── */
+  --color-white:      #ffffff;
+  --color-bg-light:   #f8f9fa;
+  --color-surface:    #f7fafc;
+  --color-surface-2:  #edf2f7;
+
+  /* ── Bordes ── */
+  --color-border:       #e2e8f0;
+  --color-border-light: #cbd5e0;
+
+  /* ── Texto ── */
+  --color-text-light:  #ffffff;
+  --color-text-dark:   #495057;
+  --color-text-muted:  #6c757d;
+  --color-text-strong: #2d3748;
+
+  /* ── Tipografía ── */
+  --font-heading: 'Merriweather', Georgia, 'Times New Roman', serif;
+  --font-body:    'Roboto', 'Segoe UI', Arial, sans-serif;
+  --font-code:    'Roboto Mono', 'Courier New', monospace;
+
+  --font-size-xs:  0.75rem;
+  --font-size-sm:  0.875rem;
+  --font-size-md:  1rem;
+  --font-size-lg:  1.125rem;
+  --font-size-xl:  1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-size-3xl: 2rem;
+
+  /* ── Espaciado ── */
+  --spacing-xs:  0.25rem;
+  --spacing-sm:  0.5rem;
+  --spacing-md:  1rem;
+  --spacing-lg:  1.5rem;
+  --spacing-xl:  2rem;
+  --spacing-2xl: 3rem;
+
+  /* ── Radios ── */
+  --radius-xs:   3px;
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   20px;
+  --radius-full: 9999px;
+
+  /* ── Sombras ── */
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.10);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+
+  /* ── Transiciones ── */
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+  --transition-slow: 0.3s ease;
+
+  /* ── Z-index scale ── */
+  --z-base:    100;
+  --z-menu:    1000;
+  --z-overlay: 2000;
+  --z-modal:   10000;
 }

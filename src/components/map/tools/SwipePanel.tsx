@@ -134,7 +134,7 @@ const SwipePanel: React.FC<SwipePanelProps> = ({ active, onActivate, onDeactivat
             {/* Panel de configuración */}
             {open && !active && (
                 <div className="swipe-config-panel">
-                    <div className="swipe-config-header">
+                    <div className="swipe-config-header" >
                         
                         Comparar capas
                         <button className="swipe-config-close" onClick={() => setOpen(false)}>✕</button>

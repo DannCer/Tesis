@@ -66,7 +66,12 @@ const AlertModal: React.FC<AlertModalProps> = ({
                 </div>
                 <div className="modal-footer">
                     <button
-                        className={`btn btn-${variant === 'error' ? 'danger' : variant === 'warning' ? 'warning' : 'primary'}`}
+                        className={`btn btn-${
+                            variant === 'error' ? 'danger' : 
+                            variant === 'warning' ? 'warning' : 
+                            variant === 'success' ? 'success' : 
+                            'info'
+                        }`}
                         onClick={onClose}
                         autoFocus
                     >

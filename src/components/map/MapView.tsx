@@ -25,7 +25,7 @@ import { useWFSLayers } from '@hooks/map';
 import { useRasterLayers } from '@hooks/map';
 import { wfsService } from '@services/geoserver/wfsService';
 import { dynamicWfsService } from '@services/geoserver/dynamicWfsService';
-import { rasterService } from '@services/geoserver/rasterService';
+import { dynamicRasterService } from '@services/geoserver/dynamicRasterService';
 import { config, logger } from '@config/env';
 import type { LayerConfig } from '@config/layers';
 import type { WFSOptions } from '@types/map';
@@ -269,7 +269,11 @@ const MapView: React.FC = () => {
                 mapInstance.fitBounds(layerCfg.bounds as L.LatLngBoundsExpression, { padding: [20, 20] });
             }
         } else if (type === 'raster') {
-            const dynamicBounds = await rasterService.getLayerExtent(layerCfg.wmsLayer || 'usv_mosaico');
+            const wmsLayer = layerCfg.wmsLayer || 'usv_mosaico';
+            const groupName = layerCfg.group;
+            const dynamicBounds = groupName
+                ? await dynamicRasterService.getLayerExtent(wmsLayer, groupName).catch(() => null)
+                : null;
             if (dynamicBounds) {
                 mapInstance.fitBounds(dynamicBounds as L.LatLngBoundsExpression, { padding: [20, 20] });
             } else if (layerCfg.bounds) {
@@ -452,6 +456,16 @@ const MapView: React.FC = () => {
                 onRemoveExternalLayer={handleRemoveExternalLayer}
                 onToggleExternalLayer={handleToggleExternalLayer}
                 onExternalOpacityChange={handleExternalOpacityChange}
+                toolbarSlot={
+                    <>
+                        <SwipePanel
+                            active={swipeActive}
+                            onActivate={handleSwipeActivate}
+                            onDeactivate={handleSwipeDeactivate}
+                        />
+                        <ElevationProfile mapInstance={mapInstance} />
+                    </>
+                }
             />
 
             <PixelInfoPanel
@@ -460,14 +474,7 @@ const MapView: React.FC = () => {
                 onClose={clearPixelInfo}
             />
 
-            <div className="map-tools-toolbar">
-                <SwipePanel
-                    active={swipeActive}
-                    onActivate={handleSwipeActivate}
-                    onDeactivate={handleSwipeDeactivate}
-                />
-                <ElevationProfile mapInstance={mapInstance} />
-            </div>
+
 
             {wmsError && (
                 <div className="wms-error-alert">

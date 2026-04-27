@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { apiService, GrupoResponse, GrupoCreate } from '@services/api';
+import { config } from '@config/env';
 import ConfirmModal from '@components/common/ConfirmModal';
 import AlertModal from '@components/common/AlertModal';
 import '@styles/GruposManager.css';
@@ -184,7 +185,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                                     <div className="grupo-url">
                                         <strong>Enlace a proyecto:</strong>
                                         <a
-                                            href={`http://localhost/qgis/qgis_mapserv.fcgi.exe?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&MAP=${grupo.url_proyecto}`}
+                                            href={`${config.qgisServer.url}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&MAP=${grupo.url_proyecto}`}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             style={{ display: 'block', wordBreak: 'break-all', fontSize: '0.85em' }}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
+import { apiService } from '@services/api/apiService';
 import '@styles/admin-dashboard.css';
 
 interface Usuario {
@@ -37,12 +38,7 @@ const AdminDashboard: React.FC = () => {
     const loadUsuarios = async () => {
         setLoading(true);
         try {
-            const token = localStorage.getItem('access_token');
-            const response = await fetch('http://localhost:8000/api/v1/admin/usuarios', {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            if (!response.ok) throw new Error('Error al cargar usuarios');
-            const data: Usuario[] = await response.json();
+            const data = await apiService.admin.getUsuarios<Usuario>();
             setUsuarios(data);
         } catch (error) {
             showFeedback('No se pudo cargar la lista de usuarios.', 'error');
@@ -53,17 +49,8 @@ const AdminDashboard: React.FC = () => {
 
     const handleCreateUser = async (e: React.FormEvent) => {
         e.preventDefault();
-        const token = localStorage.getItem('access_token');
         try {
-            const response = await fetch('http://localhost:8000/api/v1/admin/usuarios', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify(newUserForm),
-            });
-            if (!response.ok) throw new Error('Error al crear usuario');
+            await apiService.admin.createUsuario(newUserForm);
             setNewUserForm({ username: '', email: '', password: '', nombre_completo: '' });
             await loadUsuarios();
             showFeedback(`Usuario "${newUserForm.username}" creado correctamente.`, 'ok');
@@ -74,13 +61,8 @@ const AdminDashboard: React.FC = () => {
 
     const handleDeleteUser = async (userId: number, username: string) => {
         if (!window.confirm(`¿Eliminar al usuario "${username}"?`)) return;
-        const token = localStorage.getItem('access_token');
         try {
-            const response = await fetch(`http://localhost:8000/api/v1/admin/usuarios/${userId}`, {
-                method: 'DELETE',
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            if (!response.ok) throw new Error('Error al eliminar usuario');
+            await apiService.admin.deleteUsuario(userId);
             await loadUsuarios();
             showFeedback(`Usuario "${username}" eliminado.`, 'ok');
         } catch (error) {

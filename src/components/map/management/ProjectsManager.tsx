@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { projectsService } from '../../services/projectsService';
 import { QgisProject, ProjectCapabilities } from '../../types/projects';
+import { config } from '@config/env';
 import ConfirmModal from '@components/common/ConfirmModal';
 import AlertModal from '@components/common/AlertModal';
 import '@styles/ProjectsManager.css';
@@ -19,7 +20,7 @@ const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onProjectsChange }) =
     const [editingProject, setEditingProject] = useState<QgisProject | null>(null);
     const [newProject, setNewProject] = useState({
         name: '',
-        serverUrl: 'http://localhost/qgis/qgis_mapserv.fcgi.exe',
+        serverUrl: config.qgisServer.url,
         projectPath: '',
         color: '#3182ce',
         enabled: true,
@@ -54,7 +55,7 @@ const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onProjectsChange }) =
         projectsService.addProject(newProject);
         setNewProject({
             name: '',
-            serverUrl: 'http://localhost/qgis/qgis_mapserv.fcgi.exe',
+            serverUrl: config.qgisServer.url,
             projectPath: '',
             color: '#3182ce',
             enabled: true,

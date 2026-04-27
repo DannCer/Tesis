@@ -632,10 +632,7 @@ const ElevationProfile: React.FC<ElevationProfileProps> = ({ mapInstance }) => {
                 className={`ep-fab ${open ? 'ep-fab--active' : ''}`}
                 onClick={() => (open ? handleClose() : setOpen(true))}
                 title="Perfil de elevación"
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M3 18l5-8 4 5 3-4 6 7H3z" />
-                </svg>
+            >                
                 Perfil de Elevación
             </button>
 

@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@hooks/useAuth';
 import '@styles/login.css';
 
+
 const Login: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
@@ -12,13 +13,11 @@ const Login: React.FC = () => {
     const [password, setPassword] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
-    // Si venía de una ruta protegida, redirigir de vuelta después del login
     const from = (location.state as any)?.from?.pathname || '/geovisor';
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
-
         try {
             await login(username, password);
             navigate(from, { replace: true });
@@ -30,67 +29,88 @@ const Login: React.FC = () => {
     };
 
     return (
-        <div className="login-container">
+        <div className="login-page">
             <div className="login-card">
-                <div className="login-logo">
-                    <img src="/img/escudos/logo_UNAM.png" alt="Logo UNAM" />
-                </div>
+                <header className="login-header">
+                    <div className="login-logos-container">
+                        <div className="login-logo-item">
+                            <img
+                                src="/img/escudos/logo_UNAM.png"
+                                alt="Universidad Nacional Autónoma de México"
+                            />
+                        </div>
 
-                <h1>Geovisor Atlas de Riesgos</h1>
-                <h2>Sistema de información geoespacial</h2>
-                <div className="login-divider" />
+                        <div className="logo-sep" aria-hidden="true" />
 
-                <form onSubmit={handleSubmit}>
-                    <div className="form-group">
-                        <label htmlFor="username">Usuario</label>
-                        <input
-                            id="username"
-                            type="text"
-                            value={username}
-                            onChange={(e) => setUsername(e.target.value)}
-                            placeholder="Ingresa tu usuario"
-                            disabled={isLoading}
-                            required
-                        />
+                        <div className="login-logo-item">
+                            <img
+                                src="/img/escudos/logo_FI.png"
+                                alt="Facultad de Ingeniería"
+                            />
+                        </div>
                     </div>
-
-                    <div className="form-group">
-                        <label htmlFor="password">Contraseña</label>
-                        <input
-                            id="password"
-                            type="password"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            placeholder="Ingresa tu contraseña"
-                            disabled={isLoading}
-                            required
-                        />
+                    <div className="login-header-content">
+                        <h1>Geovisor Atlas de Riesgos</h1>
+                        <p>Sistema de información geoespacial</p>
                     </div>
+                </header>
 
-                    {state.error && (
-                        <div className="error-message">{state.error}</div>
-                    )}
+                <div className="login-body">
+                    <form onSubmit={handleSubmit} className="login-form">
+                        <div className="form-field">
+                            <label htmlFor="username">Usuario</label>
+                            <input
+                                id="username"
+                                type="text"
+                                className="form-control"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                                placeholder="Ingresa tu usuario"
+                                disabled={isLoading}
+                                required
+                            />
+                        </div>
 
-                    <button type="submit" disabled={isLoading} className="btn-login">
-                        {isLoading ? 'Verificando...' : 'Ingresar'}
+                        <div className="form-field">
+                            <label htmlFor="password">Contraseña</label>
+                            <input
+                                id="password"
+                                type="password"
+                                className="form-control"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="Ingresa tu contraseña"
+                                disabled={isLoading}
+                                required
+                            />
+                        </div>
+
+                        {state.error && (
+                            <div className="login-error">{state.error}</div>
+                        )}
+
+                        <button
+                            type="submit"
+                            disabled={isLoading}
+                            className="btn btn-primary btn-lg btn-login"
+                        >
+                            {isLoading ? 'Verificando...' : 'Ingresar'}
+                        </button>
+                    </form>
+
+                    <button
+                        className="btn-login-home"
+                        onClick={() => navigate('/')}
+                    >
+                        ← Volver al inicio
                     </button>
-                </form>
+                    <footer className="login-footer">
+                        <p>¿No tienes cuenta? Contacta al administrador.</p>
 
-                <p className="help-text">
-                    ¿No tienes cuenta? Contacta al administrador.
-                </p>
-
-                <button
-                    className="btn-login-home"
-                    onClick={() => navigate('/')}
-                >
-                    ← Volver al inicio
-                </button>
-
-                <div className="login-footer-logos">
-                    <img src="/img/escudos/logo_UNAM.png" alt="UNAM" />
-                    <img src="/img/escudos/logo_FI.png" alt="Facultad de Ingeniería" />
+                    </footer>
                 </div>
+
+
             </div>
         </div>
     );
