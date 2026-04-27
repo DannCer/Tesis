@@ -35,6 +35,7 @@ interface LayerMenuProps {
     onRemoveExternalLayer: (id: string) => void;
     onToggleExternalLayer: (id: string, visible: boolean) => void;
     onExternalOpacityChange: (id: string, opacity: number) => void;
+    toolbarSlot?: React.ReactNode;
 }
 
 // ─── Tipos capas externas ─────────────────────────────────────────────────────
@@ -939,7 +940,7 @@ const AddLayerPanel: React.FC<{ onAddLayer: (layer: ExternalLayer) => void }> = 
 
 // ─── LayerMenu principal ──────────────────────────────────────────────────────
 
-const LayerMenu: React.FC<LayerMenuProps> = memo(({ layerState: layers, layersByGroup, loading, errors, onLayerToggle, onOpacityChange, externalLayers, externalVisible, externalOpacity, onAddExternalLayer, onRemoveExternalLayer, onToggleExternalLayer, onExternalOpacityChange }) => {
+const LayerMenu: React.FC<LayerMenuProps> = memo(({ layerState: layers, layersByGroup, loading, errors, onLayerToggle, onOpacityChange, externalLayers, externalVisible, externalOpacity, onAddExternalLayer, onRemoveExternalLayer, onToggleExternalLayer, onExternalOpacityChange, toolbarSlot }) => {
     // Una sola llamada al contexto — antes se llamaba dos veces seguidas
     const { availableLayers: AVAILABLE_LAYERS, grupos, loading: apiLoading, error: apiError } = useLayersContext();
 
@@ -947,7 +948,9 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layerState: layers, layersBy
     const [collapsed, setCollapsed] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [attributeTableLayerId, setAttributeTableLayerId] = useState<string | null>(null);
-    const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+    const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
+        () => new Set([...Object.keys(layersByGroup), '__imported__'])
+    );
 
     const toggleGroup = (group: string) =>
         setCollapsedGroups(prev => {
@@ -1255,6 +1258,11 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({ layerState: layers, layersBy
                     </button>
                 </div>
                 {!collapsed && menuContent}
+                {toolbarSlot && (
+                    <div className="layer-menu-toolbar-slot">
+                        {toolbarSlot}
+                    </div>
+                )}
             </div>
 
             {/* ── Panel móvil (bottom sheet) ── */}

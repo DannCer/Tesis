@@ -12,7 +12,7 @@ interface ConfirmModalProps {
     message: string;
     confirmText?: string;
     cancelText?: string;
-    confirmVariant?: 'danger' | 'warning' | 'primary';
+    confirmVariant?: 'danger' | 'warning' | 'primary' | 'success' | 'info';
     onConfirm: () => void;
     onCancel: () => void;
     icon?: string;

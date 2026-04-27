@@ -1,4 +1,5 @@
 import React, { createContext, useReducer, useEffect, ReactNode } from 'react';
+import { apiService } from '@services/api/apiService';
 
 export interface AuthState {
     isAuthenticated: boolean;
@@ -89,7 +90,6 @@ export const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [state, dispatch] = useReducer(authReducer, initialState);
 
-    // Verificar autenticación al cargar
     useEffect(() => {
         checkAuth();
     }, []);
@@ -97,28 +97,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const login = async (username: string, password: string) => {
         dispatch({ type: 'LOGIN_START' });
         try {
-            const response = await fetch('http://localhost:8000/api/v1/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password }),
-            });
-
-            if (!response.ok) {
-                throw new Error('Credenciales inválidas');
-            }
-
-            const tokens: TokenResponse = await response.json();
-
-            // Obtener info del usuario
-            const userResponse = await fetch('http://localhost:8000/api/v1/auth/me', {
-                headers: {
-                    Authorization: `Bearer ${tokens.access_token}`,
-                },
-            });
-
-            if (!userResponse.ok) throw new Error('Error al obtener usuario');
-
-            const user: CurrentUser = await userResponse.json();
+            const tokens = await apiService.auth.login(username, password);
+            localStorage.setItem('access_token', tokens.access_token);
+            localStorage.setItem('refresh_token', tokens.refresh_token);
+            const user = await apiService.auth.me();
 
             dispatch({
                 type: 'LOGIN_SUCCESS',
@@ -137,14 +119,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const logout = async () => {
         try {
             const token = localStorage.getItem('access_token');
-            if (token) {
-                await fetch('http://localhost:8000/api/v1/auth/logout', {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                    },
-                });
-            }
+            if (token) await apiService.auth.logout();
         } catch (error) {
             console.error('Error en logout:', error);
         } finally {
@@ -160,15 +135,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
 
         try {
-            const response = await fetch('http://localhost:8000/api/v1/auth/me', {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                },
-            });
-
-            if (!response.ok) throw new Error('Token inválido');
-
-            const user: CurrentUser = await response.json();
+            const user = await apiService.auth.me();
             dispatch({ type: 'SET_USER', payload: user });
         } catch (error) {
             console.error('Error al verificar auth:', error);
@@ -183,15 +150,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (!refresh) throw new Error('No refresh token');
 
         try {
-            const response = await fetch('http://localhost:8000/api/v1/auth/refresh', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ refresh_token: refresh }),
-            });
-
-            if (!response.ok) throw new Error('Refresh token inválido');
-
-            const tokens: TokenResponse = await response.json();
+            const tokens = await apiService.auth.refresh(refresh);
             localStorage.setItem('access_token', tokens.access_token);
         } catch (error) {
             dispatch({ type: 'LOGOUT' });

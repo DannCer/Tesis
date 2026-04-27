@@ -4,7 +4,7 @@
  */
 
 import { QgisProject, DetectedLayer, ProjectCapabilities } from '@types/projects';
-import { logger } from '@config/env';
+import { logger, config } from '@config/env';
 
 const STORAGE_KEY = 'qgis_projects';
 
@@ -18,9 +18,6 @@ class ProjectsService {
         this.loadProjects();
     }
 
-    /**
-     * Carga proyectos desde localStorage
-     */
     private loadProjects(): void {
         try {
             const stored = localStorage.getItem(STORAGE_KEY);
@@ -42,15 +39,16 @@ class ProjectsService {
      * Proyectos por defecto basados en la configuración actual
      */
     private getDefaultProjects(): QgisProject[] {
-        const serverUrl = 'http://localhost/qgis/qgis_mapserv.fcgi.exe';
-        
+        const serverUrl    = config.qgisServer.url;
+        const vectorProject = config.qgisServer.vectorProject;
+
         return [
             {
                 id: 'geologicos',
                 name: ' Geológicos',
-                serverUrl: serverUrl,
-                projectPath: 'C:/mis_proyectos/01_Geologicos.qgz',
-                fullUrl: `${serverUrl}?MAP=C:/mis_proyectos/01_Geologicos.qgz`,
+                serverUrl,
+                projectPath: vectorProject,
+                fullUrl: `${serverUrl}?MAP=${encodeURIComponent(vectorProject)}`,
                 color: '#e53e3e',
                 enabled: true,
                 lastUpdated: new Date().toISOString(),
@@ -58,9 +56,9 @@ class ProjectsService {
             {
                 id: 'hidrometeorologicos',
                 name: ' Hidrometeorológicos',
-                serverUrl: serverUrl,
-                projectPath: 'C:/mis_proyectos/02_Hidrometeorologicos.qgz',
-                fullUrl: `${serverUrl}?MAP=C:/mis_proyectos/02_Hidrometeorologicos.qgz`,
+                serverUrl,
+                projectPath: config.qgisServer.rasterProject,
+                fullUrl: `${serverUrl}?MAP=${encodeURIComponent(config.qgisServer.rasterProject)}`,
                 color: '#3182ce',
                 enabled: true,
                 lastUpdated: new Date().toISOString(),

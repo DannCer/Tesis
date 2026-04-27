@@ -1,87 +1,46 @@
-/* Contenedor principal de la página 404 */
-.notfound-container {
-    min-height: 70vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 3rem 1rem;
+/* 404 Not Found
+   Requiere: global.css (btn, btn-primary, btn-lg) */
+
+.not-found-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-surface-2) 100%);
+  text-align: center;
+  padding: var(--spacing-md);
 }
 
-/* Número 404 grande */
-.error-code {
-    font-size: 8rem;
-    font-weight: 700;
-    font-family: var(--font-heading);
-    color: var(--color-primary);
-    line-height: 1;
-    margin-bottom: 1rem;
-    animation: fadeInScale 0.8s ease-out;
+.not-found-content { max-width: 500px; }
+
+.not-found-code {
+  font-size: clamp(5rem, 20vw, 8rem);
+  font-weight: 900;
+  line-height: 1;
+  background: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-primary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: var(--spacing-sm);
 }
 
-/* Título del error */
-.error-title {
-    font-family: var(--font-heading);
-    font-size: 2rem;
-    font-weight: 700;
-    color: var(--color-primary-dark);
-    margin-bottom: 1rem;
-    animation: fadeInUp 1s ease-out 0.3s backwards;
+.not-found-title {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  color: var(--color-text-dark);
+  margin-bottom: var(--spacing-sm);
 }
 
-/* Mensaje descriptivo */
-.error-message {
-    font-size: 1.1rem;
-    color: var(--color-text-muted);
-    margin-bottom: 2rem;
-    line-height: 1.6;
-    animation: fadeInUp 1s ease-out 0.6s backwards;
+.not-found-message {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-md);
+  line-height: 1.6;
+  margin-bottom: var(--spacing-xl);
 }
 
-/* Botón con animación */
-.notfound-container .btn {
-    animation: fadeInUp 1s ease-out 0.9s backwards;
-}
+.not-found-actions { display: flex; gap: var(--spacing-md); justify-content: center; flex-wrap: wrap; }
 
-/* Animación de aparición con escala */
-@keyframes fadeInScale {
-    from {
-        opacity: 0;
-        transform: scale(0.8);
-    }
-    to {
-        opacity: 1;
-        transform: scale(1);
-    }
-}
-
-/* Animación de aparición desde abajo */
-@keyframes fadeInUp {
-    from {
-        opacity: 0;
-        transform: translateY(20px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* Responsive para móviles */
-@media (max-width: 768px) {
-    .error-code {
-        font-size: 5rem;
-    }
-
-    .error-title {
-        font-size: 1.5rem;
-    }
-
-    .error-message {
-        font-size: 1rem;
-    }
-
-    .notfound-container {
-        min-height: 60vh;
-        padding: 2rem 1rem;
-    }
+@media (max-width: 480px) {
+  .not-found-actions { flex-direction: column; align-items: center; }
+  .not-found-actions .btn { width: 100%; max-width: 260px; }
 }

@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
-import { rasterService, PixelInfo } from '@services/geoserver';
+import { dynamicRasterService } from '@services/geoserver';
+import type { PixelInfo } from '@services/geoserver/dynamicRasterService';
 import { logger } from '@config/env';
 import L from 'leaflet';
 import type { LayerConfig } from '@config/layers';
@@ -61,6 +62,7 @@ export const useRasterLayers = (availableLayers: LayerConfig[] = []) => {
 
             const queries = activeSeries.map(serie => ({
                 layerName: serie.wmsLayer || 'usv_mosaico',
+                groupName: serie.group, // Incluir el grupo para determinar el proyecto correcto
                 params: {
                     ...baseParams,
                     time: serie.timeValue,
@@ -68,7 +70,7 @@ export const useRasterLayers = (availableLayers: LayerConfig[] = []) => {
                 }
             }));
 
-            const results = await rasterService.getMultiplePixelValues(queries);
+            const results = await dynamicRasterService.getMultiplePixelValues(queries);
             if (querySeq !== pixelQuerySeqRef.current) return;
 
             const enrichedResults: EnrichedPixelInfo[] = results.map((result, index) => {

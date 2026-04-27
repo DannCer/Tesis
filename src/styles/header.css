@@ -1,126 +1,134 @@
+/* Header institucional — header.css
+   Un solo estilo: fondo degradado institucional + logos en blanco.
+   Sin container-max: el contenido se extiende de borde a borde
+   igual que admin-header en GestionProyectos y AdminDashboard.     */
+
+/* ── Base ──────────────────────────────────────────────────── */
+
 .main-header {
     position: relative;
-    z-index: 1000;
-    background-color: var(--color-gray);
-    color: #fff;
-    border-bottom: var(--color-primary) 2px solid;
+    z-index: var(--z-menu);
+    background: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-primary) 100%);
+    border-bottom: 3px solid var(--color-accent-1);
+    box-shadow: var(--shadow-md);
+    flex-shrink: 0;
 }
 
-.container-max {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 0 1rem;
-}
-
+/* Mismo padding que .admin-header: spacing-lg (1.5rem) vertical,
+   spacing-xl (2rem) horizontal → ocupa el ancho completo */
 .site-nav {
-    padding: clamp(0.5rem, 1vw, 1rem) 0;
+    padding: var(--spacing-lg) var(--spacing-xl);
 }
 
 .header-content {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    flex-wrap: wrap;
-    gap: clamp(0.5rem, 2vw, 1.5rem);
+    gap: 2rem; 
+    width: 100%;
 }
+
+/* ── Logos ─────────────────────────────────────────────────── */
 
 .logos-container {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    gap: clamp(1rem, 3vw, 2rem);
-    flex: 1;
-    min-width: 200px;
+    gap: var(--spacing-md); 
+    
 }
 
-.logoL,
-.logoR {
+.logo-item {
     display: flex;
     align-items: center;
 }
 
-.logoL img {
-    height: clamp(40px, 8vw, 100px);
+/* Logos blancos sobre fondo institucional */
+.logo-item img {
+    height: clamp(30px, 4vw, 48px);
     width: auto;
-    transition: transform 0.2s ease;
     display: block;
+    filter: brightness(0) invert(1);
+    transition: transform var(--transition-base), opacity var(--transition-base);
 }
 
-.logoL img:hover {
+.logo-item img:hover {
     transform: scale(1.05);
+    opacity: 0.85;
 }
 
-.logoR img {
-    height: clamp(40px, 8vw, 100px);
-    width: auto;
-    transition: transform 0.2s ease;
-    display: block;
+.logo-sep {
+    width: 1px;
+    height: clamp(22px, 3vw, 38px);
+    background: rgba(255, 255, 255, 0.35); /* Separador sutil */
 }
 
-.logoR img:hover {
-    transform: scale(1.05);
-}
+/* ── Acciones de navegación ────────────────────────────────── */
 
-/* ── Botón de Gestión de Proyectos en el Header ── */
-.btn-gestion-proyectos-header {
-    background: var(--color-primary);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    padding: clamp(0.4rem, 1vw, 0.6rem) clamp(0.8rem, 2vw, 1.2rem);
-    font-size: clamp(13px, 1.2vw, 16px);
-    font-weight: 600;
-    cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    transition: all 0.3s ease;
+.header-actions {
     display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-left: auto; 
+}
+
+.btn-header-action {
+    display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    letter-spacing: 0.4px;
+    padding: clamp(0.3rem, 0.6vw, 0.45rem) clamp(0.6rem, 1.1vw, 0.9rem);
+    background: rgba(255, 255, 255, 0.14);
+    color: var(--color-white);
+    border: 1.5px solid rgba(255, 255, 255, 0.35);
+    border-radius: var(--radius-sm);
+    font-size: clamp(12px, 0.85vw, 13.5px);
+    font-weight: 600;
+    font-family: var(--font-body);
+    cursor: pointer;
     white-space: nowrap;
+    transition: background var(--transition-base), transform var(--transition-fast), border-color var(--transition-base);
 }
 
-.btn-gestion-proyectos-header:hover {
-    background: var(--color-primary-dark);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+.btn-header-action:hover {
+    background: rgba(255, 255, 255, 0.26);
+    border-color: rgba(255, 255, 255, 0.6);
+    transform: translateY(-1px);
 }
 
-.btn-gestion-proyectos-header:active {
+.btn-header-action:active {
     transform: translateY(0);
 }
 
-.btn-icon {
-    font-size: clamp(14px, 1.5vw, 18px);
+/* Variante destacada (e.g. "Abrir Geovisor") */
+.btn-header-action--accent {
+    background: rgba(255, 255, 255, 0.22);
+    border-color: rgba(255, 255, 255, 0.55);
+    font-weight: 700;
 }
 
-.btn-text {
-    display: inline;
+.btn-header-action--accent:hover {
+    background: rgba(255, 255, 255, 0.35);
 }
 
-/* ─────────────────────────────────── */
-/* MEDIA QUERIES RESPONSIVAS          */
-/* ─────────────────────────────────── */
+.btn-action-icon { font-size: 1rem; line-height: 1; }
 
-/* Tabletas pequeñas (768px) */
+/* ── Responsive ────────────────────────────────────────────── */
+
 @media (max-width: 768px) {
-    /* ... */
+    .site-nav { padding: var(--spacing-md) var(--spacing-lg); }
 }
 
-/* Móviles medianos (576px) */
 @media (max-width: 576px) {
-    .btn-text {
-        display: none;
-    }
-    /* ... */
+    .btn-action-text { display: none; }
+    .btn-header-action { padding: 0.4rem 0.6rem; }
+    .logo-sep { display: none; }
+    .site-nav { padding: var(--spacing-sm) var(--spacing-md); }
 }
 
-/* Móviles pequeños (375px) */
 @media (max-width: 375px) {
-    /* ... */
+    .logo-item img { height: 26px; }
 }
 
-/* Pantallas grandes (1920px+) */
 @media (min-width: 1920px) {
-    /* ... */
+    .logo-item img { height: 58px; }
+    .btn-header-action { font-size: 15px; padding: 0.55rem 1.1rem; }
 }

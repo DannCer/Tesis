@@ -14,6 +14,7 @@ import type { VectorLayerDef, RasterLayerDef } from '@types/geo';
 import type { GrupoResponse } from '@types/api';
 import type { LayerConfig } from '@config/layers';
 import { dynamicWfsService } from '@services/geoserver/dynamicWfsService';
+import { dynamicRasterService } from '@services/geoserver/dynamicRasterService';
 
 interface LayersProviderProps {
     children: React.ReactNode;
@@ -70,7 +71,9 @@ export const LayersProvider: React.FC<LayersProviderProps> = ({ children }) => {
             setRasterLayers(raster);
             setGrupos(gruposData);
 
+            // Actualizar el mapeo de proyectos en ambos servicios dinámicos
             dynamicWfsService.updateGroupProjectMapping(gruposData);
+            dynamicRasterService.updateGroupProjectMapping(gruposData);
 
         } catch (err: any) {
             logger.error('Error cargando capas desde API:', err);
