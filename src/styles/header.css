@@ -1,7 +1,11 @@
-/* Header institucional — header.css
+/* ============================================================
+   Header institucional — header.css
+   Requiere: variables.css
+
    Un solo estilo: fondo degradado institucional + logos en blanco.
    Sin container-max: el contenido se extiende de borde a borde
-   igual que admin-header en GestionProyectos y AdminDashboard.     */
+   igual que admin-header en GestionProyectos y AdminDashboard.
+   ============================================================ */
 
 /* ── Base ──────────────────────────────────────────────────── */
 
@@ -14,17 +18,21 @@
     flex-shrink: 0;
 }
 
-/* Mismo padding que .admin-header: spacing-lg (1.5rem) vertical,
-   spacing-xl (2rem) horizontal → ocupa el ancho completo */
 .site-nav {
-    padding: var(--spacing-lg) var(--spacing-xl);
+    padding: var(--spacing-sm) var(--spacing-xl);
+}
+
+@media (min-width: 768px) {
+    .site-nav {
+        padding: var(--spacing-lg) var(--spacing-xl);
+    }
 }
 
 .header-content {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 2rem; 
+    gap: var(--spacing-md);
     width: 100%;
 }
 
@@ -33,8 +41,8 @@
 .logos-container {
     display: flex;
     align-items: center;
-    gap: var(--spacing-md); 
-    
+    gap: var(--spacing-md);
+    flex-shrink: 0;
 }
 
 .logo-item {
@@ -44,7 +52,7 @@
 
 /* Logos blancos sobre fondo institucional */
 .logo-item img {
-    height: clamp(30px, 4vw, 48px);
+    height: clamp(28px, 3.5vw, 48px);
     width: auto;
     display: block;
     filter: brightness(0) invert(1);
@@ -58,39 +66,45 @@
 
 .logo-sep {
     width: 1px;
-    height: clamp(22px, 3vw, 38px);
-    background: rgba(255, 255, 255, 0.35); /* Separador sutil */
+    height: clamp(24px, 3vw, 40px);
+    background-color: rgba(255, 255, 255, 0.35);
+    flex-shrink: 0;
 }
 
-/* ── Acciones de navegación ────────────────────────────────── */
+/* ── Acciones ──────────────────────────────────────────────── */
 
 .header-actions {
     display: flex;
     align-items: center;
     gap: var(--spacing-sm);
-    margin-left: auto; 
+    flex-wrap: wrap;
+    justify-content: flex-end;
 }
 
 .btn-header-action {
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
-    padding: clamp(0.3rem, 0.6vw, 0.45rem) clamp(0.6rem, 1.1vw, 0.9rem);
-    background: rgba(255, 255, 255, 0.14);
-    color: var(--color-white);
-    border: 1.5px solid rgba(255, 255, 255, 0.35);
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background: rgba(255, 255, 255, 0.15);
+    color: var(--color-text-light);
+    border: 1px solid rgba(255, 255, 255, 0.3);
     border-radius: var(--radius-sm);
-    font-size: clamp(12px, 0.85vw, 13.5px);
-    font-weight: 600;
     font-family: var(--font-body);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
     cursor: pointer;
+    transition:
+        background var(--transition-base),
+        border-color var(--transition-base),
+        transform var(--transition-fast);
     white-space: nowrap;
-    transition: background var(--transition-base), transform var(--transition-fast), border-color var(--transition-base);
+    text-decoration: none;
 }
 
 .btn-header-action:hover {
-    background: rgba(255, 255, 255, 0.26);
-    border-color: rgba(255, 255, 255, 0.6);
+    background: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.55);
     transform: translateY(-1px);
 }
 
@@ -98,37 +112,58 @@
     transform: translateY(0);
 }
 
-/* Variante destacada (e.g. "Abrir Geovisor") */
 .btn-header-action--accent {
-    background: rgba(255, 255, 255, 0.22);
-    border-color: rgba(255, 255, 255, 0.55);
-    font-weight: 700;
+    background: var(--color-accent-1);
+    border-color: var(--color-accent-1);
+    color: var(--color-white);
 }
 
 .btn-header-action--accent:hover {
-    background: rgba(255, 255, 255, 0.35);
+    background: var(--color-accent-2);
+    border-color: var(--color-accent-2);
 }
 
-.btn-action-icon { font-size: 1rem; line-height: 1; }
-
-/* ── Responsive ────────────────────────────────────────────── */
-
-@media (max-width: 768px) {
-    .site-nav { padding: var(--spacing-md) var(--spacing-lg); }
+.btn-action-icon {
+    font-size: 1rem;
+    line-height: 1;
+    flex-shrink: 0;
 }
 
-@media (max-width: 576px) {
-    .btn-action-text { display: none; }
-    .btn-header-action { padding: 0.4rem 0.6rem; }
-    .logo-sep { display: none; }
-    .site-nav { padding: var(--spacing-sm) var(--spacing-md); }
+/* ── Responsividad ─────────────────────────────────────────── */
+
+/* En móviles pequeños (< 480 px) se oculta el texto del botón,
+   dejando solo el ícono para que el header no se desborde. */
+@media (max-width: 479px) {
+    .btn-action-text {
+        display: none;
+    }
+
+    .site-nav {
+        padding: var(--spacing-xs) var(--spacing-md);
+    }
+
+    .btn-header-action {
+        padding: var(--spacing-xs);
+        min-width: 36px;
+        justify-content: center;
+    }
 }
 
-@media (max-width: 375px) {
-    .logo-item img { height: 26px; }
+/* En pantallas medianas se ajusta el gap del header-actions */
+@media (max-width: 767px) {
+    .header-actions {
+        gap: var(--spacing-xs);
+    }
 }
 
-@media (min-width: 1920px) {
-    .logo-item img { height: 58px; }
-    .btn-header-action { font-size: 15px; padding: 0.55rem 1.1rem; }
+/* En 4K se escala tipografía e íconos */
+@media (min-width: 3840px) {
+    .btn-header-action {
+        font-size: var(--font-size-lg);
+        padding: var(--spacing-sm) var(--spacing-md);
+    }
+
+    .btn-action-icon {
+        font-size: 1.5rem;
+    }
 }
