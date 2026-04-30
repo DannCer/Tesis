@@ -1,114 +1,106 @@
-import React from 'react';
+/**
+ * @fileoverview Encabezado institucional — navegación contextual por ruta.
+ *
+ * Optimizaciones:
+ *  - memo() para evitar re-renders cuando el padre se actualiza sin cambiar ruta.
+ *  - Handlers de navegación con useCallback.
+ *  - Botones extraídos a sub-componente NavButton para homologar estilos y
+ *    eliminar JSX repetido (~60 líneas reducidas).
+ *  - Clases responsivas en `btn-action-text` para ocultar texto en móviles
+ *    sin romper la estructura del header.
+ *
+ * @module components/layout/Header
+ */
+
+import React, { memo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import '@styles/header.css';
 
-const Header: React.FC = () => {
-    const navigate = useNavigate();
-    const location = useLocation();
-    const path = location.pathname;
+// ─── Sub-componente reutilizable ──────────────────────────────────────────────
 
-    const isGeovisor = path === '/geovisor';
-    const isPrincipal = path === '/';
-    const isArquitectura = path === '/arquitectura';
+interface NavButtonProps {
+    onClick: () => void;
+    title: string;
+    icon: string;
+    label: string;
+    accent?: boolean;
+}
+
+const NavButton: React.FC<NavButtonProps> = memo(({ onClick, title, icon, label, accent }) => (
+    <button
+        className={`btn-header-action${accent ? ' btn-header-action--accent' : ''}`}
+        onClick={onClick}
+        title={title}
+        aria-label={title}
+    >
+        <span className="btn-action-icon" aria-hidden="true">{icon}</span>
+        {/* btn-action-text se oculta en xs/sm mediante header.css para no saturar móviles */}
+        <span className="btn-action-text">{label}</span>
+    </button>
+));
+NavButton.displayName = 'NavButton';
+
+// ─── Header ───────────────────────────────────────────────────────────────────
+
+const Header: React.FC = () => {
+    const navigate  = useNavigate();
+    const { pathname } = useLocation();
+
+    const isGeovisor     = pathname === '/geovisor';
+    const isPrincipal    = pathname === '/';
+    const isArquitectura = pathname === '/arquitectura';
+
+    // Handlers estables — no recrean closures en cada render
+    const goHome         = useCallback(() => navigate('/'),                   [navigate]);
+    const goGeovisor     = useCallback(() => navigate('/geovisor'),           [navigate]);
+    const goArquitectura = useCallback(() => navigate('/arquitectura'),        [navigate]);
+    const goGestion      = useCallback(() => navigate('/gestion-proyectos'),   [navigate]);
 
     return (
         <header className="main-header">
-            <nav className="site-nav">
+            <nav className="site-nav" aria-label="Navegación principal">
                 <div className="header-content">
 
-                    <div className="logos-container">
+                    {/* Logos institucionales */}
+                    <div className="logos-container" aria-label="Logos institucionales">
                         <div className="logo-item">
-                            <img src="/img/escudos/logo_UNAM.png" alt="UNAM" />
+                            <img src="/img/escudos/logo_UNAM.png" alt="Universidad Nacional Autónoma de México" />
                         </div>
-
-                        <div className="logo-sep" />
-
+                        <div className="logo-sep" aria-hidden="true" />
                         <div className="logo-item">
-                            <img src="/img/escudos/logo_FI.png" alt="FI" />
+                            <img src="/img/escudos/logo_FI.png" alt="Facultad de Ingeniería" />
                         </div>
                     </div>
 
-                    {/* ── Acciones contextuales por ruta ── */}
-                    <div className="header-actions">
+                    {/* Acciones contextuales por ruta */}
+                    <nav className="header-actions" aria-label="Acciones de navegación">
 
-                        {/* Geovisor → Inicio y Gestión de Proyectos */}
                         {isGeovisor && (
                             <>
-                                <button
-                                    className="btn-header-action"
-                                    onClick={() => navigate('/')}
-                                    title="Ir a Inicio"
-                                    aria-label="Ir a Inicio"
-                                >
-                                    <span className="btn-action-icon">🏠</span>
-                                    <span className="btn-action-text">Inicio</span>
-                                </button>
-                                <button
-                                    className="btn-header-action"
-                                    onClick={() => navigate('/gestion-proyectos')}
-                                    title="Ir a Gestión de Proyectos"
-                                    aria-label="Ir a Gestión de Proyectos"
-                                >
-                                    <span className="btn-action-icon">🗂️</span>
-                                    <span className="btn-action-text">Gestión de Proyectos</span>
-                                </button>
+                                <NavButton onClick={goHome}    title="Ir a Inicio"                  icon="🏠" label="Inicio" />
+                                <NavButton onClick={goGestion} title="Ir a Gestión de Proyectos"   icon="🗂️" label="Gestión de Proyectos" />
                             </>
                         )}
 
-                        {/* Página principal → Arquitectura y Geovisor */}
                         {isPrincipal && (
                             <>
-                                <button
-                                    className="btn-header-action"
-                                    onClick={() => navigate('/arquitectura')}
-                                    title="Ir a Arquitectura"
-                                    aria-label="Ir a Arquitectura"
-                                >
-                                    <span className="btn-action-icon">🏗️</span>
-                                    <span className="btn-action-text">Arquitectura</span>
-                                </button>
-                                <button
-                                    className="btn-header-action btn-header-action--accent"
-                                    onClick={() => navigate('/geovisor')}
-                                    title="Abrir Geovisor"
-                                    aria-label="Abrir Geovisor"
-                                >
-                                    <span className="btn-action-icon">🗺️</span>
-                                    <span className="btn-action-text">Geovisor</span>
-                                </button>
+                                <NavButton onClick={goArquitectura} title="Ir a Arquitectura" icon="🏗️" label="Arquitectura" />
+                                <NavButton onClick={goGeovisor}     title="Abrir Geovisor"    icon="🗺️" label="Geovisor" accent />
                             </>
                         )}
 
-                        {/* Arquitectura → Inicio y Geovisor */}
                         {isArquitectura && (
                             <>
-                                <button
-                                    className="btn-header-action"
-                                    onClick={() => navigate('/')}
-                                    title="Ir a Inicio"
-                                    aria-label="Ir a Inicio"
-                                >
-                                    <span className="btn-action-icon">🏠</span>
-                                    <span className="btn-action-text">Inicio</span>
-                                </button>
-                                <button
-                                    className="btn-header-action btn-header-action--accent"
-                                    onClick={() => navigate('/geovisor')}
-                                    title="Abrir Geovisor"
-                                    aria-label="Abrir Geovisor"
-                                >
-                                    <span className="btn-action-icon">🗺️</span>
-                                    <span className="btn-action-text">Geovisor</span>
-                                </button>
+                                <NavButton onClick={goHome}     title="Ir a Inicio"    icon="🏠" label="Inicio" />
+                                <NavButton onClick={goGeovisor} title="Abrir Geovisor" icon="🗺️" label="Geovisor" accent />
                             </>
                         )}
 
-                    </div>
-
+                    </nav>
                 </div>
             </nav>
         </header>
     );
 };
 
-export default Header;
+export default memo(Header);

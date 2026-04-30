@@ -1,25 +1,27 @@
 /**
- * @fileoverview Configuración centralizada — QGIS Server
+ * @fileoverview Configuración centralizada — QGIS Server + API
+ * Todas las variables de entorno pasan por helpers tipados; nunca se accede
+ * a `import.meta.env` directamente fuera de este módulo.
  * @module config/env
  */
 
 // ============================================================================
-// FUNCIONES AUXILIARES
+// HELPERS TIPADOS — únicos puntos de acceso a import.meta.env
 // ============================================================================
 
-const getEnv = (key: string, defaultValue: string = ''): string =>
-    (import.meta.env[`VITE_${key}`] as string) ?? defaultValue;
+const getEnv = (key: string, defaultValue = ''): string =>
+    (import.meta.env[`VITE_${key}`] as string | undefined) ?? defaultValue;
 
 const getEnvNumber = (key: string, defaultValue: number): number => {
-    const value = import.meta.env[`VITE_${key}`];
-    if (value === undefined || value === '') return defaultValue;
-    const parsed = parseFloat(value as string);
-    return isNaN(parsed) ? defaultValue : parsed;
+    const value = import.meta.env[`VITE_${key}`] as string | undefined;
+    if (!value) return defaultValue;
+    const parsed = parseFloat(value);
+    return Number.isNaN(parsed) ? defaultValue : parsed;
 };
 
 const getEnvBoolean = (key: string, defaultValue: boolean): boolean => {
-    const value = import.meta.env[`VITE_${key}`];
-    if (value === undefined || value === '') return defaultValue;
+    const value = import.meta.env[`VITE_${key}`] as string | undefined;
+    if (!value) return defaultValue;
     return value === 'true' || value === '1';
 };
 
@@ -28,6 +30,8 @@ const getEnvBoolean = (key: string, defaultValue: boolean): boolean => {
 // ============================================================================
 
 export interface Config {
+    /** URL base de la API REST (FastAPI). */
+    apiUrl: string;
     qgisServer: {
         /** URL base del ejecutable qgis_mapserv.fcgi.exe */
         url: string;
@@ -75,12 +79,12 @@ export interface Config {
 }
 
 // ============================================================================
-// CONFIGURACIÓN PRINCIPAL
+// VALORES BASE (lectura única al arrancar)
 // ============================================================================
 
-const qgisServerUrl     = getEnv('QGIS_SERVER_URL', 'http://localhost/qgis/qgis_mapserv.fcgi.exe');
-const vectorProject     = getEnv('QGIS_VECTOR_PROJECT', 'C:/mis_proyectos/01_Geologicos.qgz');
-const rasterProject     = getEnv('QGIS_RASTER_PROJECT', 'C:/mis_proyectos/01_Geologicos.qgz');
+const qgisServerUrl  = getEnv('QGIS_SERVER_URL', 'http://localhost/qgis/qgis_mapserv.fcgi.exe');
+const vectorProject  = getEnv('QGIS_VECTOR_PROJECT', 'C:/mis_proyectos/01_Geologicos.qgz');
+const rasterProject  = getEnv('QGIS_RASTER_PROJECT', 'C:/mis_proyectos/01_Geologicos.qgz');
 
 /**
  * Construye la URL base de QGIS Server con el parámetro MAP incluido.
@@ -89,12 +93,19 @@ const rasterProject     = getEnv('QGIS_RASTER_PROJECT', 'C:/mis_proyectos/01_Geo
 const buildQgisUrl = (baseUrl: string, projectPath: string): string =>
     `${baseUrl}?MAP=${encodeURIComponent(projectPath)}`;
 
+// ============================================================================
+// CONFIGURACIÓN PRINCIPAL
+// ============================================================================
+
 export const config: Config = {
+    /** URL de la API REST — proviene de VITE_API_URL en los archivos .env */
+    apiUrl: getEnv('API_URL', 'http://localhost:8000'),
+
     qgisServer: {
         url:           qgisServerUrl,
         vectorProject: vectorProject,
         rasterProject: rasterProject,
-        timeout:       getEnvNumber('WFS_TIMEOUT', 30000),
+        timeout:       getEnvNumber('WFS_TIMEOUT', 30_000),
         maxFeatures:   getEnvNumber('MAX_FEATURES', 0),
         get wmsUrl()       { return buildQgisUrl(this.url, this.vectorProject); },
         get wfsUrl()       { return buildQgisUrl(this.url, this.vectorProject); },
@@ -103,17 +114,17 @@ export const config: Config = {
 
     /**
      * Alias geoserver → qgisServer para compatibilidad con componentes existentes.
-     * workspace queda como string vacío porque QGIS Server no usa workspaces.
+     * `workspace` queda vacío porque QGIS Server no usa workspaces.
      */
     get geoserver() {
         return {
             url:         qgisServerUrl,
-            workspace:   '',          // QGIS Server no usa workspace
+            workspace:   '',
             timeout:     this.qgisServer.timeout,
             maxFeatures: this.qgisServer.maxFeatures,
             wfsUrl:      this.qgisServer.wfsUrl,
             wmsUrl:      this.qgisServer.wmsUrl,
-            wcsUrl:      this.qgisServer.wmsUrl, // QGIS Server no tiene WCS; apunta a WMS
+            wcsUrl:      this.qgisServer.wmsUrl,  // QGIS Server no tiene WCS
         };
     },
 
@@ -126,8 +137,8 @@ export const config: Config = {
         minZoom: getEnvNumber('MAP_MIN_ZOOM', 8),
         maxZoom: getEnvNumber('MAP_MAX_ZOOM', 19),
         maxBounds: [
-            [19.75, -98.75],   // Noreste CDMX
-            [19.05, -99.55],   // Suroeste CDMX
+            [19.75, -98.75],  // Noreste CDMX
+            [19.05, -99.55],  // Suroeste CDMX
         ],
         maxBoundsViscosity: 0.7,
         zoomDelta: 0.5,
@@ -146,22 +157,31 @@ export const config: Config = {
 };
 
 // ============================================================================
-// LOGGER
+// LOGGER — usa `unknown[]` en lugar de `any[]`
 // ============================================================================
 
 export const logger = {
-    log:   (...args: any[]) => { if (config.app.debug) console.log(`[${config.app.name}]`, ...args); },
-    warn:  (...args: any[]) => { if (config.app.debug) console.warn(`[${config.app.name}]`, ...args); },
-    error: (...args: any[]) => { console.error(`[${config.app.name}]`, ...args); },
-    debug: (...args: any[]) => { if (config.app.debug && config.isDevelopment) console.debug(`[${config.app.name} DEBUG]`, ...args); },
+    log:   (...args: unknown[]) => { if (config.app.debug) console.log(`[${config.app.name}]`, ...args); },
+    warn:  (...args: unknown[]) => { if (config.app.debug) console.warn(`[${config.app.name}]`, ...args); },
+    error: (...args: unknown[]) => { console.error(`[${config.app.name}]`, ...args); },
+    debug: (...args: unknown[]) => {
+        if (config.app.debug && config.isDevelopment) {
+            console.debug(`[${config.app.name} DEBUG]`, ...args);
+        }
+    },
 };
 
-// Validación en desarrollo
+// ============================================================================
+// VALIDACIÓN EN DESARROLLO
+// ============================================================================
+
 if (config.isDevelopment) {
-    const required = ['QGIS_SERVER_URL', 'QGIS_VECTOR_PROJECT'];
+    const required = ['QGIS_SERVER_URL', 'QGIS_VECTOR_PROJECT', 'API_URL'] as const;
     const missing  = required.filter(k => !import.meta.env[`VITE_${k}`]);
     if (missing.length > 0) {
-        console.warn(`⚠️ Variables de entorno faltantes: ${missing.join(', ')}\nRevisa tu archivo .env`);
+        console.warn(
+            `⚠️ Variables de entorno faltantes: ${missing.join(', ')}\nRevisa tu archivo .env.development`
+        );
     }
     console.log('🗺️ Configuración QGIS Server:', {
         url:           config.qgisServer.url,
@@ -169,6 +189,7 @@ if (config.isDevelopment) {
         wmsUrl:        config.qgisServer.wmsUrl,
         wfsUrl:        config.qgisServer.wfsUrl,
     });
+    console.log('🔗 API URL:', config.apiUrl);
 }
 
 export default config;
