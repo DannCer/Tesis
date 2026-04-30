@@ -1,7 +1,11 @@
-import React, { memo, useMemo, useRef, useEffect, useState, useCallback } from 'react';
+import React, { memo, useMemo, useCallback, useState, useEffect } from 'react';
 import { GeoJSON, ImageOverlay, WMSTileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { config } from '@config/env';
+
+// Lee --color-primary de variables.css en tiempo de ejecución
+const COLOR_SELECTED: string =
+    getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#cd171e';
 
 interface VectorLayerProps {
     id: string;
@@ -13,7 +17,7 @@ interface VectorLayerProps {
     selectedFeatureId: string | number | null;
     onEachFeature: (feature: any, layer: L.Layer) => void;
     zIndex?: number;
-    wmsBaseUrl?: string;  // URL base del WMS (incluye ?MAP=proyecto.qgz)
+    wmsBaseUrl?: string;
 }
 
 interface ViewportWmsOverlayProps {
@@ -22,16 +26,11 @@ interface ViewportWmsOverlayProps {
     opacity: number;
     zIndex: number;
     timestamp: number;
-    wmsBaseUrl?: string;  // URL base del WMS
+    wmsBaseUrl?: string;
 }
 
 const ViewportWmsOverlay: React.FC<ViewportWmsOverlayProps> = ({
-    layerId,
-    layerName,
-    opacity,
-    zIndex,
-    timestamp,
-    wmsBaseUrl,
+    layerId, layerName, opacity, zIndex, timestamp, wmsBaseUrl,
 }) => {
     const map = useMap();
     const [overlay, setOverlay] = useState<{ url: string; bounds: L.LatLngBoundsExpression } | null>(null);
@@ -39,38 +38,21 @@ const ViewportWmsOverlay: React.FC<ViewportWmsOverlayProps> = ({
     const updateOverlay = useCallback(() => {
         const size = map.getSize();
         if (!size.x || !size.y) return;
-
         const bounds = map.getBounds();
         const sw = L.CRS.EPSG3857.project(bounds.getSouthWest());
         const ne = L.CRS.EPSG3857.project(bounds.getNorthEast());
         const bbox3857 = `${sw.x},${sw.y},${ne.x},${ne.y}`;
-
         const params = new URLSearchParams({
-            SERVICE: 'WMS',
-            VERSION: '1.1.1',
-            REQUEST: 'GetMap',
-            LAYERS: layerName,
-            STYLES: '',
-            FORMAT: 'image/png',
-            TRANSPARENT: 'true',
-            SRS: 'EPSG:3857',
-            BBOX: bbox3857,
-            WIDTH: String(size.x),
-            HEIGHT: String(size.y),
-            BUFFER: '128',
-            _lid: layerId,
-            _ts: String(timestamp),
+            SERVICE: 'WMS', VERSION: '1.1.1', REQUEST: 'GetMap',
+            LAYERS: layerName, STYLES: '', FORMAT: 'image/png',
+            TRANSPARENT: 'true', SRS: 'EPSG:3857', BBOX: bbox3857,
+            WIDTH: String(size.x), HEIGHT: String(size.y),
+            BUFFER: '128', _lid: layerId, _ts: String(timestamp),
         });
-
-        // Usar wmsBaseUrl si está disponible, sino usar la configuración por defecto
         const baseUrl = wmsBaseUrl || config.qgisServer.wmsUrl;
-        
         setOverlay({
             url: `${baseUrl}&${params.toString()}`,
-            bounds: [
-                [bounds.getSouth(), bounds.getWest()],
-                [bounds.getNorth(), bounds.getEast()],
-            ],
+            bounds: [[bounds.getSouth(), bounds.getWest()], [bounds.getNorth(), bounds.getEast()]],
         });
     }, [map, layerName, layerId, timestamp, wmsBaseUrl]);
 
@@ -87,7 +69,6 @@ const ViewportWmsOverlay: React.FC<ViewportWmsOverlayProps> = ({
     }, [map, updateOverlay]);
 
     if (!overlay) return null;
-
     return (
         <ImageOverlay
             key={`${layerId}-viewport-${timestamp}`}
@@ -100,27 +81,13 @@ const ViewportWmsOverlay: React.FC<ViewportWmsOverlayProps> = ({
 };
 
 /**
- * Capa vectorial: WMSTileLayer (visual desde QGIS Server) + GeoJSON invisible (interactividad).
- *
- * Cambios vs. GeoServer:
- * - url → config.qgisServer.wmsUrl  (ya incluye ?MAP=...)
- * - layers → solo el nombre de la capa, sin workspace
+ * Capa vectorial: WMSTileLayer visual + GeoJSON invisible (clicks) +
+ * GeoJSON de resaltado rojo (--color-primary) al hacer click en un feature.
  */
 const VectorLayer: React.FC<VectorLayerProps> = memo(({
-    id,
-    wmsLayer,
-    data,
-    visible,
-    timestamp,
-    opacity,
-    selectedFeatureId,
-    onEachFeature,
-    zIndex = 400,
-    wmsBaseUrl,  // URL base del WMS (con proyecto correcto)
+    id, wmsLayer, data, visible, timestamp, opacity,
+    selectedFeatureId, onEachFeature, zIndex = 400, wmsBaseUrl,
 }) => {
-    const layerMapRef = useRef<Map<string | number, L.Path>>(new Map());
-    const prevSelRef  = useRef<string | number | null>(null);
-
     const hasPoints = useMemo(() => {
         if (!data?.features) return false;
         return data.features.some((f: GeoJSON.Feature) => {
@@ -129,43 +96,47 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
         });
     }, [data]);
 
-    useEffect(() => {
-        layerMapRef.current.clear();
-        prevSelRef.current = null;
-    }, [timestamp]);
+    // Busca el feature clickeado comparando con String() para evitar mismatch number/string
+    const selectedFeatureData = useMemo((): GeoJSON.FeatureCollection | null => {
+        if (selectedFeatureId === null || !data?.features) return null;
+        const feature = data.features.find((f: any) => {
+            const fid = f.id ?? f.properties?.id;
+            return fid !== undefined && String(fid) === String(selectedFeatureId);
+        });
+        if (!feature) return null;
+        return { type: 'FeatureCollection', features: [feature] };
+    }, [selectedFeatureId, data]);
 
-    useEffect(() => {
-        const map = layerMapRef.current;
-        if (prevSelRef.current !== null) {
-            const prev = map.get(prevSelRef.current);
-            if (prev) applyStyle(prev, false, opacity);
-        }
-        if (selectedFeatureId !== null) {
-            const curr = map.get(selectedFeatureId);
-            if (curr) applyStyle(curr, true, opacity);
-        }
-        prevSelRef.current = selectedFeatureId;
-    }, [selectedFeatureId, opacity]);
+    // Estilo de resaltado para polígonos y líneas
+    const highlightStyle: L.StyleFunction = useCallback((feature) => {
+        const t      = feature?.geometry?.type ?? '';
+        const isPoly = t === 'Polygon' || t === 'MultiPolygon';
+        return {
+            color:       COLOR_SELECTED,
+            weight:      3,
+            opacity:     1,
+            fillColor:   COLOR_SELECTED,
+            fillOpacity: isPoly ? 0.25 : 0,
+        };
+    }, []);
 
-    const wrappedOnEachFeature = useMemo(() =>
-        (feature: any, layer: L.Layer) => {
-            const fid = feature?.id ?? feature?.properties?.id;
-            if (fid !== undefined && layer instanceof L.Path) {
-                layerMapRef.current.set(fid, layer);
-            }
-            onEachFeature(feature, layer);
-        },
-    [onEachFeature]);
+    // pointToLayer de resaltado para puntos
+    const highlightPointToLayer = useCallback(
+        (_f: GeoJSON.Feature, latlng: L.LatLng) =>
+            L.circleMarker(latlng, {
+                radius: 18, color: COLOR_SELECTED, weight: 3,
+                opacity: 1, fillColor: COLOR_SELECTED, fillOpacity: 0.3,
+            }),
+        []
+    );
 
+    // Hit-layer invisible — solo para capturar clicks
     const hitStyle: L.StyleFunction = (feature) => {
         const t      = feature?.geometry?.type ?? '';
         const isPoly = t === 'Polygon' || t === 'MultiPolygon';
         return {
-            fillColor:   '#000',
-            fillOpacity: isPoly ? 0.001 : 0,
-            color:       '#000',
-            weight:      isPoly ? 1 : 4,
-            opacity:     0.001,
+            fillColor: '#000', fillOpacity: isPoly ? 0.001 : 0,
+            color: '#000', weight: isPoly ? 1 : 4, opacity: 0.001,
         };
     };
 
@@ -182,21 +153,18 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
     if (!visible) return null;
 
     return (
-        <>            
+        <>
+            {/* Capa visual WMS */}
             {hasPoints ? (
                 <ViewportWmsOverlay
-                    layerId={id}
-                    layerName={wmsLayer}
-                    opacity={opacity}
-                    zIndex={zIndex}
-                    timestamp={timestamp}
-                    wmsBaseUrl={wmsBaseUrl}
+                    layerId={id} layerName={wmsLayer} opacity={opacity}
+                    zIndex={zIndex} timestamp={timestamp} wmsBaseUrl={wmsBaseUrl}
                 />
             ) : (
                 <WMSTileLayer
                     key={`${id}-wms`}
-                    url={wmsBaseUrl || config.qgisServer.wmsUrl}   // URL con proyecto dinámico o fallback
-                    layers={wmsLayer}                               // nombre exacto de la capa QGIS (sin workspace)
+                    url={wmsBaseUrl || config.qgisServer.wmsUrl}
+                    layers={wmsLayer}
                     format="image/png"
                     transparent={true}
                     opacity={opacity}
@@ -205,14 +173,26 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
                 />
             )}
 
-            {/* Hit-layer GeoJSON invisible para interactividad */}
+            {/* Hit-layer GeoJSON invisible — solo captura clicks */}
             {data && (
                 <GeoJSON
                     key={`${id}-hit-${timestamp}`}
                     data={data}
                     style={!hasPoints ? hitStyle : undefined}
                     pointToLayer={pointToLayer}
-                    onEachFeature={wrappedOnEachFeature}
+                    onEachFeature={onEachFeature}
+                />
+            )}
+
+            {/* Resaltado visible en rojo (--color-primary) al seleccionar un feature */}
+            {selectedFeatureData && (
+                <GeoJSON
+                    key={`${id}-highlight-${String(selectedFeatureId)}`}
+                    data={selectedFeatureData}
+                    style={!hasPoints ? highlightStyle : undefined}
+                    pointToLayer={hasPoints ? highlightPointToLayer : undefined}
+                    interactive={false}
+                    zIndex={zIndex + 10}
                 />
             )}
         </>
@@ -227,27 +207,6 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
     prev.selectedFeatureId === next.selectedFeatureId &&
     prev.wmsBaseUrl        === next.wmsBaseUrl
 );
-
-function applyStyle(layer: L.Path, selected: boolean, opacity: number) {
-    if (layer instanceof L.CircleMarker) {
-        layer.setStyle({
-            fillColor:   selected ? '#2c0614' : '#000',
-            fillOpacity: selected ? 0.3 * opacity : 0.001,
-            color:       selected ? '#2c0614' : '#000',
-            weight:      selected ? 2 : 0.001,
-            opacity:     selected ? opacity : 0.001,
-        });
-        layer.setRadius(selected ? 18 : 14);
-    } else {
-        layer.setStyle({
-            fillColor:   selected ? '#2c0614' : '#000',
-            fillOpacity: selected ? 0.3 * opacity : 0.001,
-            color:       selected ? '#2c0614' : '#000',
-            weight:      selected ? 3 : 1,
-            opacity:     selected ? opacity : 0.001,
-        });
-    }
-}
 
 VectorLayer.displayName = 'VectorLayer';
 export default VectorLayer;

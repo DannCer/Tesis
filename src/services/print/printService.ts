@@ -93,6 +93,10 @@ export interface PrintJob {
     notes?:      string;
     // GetPrint opcional
     template?:   string;
+    /** dataURL PNG capturado directamente del canvas de Leaflet (Opción A) */
+    mapImageDataUrl?: string;
+    /** Intervalo de la retícula en grados (0.25 = 15min, 0 = sin retícula) */
+    graticuleStep?: number;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -288,6 +292,98 @@ export function getBaseTiles(
 
 // ─── HTML de impresión ────────────────────────────────────────────────────────
 
+
+// ─── Retícula de coordenadas en el borde del mapa ────────────────────────────
+
+/**
+ * Genera el SVG de la retícula de borde (ticks + etiquetas) a cada `stepDeg` grados.
+ * Se renderiza como overlay absoluto sobre el contenedor del mapa.
+ *
+ * @param extent  [minx, miny, maxx, maxy] en WGS-84
+ * @param stepDeg Intervalo en grados (0.25 = 15 minutos)
+ */
+export function buildGraticuleSvg(
+    extent: [number, number, number, number],
+    stepDeg = 0.25
+): string {
+    const [minx, miny, maxx, maxy] = extent;
+    const rangeX = maxx - minx;
+    const rangeY = maxy - miny;
+
+    // Convierte coordenada → porcentaje dentro del extent
+    const xPct = (lon: number) => ((lon - minx) / rangeX * 100).toFixed(4);
+    const yPct = (lat: number) => ((maxy - lat) / rangeY * 100).toFixed(4);
+
+    // Formatea grados decimales a grados°minutos'segundos"
+    const fmtDeg = (deg: number, isLat: boolean): string => {
+        const abs  = Math.abs(deg);
+        const d    = Math.floor(abs);
+        const mRaw = (abs - d) * 60;
+        const m    = Math.floor(mRaw);
+        const sRaw = (mRaw - m) * 60;
+        const s    = Math.round(sRaw);
+        const hem  = isLat ? (deg >= 0 ? 'N' : 'S') : (deg >= 0 ? 'E' : 'O');
+        
+        // Si segundos = 60, incrementar minutos
+        if (s === 60) {
+            const newM = m + 1;
+            if (newM === 60) {
+                return `${d + 1}°00'00"${hem}`;
+            }
+            return `${d}°${String(newM).padStart(2, '0')}'00"${hem}`;
+        }
+        
+        // Formato: d°mm'ss"H
+        if (m === 0 && s === 0) {
+            return `${d}°00'00"${hem}`;
+        }
+        return `${d}°${String(m).padStart(2, '0')}'${String(s).padStart(2, '0')}"${hem}`;
+    };
+
+    // Parámetros visuales (en %)
+    const TICK_LEN  = 1.5;   // longitud del tick en % del contenedor
+    const FONT_SIZE = 50;   // tamaño de fuente en % del min(w,h) - aumentado para mejor visibilidad
+    const LABEL_OFF = 0.6;   // desplazamiento del texto respecto al tick
+
+    const lines: string[] = [];
+
+    // Primer múltiplo de stepDeg >= minx
+    const startLon = Math.ceil(minx / stepDeg) * stepDeg;
+    const startLat = Math.ceil(miny / stepDeg) * stepDeg;
+
+    // ── Ticks de longitud (solo borde inferior) ────────────────────────
+    for (let lon = startLon; lon <= maxx + 1e-9; lon = Math.round((lon + stepDeg) * 1e8) / 1e8) {
+        if (lon < minx || lon > maxx) continue;
+        const x = xPct(lon);
+        const label = fmtDeg(lon, false);
+
+        // Solo tick inferior con etiqueta
+        lines.push(`<line x1="${x}%" y1="100%" x2="${x}%" y2="${100 - TICK_LEN}%" stroke="#333" stroke-width="0.8"/>`);
+        lines.push(`<text x="${x}%" y="${100 - TICK_LEN - LABEL_OFF}%" dominant-baseline="auto" text-anchor="middle"
+            font-size="${FONT_SIZE}%" fill="#222" font-family="monospace" font-weight="500">${label}</text>`);
+    }
+
+    // ── Ticks de latitud (solo borde derecho) ─────────────────────────
+    for (let lat = startLat; lat <= maxy + 1e-9; lat = Math.round((lat + stepDeg) * 1e8) / 1e8) {
+        if (lat < miny || lat > maxy) continue;
+        const y = yPct(lat);
+        const label = fmtDeg(lat, true);
+
+        // Solo tick derecho con etiqueta
+        lines.push(`<line x1="100%" y1="${y}%" x2="${100 - TICK_LEN}%" y2="${y}%" stroke="#333" stroke-width="0.8"/>`);
+        lines.push(`<text x="${100 - TICK_LEN - LABEL_OFF}%" y="${y}%" dominant-baseline="middle" text-anchor="end"
+            font-size="${FONT_SIZE}%" fill="#222" font-family="monospace" font-weight="500">${label}</text>`);
+    }
+
+    // ── Marco exterior del mapa ───────────────────────────────────────────────
+    lines.push(`<rect x="0" y="0" width="100%" height="100%" fill="none" stroke="#555" stroke-width="0.8"/>`);
+
+    return `<svg class="graticule-overlay" xmlns="http://www.w3.org/2000/svg"
+        style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:10;">
+    ${lines.join('\n    ')}
+</svg>`;
+}
+
 export function buildPrintHtml(job: PrintJob): string {
     const pageMm    = getPageMm(job.paper, job.orientation, job.customMm);
     const [pw, ph]  = pageMm;
@@ -306,6 +402,10 @@ export function buildPrintHtml(job: PrintJob): string {
     const tiles   = job.baseMapUrl
         ? getBaseTiles(job.baseMapUrl, job.extent)
         : [];
+
+    // Retícula de borde
+    const graticuleStep = job.graticuleStep ?? 0.25;
+    const graticuleSvg  = graticuleStep > 0 ? buildGraticuleSvg(job.extent, graticuleStep) : '';
 
     // Leyenda (imágenes WMS GetLegendGraphic)
     const legendItems = job.layers.map(l => ({
@@ -401,6 +501,17 @@ html, body {
     background: #d4e8f0;
     border-right: 1pt solid #e0e0e0;
 }
+/* Retícula de coordenadas */
+.graticule-overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    overflow: visible;
+    z-index: 10;
+}
+
 /* Tiles de mapa base */
 .tile-layer {
     position: absolute; inset: 0;
@@ -515,18 +626,18 @@ html, body {
 
     <!-- Mapa -->
     <div class="map-wrap">
-        <!-- Mapa base (tiles) -->
-        <div class="tile-layer" id="tileLayer">
-            ${tilesHtml}
-        </div>
-        <!-- Capas QGIS (WMS GetMap transparente) -->
-        ${wmsUrl ? `<img class="wms-overlay" id="wmsImg"
-            src="${wmsUrl}"
-            alt="Capas QGIS"
-            onerror="this.style.display='none';document.getElementById('wmsErr').style.display='block'"/>
-        <div id="wmsErr" style="display:none;position:absolute;bottom:8px;left:8px;background:rgba(200,0,0,.8);color:#fff;padding:4px 8px;font-size:9pt;border-radius:3px;">
-            ⚠ No se pudo cargar la imagen WMS
-        </div>` : ''}
+        ${job.mapImageDataUrl
+            ? `<img class="wms-overlay" src="${job.mapImageDataUrl}"
+                 alt="Mapa capturado" style="object-fit:fill;width:100%;height:100%;" />`
+            : `<div class="tile-layer" id="tileLayer">${tilesHtml}</div>
+               ${wmsUrl
+                   ? `<img class="wms-overlay" id="wmsImg" src="${wmsUrl}" alt="Capas QGIS"
+                          onerror="this.style.display=&apos;none&apos;;document.getElementById(&apos;wmsErr&apos;).style.display=&apos;block&apos;"/>
+                      <div id="wmsErr" style="display:none;position:absolute;bottom:8px;left:8px;background:rgba(200,0,0,.8);color:#fff;padding:4px 8px;font-size:9pt;border-radius:3px;">
+                          ⚠ No se pudo cargar la imagen WMS</div>`
+                   : ''}`
+        }
+        ${graticuleSvg}
     </div>
 
     <!-- Leyenda -->

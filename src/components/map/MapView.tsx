@@ -1,8 +1,10 @@
 import React, { useCallback, useState, useMemo, useRef, useEffect, memo, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import {
     MapContainer,
     WMSTileLayer,
     useMapEvents,
+    useMap,
     CircleMarker
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -30,6 +32,7 @@ import { config, logger } from '@config/env';
 import type { LayerConfig } from '@config/layers';
 import type { WFSOptions } from '@types/map';
 import '@styles/mapView.css';
+import '@styles/PrintDesigner.css';
 import { useApiLayersLoader } from '@hooks/api';
 import { useLayersContext } from '@contexts/LayersContext';
 import { useSelectedProjectLayers } from '@hooks/map/useSelectedProjectLayers';
@@ -37,13 +40,38 @@ import { ErrorBoundary } from '@components/common';
 
 const PrintDesigner = lazy(() => import('@components/map/tools/PrintDesigner'));
 
-interface MapClickHandlerProps {
-    onMapClick: (e: L.LeafletMouseEvent, map: L.Map) => void;
+// ─── Capturar instancia del mapa desde dentro del MapContainer ────────────────
+// react-leaflet v4 no expone la instancia de L.Map via ref en MapContainer.
+// El patrón correcto es un componente hijo que use useMap().
+
+interface MapInstanceCaptureProps {
+    onReady: (map: L.Map) => void;
 }
 
-const MapClickHandler: React.FC<MapClickHandlerProps> = ({ onMapClick }) => {
+const MapInstanceCapture: React.FC<MapInstanceCaptureProps> = ({ onReady }) => {
+    const map = useMap();
+    useEffect(() => {
+        onReady(map);
+    }, [map, onReady]);
+    return null;
+};
+
+
+// ─── MapClickHandler ──────────────────────────────────────────────────────────
+
+interface MapClickHandlerProps {
+    onMapClick: (e: L.LeafletMouseEvent, map: L.Map) => void;
+    swipeActive: boolean;
+}
+
+const MapClickHandler: React.FC<MapClickHandlerProps> = ({ onMapClick, swipeActive }) => {
     const map = useMapEvents({
         click: (e) => {
+            // El SwipeControl ya registra su propio handler de click para GetFeatureInfo.
+            // Aquí solo inhibimos el queryPixelValue (raster) durante swipe,
+            // pero los clicks sobre features vectoriales siguen funcionando por sus
+            // propios listeners de GeoJSON.
+            if (swipeActive) return;
             onMapClick(e, map);
         }
     });
@@ -75,6 +103,7 @@ interface VectorLayerMemoProps {
     onEachFeature: (feature: any, layer: L.Layer) => void;
     zIndex?: number;
     wmsBaseUrl?: string;
+    pane?: string;
 }
 
 // ✨ Componentes memoizados para evitar re-renderizados innecesarios
@@ -99,7 +128,8 @@ const MemoizedVectorLayer = memo(
         prev.visible === next.visible &&
         prev.opacity === next.opacity &&
         prev.timestamp === next.timestamp &&
-        prev.wmsBaseUrl === next.wmsBaseUrl
+        prev.wmsBaseUrl === next.wmsBaseUrl &&
+        prev.pane === next.pane
 );
 MemoizedVectorLayer.displayName = 'MemoizedVectorLayer';
 
@@ -134,7 +164,13 @@ const MapView: React.FC = () => {
         [layersByGroup]
     );
 
+    // ✅ CORRECCIÓN: mapInstance se captura con MapInstanceCapture (useMap()) en lugar
+    // de ref={setMapInstance}, que en react-leaflet v4 devuelve el contenedor DOM, no L.Map.
     const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
+    const handleMapReady = useCallback((map: L.Map) => {
+        setMapInstance(map);
+    }, []);
+
     const [printOpen, setPrintOpen] = useState(false);
     const [wmsError, setWmsError] = useState<string | null>(null);
     const [selectedFeature, setSelectedFeature] = useState<any>(null);
@@ -191,11 +227,6 @@ const MapView: React.FC = () => {
         return [...contextLayers, ...projectFlat];
     }, [contextLayers, projectLayers]);
 
-    const availableLayersRef = useRef<LayerConfig[]>(availableLayers);
-    useEffect(() => {
-        availableLayersRef.current = availableLayers;
-    }, [availableLayers]);
-
     // ✨ Índices para búsquedas O(1)
     const layerIndexRef = useRef<Map<string, LayerConfig>>(new Map());
     const grupoIndexRef = useRef<Map<string, any>>(new Map());
@@ -212,8 +243,6 @@ const MapView: React.FC = () => {
             newGrupoIndex.set(grupo.nombre, grupo);
         });
         grupoIndexRef.current = newGrupoIndex;
-
-        logger.debug(`📍 Índices actualizados: ${availableLayers.length} capas, ${grupos?.length || 0} grupos`);
     }, [availableLayers, grupos]);
 
     const combinedLayersByGroup = useMemo(() => {
@@ -263,7 +292,7 @@ const MapView: React.FC = () => {
                     const bounds = geoJsonLayer.getBounds();
                     if (bounds.isValid()) mapInstance.fitBounds(bounds, { padding: [20, 20] });
                 } catch (err) {
-                    logger.error("Error al calcular bounds para zoom:", err);
+                    logger.error('Error al calcular bounds para zoom:', err);
                 }
             } else if (layerCfg.bounds) {
                 mapInstance.fitBounds(layerCfg.bounds as L.LatLngBoundsExpression, { padding: [20, 20] });
@@ -322,9 +351,6 @@ const MapView: React.FC = () => {
         });
     }, []);
 
-    // ──────────────────────────────────────────────────────────────────────────
-    // ✨ MODIFICACIÓN IMPORTANTE: Aquí se añade simplifyTolerance para la capa de isolíneas
-    // ──────────────────────────────────────────────────────────────────────────
     const handleLayerToggle = useCallback(async (layerId: string, isActive: boolean, layerType: 'vector' | 'raster') => {
         if (layerType === 'vector') {
             if (vectorLayers[layerId]) {
@@ -333,36 +359,31 @@ const MapView: React.FC = () => {
                     autoZoomedVectorLayersRef.current.add(layerId);
                     zoomToLayer(layerId, 'vector', vectorLayers[layerId].data);
                 } else {
-                    // Limpiar el registro de autozoom para que funcione si se reactiva
                     autoZoomedVectorLayersRef.current.delete(layerId);
+                    // ✅ CORRECCIÓN: limpiar error WMS al desactivar la capa
+                    setWmsError(null);
                 }
             } else if (isActive) {
                 const layerCfg = layerIndexRef.current.get(layerId);
                 const nameToLoad = layerCfg?.wfsName ?? layerId;
                 const groupName = layerCfg?.group;
 
-                // ✨ AÑADE AQUÍ LA LÓGICA PARA LA CAPA DE INCENDIOS (ISOLÍNEAS)
-                // Reemplaza 'incendios_recurrencia' con el ID real de tu capa
-                // Ajusta el valor de simplifyTolerance (prueba con 5, 10, 20, 50 según el detalle deseado)
                 let options: WFSOptions = {};
                 if (layerId === 'incendios_recurrencia') {
-                    options = {
-                        simplifyTolerance: 10, // tolerancia en metros (puedes ajustar)
-                        // Opcional: también puedes limitar maxFeatures si es necesario
-                        // maxFeatures: 500
-                    };
-                    logger.debug(`🔥 Cargando capa de incendios con simplificación (tolerancia=${options.simplifyTolerance})`);
+                    options = { simplifyTolerance: 10 };
                 }
 
                 await loadLayer(nameToLoad, groupName, options, layerId);
             } else {
-                // Capa que se desactiva antes de terminar de cargar: limpiar autozoom
                 autoZoomedVectorLayersRef.current.delete(layerId);
             }
         } else if (layerType === 'raster') {
             toggleRasterLayer(layerId, isActive);
             if (isActive) {
                 zoomToLayer(layerId, 'raster');
+            } else {
+                // ✅ CORRECCIÓN: limpiar error WMS al desactivar la capa raster
+                setWmsError(null);
             }
         }
     }, [vectorLayers, loadLayer, toggleLayer, toggleRasterLayer, zoomToLayer]);
@@ -395,6 +416,7 @@ const MapView: React.FC = () => {
                 {
                     name: s.name,
                     visible: activeLayers[s.id],
+                    // ✅ CORRECCIÓN: opacidad individual por serie, no el booleano rasterLoading
                     opacity: opacityLayers[s.id] ?? 0.8,
                     type: 'raster',
                     description: `Año ${s.year}`
@@ -403,12 +425,14 @@ const MapView: React.FC = () => {
         )
     }), [vectorLayers, activeLayers, opacityLayers]);
 
+    // ✅ CORRECCIÓN: loading por capa separado — cada serie tiene su propio estado,
+    // no todas comparten el mismo booleano rasterLoading.
     const combinedLoading = useMemo(() => ({
         ...vectorLoading,
         ...Object.fromEntries(
-            RASTER_SERIES.map(s => [s.id, rasterLoading])
+            RASTER_SERIES.map(s => [s.id, activeLayers[s.id] ? rasterLoading : false])
         )
-    }), [vectorLoading, rasterLoading, RASTER_SERIES]);
+    }), [vectorLoading, rasterLoading, activeLayers, RASTER_SERIES]);
 
     const combinedErrors = useMemo(() => ({
         ...vectorErrors,
@@ -429,16 +453,6 @@ const MapView: React.FC = () => {
             setRasterLayerOpacity(layerId, opacity);
         }
     }, [setLayerOpacity, setRasterLayerOpacity]);
-
-    // Logging de estabilidad: mide el tiempo entre re-renders causados por cambios
-    // en capas activas. Útil para detectar re-renders excesivamente frecuentes.
-    useEffect(() => {
-        const ts = Date.now();
-        return () => {
-            const gap = Date.now() - ts;
-            logger.debug(`♻️  MapView re-render — intervalo desde el anterior: ${gap}ms`);
-        };
-    }, [activeLayers, vectorLayers, RASTER_SERIES]);
 
     return (
         <div className="map-view-container-full">
@@ -474,8 +488,7 @@ const MapView: React.FC = () => {
                 onClose={clearPixelInfo}
             />
 
-
-
+            {/* ✅ CORRECCIÓN: wmsError dentro del flujo visual correcto, sobre el mapa */}
             {wmsError && (
                 <div className="wms-error-alert">
                     ⚠️ {wmsError}
@@ -487,11 +500,16 @@ const MapView: React.FC = () => {
                 zoom={mapConfig.zoom}
                 style={{ width: '100%', height: '100%' }}
                 className="leaflet-map-full"
-                ref={setMapInstance}
                 preferCanvas={true}
+                doubleClickZoom={false}
             >
+                {/* ✅ CORRECCIÓN: captura la instancia real de L.Map desde dentro del contexto */}
+                <MapInstanceCapture onReady={handleMapReady} />
+
                 <MapContent layers={combinedLayersByGroup} />
-                <MapClickHandler onMapClick={handleMapClick} />
+
+                {/* ✅ CORRECCIÓN: pasa swipeActive para inhibir queryPixelValue mientras swipe está activo */}
+                <MapClickHandler onMapClick={handleMapClick} swipeActive={swipeActive} />
 
                 {swipeActive && swipeLeft && swipeRight && (
                     <SwipeControl
@@ -510,7 +528,6 @@ const MapView: React.FC = () => {
                         const grupo = grupoIndexRef.current.get(groupName);
                         if (grupo && grupo.url_proyecto) {
                             wmsUrl = `${config.qgisServer.url}?MAP=${encodeURIComponent(grupo.url_proyecto)}`;
-                            logger.debug(`WMS URL para ${serie.name} [${groupName}]:`, wmsUrl);
                         }
                     }
 
@@ -543,9 +560,15 @@ const MapView: React.FC = () => {
                         const grupo = grupoIndexRef.current.get(cfg.group);
                         if (grupo && grupo.url_proyecto) {
                             wmsBaseUrl = `${config.qgisServer.url}?MAP=${encodeURIComponent(grupo.url_proyecto)}`;
-                            logger.debug(`WMS URL para capa vectorial ${cfg.name} [${cfg.group}]:`, wmsBaseUrl);
                         }
                     }
+
+                    // Cuando el swipe está activo, los ImageOverlay de puntos deben ir
+                    // a los panes de overlay del swipe para recibir el clip correcto.
+                    const swipePane =
+                        swipeActive && swipeLeft?.id === id  ? 'swipe-left-overlay'  :
+                        swipeActive && swipeRight?.id === id ? 'swipe-right-overlay' :
+                        undefined;
 
                     return (
                         <MemoizedVectorLayer
@@ -560,6 +583,7 @@ const MapView: React.FC = () => {
                             onEachFeature={onEachVectorFeature}
                             zIndex={400 + index}
                             wmsBaseUrl={wmsBaseUrl}
+                            pane={swipePane}
                         />
                     );
                 })}
@@ -644,22 +668,27 @@ const MapView: React.FC = () => {
                 </div>
             )}
 
-            <button className="pd-fab" onClick={() => setPrintOpen(true)} title="Diseñador de impresión">
-                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16">
-                    <path d="M2.5 8a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1z" />
-                    <path d="M5 1a2 2 0 0 0-2 2v2H2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v1a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-1h1a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1V3a2 2 0 0 0-2-2H5zM4 3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2H4V3zm1 5a2 2 0 0 0-2 2v1H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v-1a2 2 0 0 0-2-2H5zm7 2v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1z" />
-                </svg>
-                Imprimir mapa
-            </button>
+            {createPortal(
+                <>
+                    <button className="pd-fab" onClick={() => setPrintOpen(true)} title="Diseñador de impresión">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M2.5 8a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1z" />
+                            <path d="M5 1a2 2 0 0 0-2 2v2H2a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v1a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-1h1a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1V3a2 2 0 0 0-2-2H5zM4 3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2H4V3zm1 5a2 2 0 0 0-2 2v1H2a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v-1a2 2 0 0 0-2-2H5zm7 2v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1z" />
+                        </svg>
+                        Imprimir mapa
+                    </button>
 
-            {printOpen && (
-                <Suspense fallback={<div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)', zIndex: 9999, color: '#fff' }}>Cargando diseñador…</div>}>
-                    <PrintDesigner
-                        mapInstance={mapInstance}
-                        allLayers={layerMenuData}
-                        onClose={() => setPrintOpen(false)}
-                    />
-                </Suspense>
+                    {printOpen && (
+                        <Suspense fallback={<div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)', zIndex: 9999, color: '#fff' }}>Cargando diseñador…</div>}>
+                            <PrintDesigner
+                                mapInstance={mapInstance}
+                                allLayers={layerMenuData}
+                                onClose={() => setPrintOpen(false)}
+                            />
+                        </Suspense>
+                    )}
+                </>,
+                document.body
             )}
         </div>
     );

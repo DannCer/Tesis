@@ -115,3 +115,117 @@
 @media (max-width: 768px) {
   .grupos-grid { grid-template-columns: 1fr; }
 }
+/* ── Edición inline de grupo ──────────────────────────────────────────────── */
+.grupo-card--editing {
+  border: 2px solid var(--color-primary);
+  background: var(--color-surface);
+}
+
+.grupo-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.form-actions--compact {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
+}
+
+.btn--sm {
+  padding: 0.3rem 0.75rem;
+  font-size: var(--font-size-sm);
+}
+
+/* Botón editar (lápiz) */
+.btn-edit {
+  background: var(--color-info-light, #ebf8ff);
+  border: 1px solid var(--color-info-border, #90cdf4);
+  color: var(--color-info, #3182ce);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-md);
+  cursor: pointer;
+  transition: background var(--transition-base), transform var(--transition-fast);
+}
+.btn-edit:hover { background: #bee3f8; transform: scale(1.08); }
+
+/* ── Botón Validar XML ────────────────────────────────────────────────────── */
+.btn-validate-xml {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background var(--transition-base), transform var(--transition-fast);
+}
+
+.btn-validate-xml--idle {
+  background: #edf2f7;
+  border-color: #cbd5e0;
+  color: #4a5568;
+}
+.btn-validate-xml--idle:hover:not(:disabled) { background: #e2e8f0; transform: scale(1.05); }
+
+.btn-validate-xml--loading {
+  background: #ebf8ff;
+  border-color: #90cdf4;
+  color: #2b6cb0;
+  cursor: wait;
+}
+
+.btn-validate-xml--ok {
+  background: #f0fff4;
+  border-color: #9ae6b4;
+  color: #276749;
+}
+.btn-validate-xml--ok:hover { background: #c6f6d5; }
+
+.btn-validate-xml--error {
+  background: #fff5f5;
+  border-color: #feb2b2;
+  color: #c53030;
+}
+.btn-validate-xml--error:hover:not(:disabled) { background: #fed7d7; }
+
+.btn-validate-xml:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Spinner dentro del botón */
+.btn-validate__spinner {
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Resultado de validación XML ─────────────────────────────────────────── */
+.xml-validation-result {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  margin-top: var(--spacing-sm);
+}
+.xml-validation-result--ok {
+  background: #f0fff4;
+  border: 1px solid #9ae6b4;
+  color: #276749;
+}
+.xml-validation-result--error {
+  background: #fff5f5;
+  border: 1px solid #feb2b2;
+  color: #c53030;
+}
+.xml-result-icon { font-size: 1rem; flex-shrink: 0; margin-top: 1px; }
+.xml-result-detail { color: #4a5568; font-weight: 400; }

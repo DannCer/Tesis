@@ -60,7 +60,7 @@ const GestionProyectos: React.FC = () => {
                         className={`tab ${activeTab === 'grupos' ? 'active' : ''}`}
                         onClick={() => setActiveTab('grupos')}
                     >
-                        Grupos
+                        Gestión de Grupos
                     </button>
                     <button
                         className={`tab ${activeTab === 'capas' ? 'active' : ''}`}

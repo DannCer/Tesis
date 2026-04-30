@@ -142,6 +142,45 @@ async function fetchElevations(
     return elevations;
 }
 
+// ─── Suavizado de elevaciones ─────────────────────────────────────────────────
+
+/**
+ * Suavizado gaussiano sobre el array de elevaciones.
+ * Reduce el ruido de cuantización de los tiles Terrarium sin
+ * distorsionar los cambios reales de elevación (montañas, valles).
+ *
+ * @param elevs   Array de elevaciones en metros
+ * @param radius  Radio de la ventana (defecto 3 → ventana de 7 puntos)
+ * @param passes  Número de pasadas (defecto 2 para suavizado doble)
+ */
+function gaussianSmooth(elevs: number[], radius = 3, passes = 2): number[] {
+    // Pesos gaussianos: e^(-(d²)/(2σ²)), σ = radius/2
+    const sigma = radius / 2;
+    const weights: number[] = [];
+    for (let d = -radius; d <= radius; d++) {
+        weights.push(Math.exp(-(d * d) / (2 * sigma * sigma)));
+    }
+    const wSum = weights.reduce((a, b) => a + b, 0);
+
+    let result = [...elevs];
+    for (let pass = 0; pass < passes; pass++) {
+        result = result.map((_, i) => {
+            let num = 0, den = 0;
+            for (let d = -radius; d <= radius; d++) {
+                const j = Math.max(0, Math.min(result.length - 1, i + d));
+                const w = weights[d + radius];
+                num += result[j] * w;
+                den += w;
+            }
+            return num / den;
+        });
+    }
+    // Preservar los extremos reales (primer y último punto sin alterar)
+    result[0] = elevs[0];
+    result[elevs.length - 1] = elevs[elevs.length - 1];
+    return result;
+}
+
 // ─── Utilidades ───────────────────────────────────────────────────────────────
 
 /** Distancia haversine entre dos puntos en kilómetros */
@@ -225,10 +264,30 @@ const ProfileChart: React.FC<ProfileChartProps> = ({ data, onHover, hoveredIdx }
     const toX = (d: number) => PAD.left + (d / maxDist) * chartW;
     const toY = (e: number) => PAD.top + chartH - ((e - minElev) / elevRange) * chartH;
 
-    // Path de la línea
-    const linePath = data
-        .map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.distance).toFixed(1)},${toY(p.elevation).toFixed(1)}`)
-        .join(' ');
+    /**
+     * Genera un path SVG suave usando splines Catmull-Rom convertidas a
+     * Bezier cúbicos. Produce la misma continuidad C¹ que ESRI Charts.
+     * tension ∈ [0,1]: 0 = muy suave, 0.5 = fiel a datos, 1 = líneas rectas.
+     */
+    function buildSmoothPath(pts: { x: number; y: number }[], tension = 0.35): string {
+        if (pts.length < 2) return '';
+        let d = `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+        for (let i = 0; i < pts.length - 1; i++) {
+            const p0 = pts[Math.max(0, i - 1)];
+            const p1 = pts[i];
+            const p2 = pts[i + 1];
+            const p3 = pts[Math.min(pts.length - 1, i + 2)];
+            const cp1x = p1.x + (p2.x - p0.x) * tension;
+            const cp1y = p1.y + (p2.y - p0.y) * tension;
+            const cp2x = p2.x - (p3.x - p1.x) * tension;
+            const cp2y = p2.y - (p3.y - p1.y) * tension;
+            d += ` C${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+        }
+        return d;
+    }
+
+    const svgPts = data.map(p => ({ x: toX(p.distance), y: toY(p.elevation) }));
+    const linePath = buildSmoothPath(svgPts);
 
     // Path de relleno (área bajo la curva)
     const areaPath = `${linePath} L${toX(maxDist).toFixed(1)},${(PAD.top + chartH).toFixed(1)} L${PAD.left},${(PAD.top + chartH).toFixed(1)} Z`;
@@ -539,7 +598,14 @@ const ElevationProfile: React.FC<ElevationProfileProps> = ({ mapInstance }) => {
             numPoints = Math.max(2, Math.min(numPoints, MAX_POINTS));
 
             const interpolated = interpolateAlongLine(coords, numPoints);
-            const elevations = await fetchElevations(interpolated);
+            const rawElevations = await fetchElevations(interpolated);
+
+            // Suavizado gaussiano: elimina ruido de cuantización de tiles
+            // sin borrar los cambios reales de topografía.
+            // - radius=3 para distancias cortas (<5 km)
+            // - radius=5 para distancias largas (≥5 km)
+            const smoothRadius = totalKm < 5 ? 3 : 5;
+            const elevations = gaussianSmooth(rawElevations, smoothRadius, 2);
 
             const result: ElevationPoint[] = interpolated.map((p, i) => ({
                 distance: p.distance,

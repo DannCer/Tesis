@@ -17,7 +17,8 @@ export const MAP_MAX_ZOOM       = 19;
 // WFS / CAPAS
 // ============================================================================
 
-export const WFS_DEFAULT_MAX_FEATURES = 5_000;
+// Valor leído en tiempo de ejecución desde MAX_FEATURES en el .env (via config.qgisServer.maxFeatures).
+// No definir un número fijo aquí; usar config directamente en cada servicio.
 export const WFS_DEFAULT_SRS          = 'EPSG:4326';
 export const WFS_DEFAULT_OUTPUT_FMT   = 'application/json';
 export const WFS_DEFAULT_TIMEOUT_MS   = 30_000;

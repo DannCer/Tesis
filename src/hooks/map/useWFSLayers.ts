@@ -17,6 +17,7 @@ export interface LayerData {
     error?: string;
 }
 
+
 export const useWFSLayers = () => {
     const [layers, setLayers] = useState<Record<string, LayerData>>({});
     const [loading, setLoading] = useState<Record<string, boolean>>({});
@@ -166,6 +167,8 @@ export const useWFSLayers = () => {
 
         return { loadingCount, errorCount, successCount };
     }, [loading, errors, layers]);
+
+
 
     return {
         layers,
