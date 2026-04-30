@@ -1,58 +1,78 @@
 # Geovisor CDMX
 
-Visor geoespacial web para la consulta y visualización de datos territoriales de la Ciudad de México, desarrollado con **React 19**, **TypeScript**, **Vite 7** y **Leaflet**, integrado con **QGIS Server** como backend de mapas.
+Visor geoespacial web para la consulta y visualización de datos territoriales de la Ciudad de México, desarrollado como proyecto de tesis de la Facultad de Ingeniería, UNAM.
 
-## Características
+Construido con **React 19**, **TypeScript**, **Vite 7** y **Leaflet**, integrado con **QGIS Server** como servidor de mapas y un **backend FastAPI** para gestión de usuarios, grupos y capas.
 
-### Funcionalidades Principales
-- **Capas vectoriales WFS**: Consultas dinámicas a capas publicadas en QGIS Server
-- **Capas ráster WMS**: Series temporales de imágenes satelitales y datos rasterizados
-- **Consulta de píxeles**: GetFeatureInfo para obtener valores de capas ráster
-- **Comparador Swipe**: Herramienta de deslizamiento para comparar dos capas temporalmente
-- **Tabla de atributos**: Visualización de datos tabulares de features vectoriales
-- **Simbología dinámica**: Estilos single, categorical y classified con rampas de color
-- **Carga de capas externas**: Importar GeoJSON, KML, Shapefile (.zip), GeoTIFF local
-- **Conexión a servicios OGC**: Consumir capas WMS/WFS externas
-- **Descarga multi-formato**: Exportar datos como Shapefile, GeoJSON, KML, GeoTIFF
+---
 
-### Tecnologías
+## Funcionalidades Implementadas
+
+### Visualización de Capas
+- **Capas vectoriales WFS** — Consultas dinámicas a capas publicadas en QGIS Server con filtros CQL
+- **Capas ráster WMS** — Series temporales de imágenes satelitales y datos rasterizados
+- **Capas externas** — Importación local de GeoJSON, KML, Shapefile (.zip), GeoTIFF
+- **Servicios OGC externos** — Conexión a capas WMS/WFS de terceros
+
+### Panel de Capas y Leyenda
+- **LayerMenu** — Menú lateral con grupos paginados, activación/desactivación y opacidad por capa
+- **Leyenda dinámica** — Simbología single, categorical y classified con rampas de color
+- **Tabla de atributos** — Tabla paginada (300 filas/página) con búsqueda y descarga multi-formato (Shapefile, GeoJSON, KML, GeoTIFF)
+- **PixelInfoPanel** — GetFeatureInfo para valores de píxel en capas ráster
+
+### Herramientas de Análisis
+- **AnalysisTool** — Análisis espacial interactivo: dibuja punto (+ buffer), línea (+ buffer) o polígono, y consulta cuántos features de cada capa vectorial intersectan la geometría. Usa CQL_FILTER sobre WFS sin dependencias externas.
+- **ElevationProfile** — Perfil topográfico a lo largo de una línea trazada en el mapa. Fuente de elevación: AWS Terrain Tiles (codificación Terrarium, sin API key). Gráfico interactivo con múltiples resoluciones.
+- **SwipeControl / SwipePanel** — Comparador deslizable para contrastar dos capas temporalmente (p.ej. dos años de una misma cobertura)
+- **TimeController** — Control de series temporales para capas ráster con dimensión TIME
+
+### Impresión
+- **PrintDesigner** — Diseñador de mapas para impresión: selección de tamaño de papel (A3/A4/Carta/…), orientación, DPI (72/150/300), escala estándar, vista previa WMS en vivo y descarga directa como imagen.
+
+### Gestión de Proyectos y Capas (panel administrativo)
+- **GestionProyectos** — Interfaz con pestañas para administrar grupos, capas e ítems publicados:
+  - **GruposManager** — CRUD de grupos de capas vía API REST
+  - **CapasManager** — CRUD de capas (vectoriales y ráster) vía API REST con asignación a grupos
+  - **CapasPublicadas** — Listado de capas publicadas en el geovisor, con control de visibilidad
+- **ProjectsManager** — Gestión de proyectos QGIS Server (múltiples proyectos .qgz, detección automática de capas vía GetCapabilities)
+- **ProjectLayersView** — Vista de capas detectadas por proyecto con estado de publicación
+
+### Autenticación
+- **Login / AuthContext** — Autenticación JWT (access + refresh token). Roles diferenciados: usuario estándar y administrador (`es_admin`).
+- **AdminDashboard** — Panel exclusivo para administradores: gestión de usuarios (alta, activación/desactivación).
+- **ProtectedRoute** — Rutas protegidas; redirige al login si no hay sesión activa.
+
+### Página de Arquitectura
+- **Arquitectura** — Página informativa que documenta la evolución del sistema (migración GeoServer → QGIS Server) y describe el stack tecnológico, pensada para la presentación de tesis.
+
+---
+
+## Tecnologías
+
 | Tecnología | Versión |
-|------------|---------|
+|---|---|
 | React | 19.2.0 |
 | TypeScript | 5.9.3 |
 | Vite | 7.2.4 |
 | Leaflet | 1.9.4 |
 | React-Leaflet | 5.0.0 |
 | Bootstrap | 5.3.8 |
+| georaster + georaster-layer-for-leaflet | 1.6.0 / 4.1.2 |
+| shpjs | 6.2.0 |
+| jszip | 3.10.1 |
+| react-router-dom | 7.12.0 |
+| Vitest | 3.1.1 |
+
+**Backend esperado:** FastAPI con PostgreSQL/PostGIS (autenticación JWT + API REST para grupos y capas).
 
 ---
 
 ## Requisitos Previos
 
-### Software Requerido
 - **Node.js** >= 20.x
 - **npm** >= 10.x
-- **QGIS Server** (para el backend de mapas)
-
-### QGIS Server Setup
-
-1. **Instalar QGIS Server**
-   - Windows: [Descargar QGIS](https://qgis.org/es/site/forusers/download.html)
-   - Linux: `sudo apt install qgis-server` (Debian/Ubuntu)
-
-2. **Configurar el proyecto QGIS**
-   - Crear un proyecto `.qgz` con las capas deseadas
-   - Publicar como WMS/WFS en QGIS Server
-   - Asegurar que las capas tengan nombres únicos
-
-3. **Verificar el servicio**
-   ```bash
-   # Probar WMS GetCapabilities
-   curl "http://localhost/qgis/qgis_mapserv.fcgi.exe?SERVICE=WMS&REQUEST=GetCapabilities&MAP=C:/mis_proyectos/01_Geologicos.qgz"
-   
-   # Probar WFS GetCapabilities
-   curl "http://localhost/qgis/qgis_mapserv.fcgi.exe?SERVICE=WFS&REQUEST=GetCapabilities&MAP=C:/mis_proyectos/01_Geologicos.qgz"
-   ```
+- **QGIS Server** corriendo y accesible (para el backend de mapas)
+- **Backend FastAPI** corriendo (para autenticación y gestión de capas)
 
 ---
 
@@ -70,24 +90,34 @@ npm install
 ```
 
 ### 3. Configurar variables de entorno
-```bash
-# Copiar el archivo de ejemplo
-cp .env.example .env.development
-```
 
-Editar `.env.development` con tus configuraciones:
+Crear `.env.development`:
 
 ```bash
+# Backend FastAPI
+VITE_API_URL=http://localhost:8000
+
 # QGIS Server
 VITE_QGIS_SERVER_URL=http://localhost/qgis/qgis_mapserv.fcgi.exe
-VITE_QGIS_VECTOR_PROJECT=C:/mis_proyectos/01_Geologicos.qgz
-VITE_QGIS_RASTER_PROJECT=C:/mis_proyectos/01_Geologicos.qgz
 
-# Mapa
+# Tiempo de espera y límite de features WFS
+VITE_WFS_TIMEOUT=30000
+VITE_MAX_FEATURES=0
+
+# Vista inicial del mapa (CDMX)
 VITE_MAP_CENTER_LAT=19.4326
 VITE_MAP_CENTER_LNG=-99.1332
 VITE_MAP_ZOOM=11
+VITE_MAP_MIN_ZOOM=8
+VITE_MAP_MAX_ZOOM=19
+
+# Aplicación
+VITE_APP_NAME=Geovisor
+VITE_APP_VERSION=1.0.0
+VITE_DEBUG_MODE=true
 ```
+
+> **Nota:** `VITE_QGIS_VECTOR_PROJECT` y `VITE_QGIS_RASTER_PROJECT` ya no son necesarios en el `.env`. Los proyectos QGIS se gestionan desde la interfaz de **Gestión de Proyectos** y se persisten en `localStorage`.
 
 ### 4. Ejecutar en desarrollo
 ```bash
@@ -101,12 +131,15 @@ La aplicación estará disponible en `http://localhost:5173`
 ## Scripts Disponibles
 
 | Comando | Descripción |
-|---------|-------------|
-| `npm run dev` | Inicia servidor de desarrollo con HMR |
+|---|---|
+| `npm run dev` | Servidor de desarrollo con HMR (expuesto en red local con `--host`) |
 | `npm run build` | Compila para producción |
 | `npm run preview` | Vista previa del build de producción |
-| `npm run typecheck` | Verifica tipos TypeScript |
-| `npm run lint` | Ejecuta ESLint |
+| `npm run typecheck` | Verificación de tipos TypeScript |
+| `npm run lint` | ESLint |
+| `npm run test` | Vitest en modo watch |
+| `npm run test:run` | Vitest en modo CI (una pasada) |
+| `npm run test:coverage` | Reporte de cobertura con V8 |
 
 ---
 
@@ -115,162 +148,139 @@ La aplicación estará disponible en `http://localhost:5173`
 ```
 src/
 ├── components/
-│   ├── layout/          # Componentes de layout (Header, Layouts)
-│   └── map/             # Componentes del mapa (MapView, LayerMenu, etc.)
+│   ├── common/              # AlertModal, ConfirmModal, ErrorBoundary
+│   ├── layout/              # AppLayout, Header, LayoutGeovisor, LayoutPrincipal
+│   └── map/
+│       ├── controls/        # BaseLayerControls, SwipeControl, TimeController
+│       ├── layers/          # GeoRasterLayerComponent, VectorLayer
+│       ├── management/      # CapasManager, CapasPublicadas, GruposManager,
+│       │                    #   ProjectsManager, ProjectLayersView
+│       ├── panels/          # AttributeTable, LayerMenu, Legend,
+│       │                    #   PaginatedLayerGroup, PixelInfoPanel
+│       ├── tools/           # AnalysisTool, ElevationProfile,
+│       │                    #   PrintDesigner, SwipePanel
+│       ├── MapContent.tsx
+│       └── MapView.tsx
 ├── config/
-│   ├── env.ts           # Configuración de entorno y logger
-│   ├── layers.ts        # Derivación de LayerConfig[]
-│   └── layersConfig.ts  # Definición de capas vectoriales y ráster
+│   ├── env.ts               # Config centralizada + logger (lee variables VITE_*)
+│   ├── constants.ts         # Constantes globales (breakpoints, clases USV, etc.)
+│   ├── layers.ts            # Derivación de LayerConfig[]
+│   └── index.ts
+├── contexts/
+│   ├── AuthContext.tsx       # Estado de autenticación JWT (reducer)
+│   ├── LayersContext/        # Estado global de capas activas
+│   ├── MapContext/           # Instancia del mapa Leaflet
+│   └── SelectedProjectContext.tsx
 ├── hooks/
-│   ├── useWFSLayers.ts  # Hook para manejo de capas WFS
-│   └── useRasterLayers.ts # Hook para manejo de capas WMS
-├── services/
-│   ├── wfsService.ts    # Servicio para consultas WFS
-│   └── rasterService.ts # Servicio para consultas WMS/GetFeatureInfo
-├── utils/
-│   ├── symbologyUtils.ts # Utilidades de simbología y clasificación
-│   ├── layerStyleFactory.ts # Factory de estilos Leaflet
-│   ├── fileToGeoJSON.ts # Conversión de archivos a GeoJSON
-│   └── georasterLoader.ts # Carga de archivos GeoTIFF
+│   ├── useAuth.ts
+│   ├── api/                 # useApiLayersLoader, usePublishedLayers
+│   ├── map/                 # useWFSLayers, useRasterLayers,
+│   │                        #   useProjectLayers, useSelectedProjectLayers
+│   └── ui/                  # useResponsive
 ├── pages/
-│   ├── Principal.tsx    # Página de inicio
-│   ├── Geovisor.tsx     # Página del visor de mapas
-│   └── NotFound.tsx     # Página 404
-└── styles/              # Hojas de estilo CSS
+│   ├── Principal.tsx        # Página de inicio / landing
+│   ├── Geovisor.tsx         # Visor de mapas principal
+│   ├── Arquitectura.tsx     # Documentación de arquitectura (tesis)
+│   ├── GestionProyectos.tsx # Panel de gestión (grupos, capas, publicadas)
+│   ├── AdminDashboard.tsx   # Panel de administrador (gestión de usuarios)
+│   ├── Login.tsx
+│   └── NotFound.tsx
+├── services/
+│   ├── api/                 # apiService.ts — Auth, grupos, capas, usuarios
+│   ├── geoserver/           # wfsService, rasterService,
+│   │                        #   dynamicWfsService, dynamicRasterService
+│   ├── print/               # printService.ts — tamaños de papel, GetMap, etc.
+│   └── projects/            # projectsService.ts — gestión local de proyectos .qgz
+├── styles/                  # CSS por componente + variables + global
+├── tests/                   # Vitest: wfsService, rasterService, symbologyUtils
+├── types/                   # api.ts, geo.ts, map.ts, projects.ts
+└── utils/
+    ├── geo/                 # fileToGeoJSON, georasterLoader, symbologyUtils
+    ├── map/                 # layerStyleFactory, legendData
+    ├── bboxLayerPrefs.ts
+    ├── mapCapture.ts
+    └── validation.ts
 ```
 
 ---
 
-## Agregar Nuevas Capas
+## Gestión de Capas desde la Interfaz
 
-### Capas Vectoriales
+Las capas se administran desde **Geovisor → Gestión de Proyectos**, sin necesidad de modificar código:
 
-Editar `src/config/layersConfig.ts` y agregar al array `VECTOR_LAYERS`:
+1. Ir a **Grupos** → crear un grupo (nombre + URL del proyecto .qgz).
+2. Ir a **Capas** → agregar una capa al grupo con su `wfsName` y `wmsLayer` (deben coincidir exactamente con los nombres en GetCapabilities).
+3. Ir a **Publicadas** → activar la capa para que aparezca en el mapa.
 
-```typescript
-{
-    id:          'mi_nueva_capa',           // ID único interno
-    name:        'Mi Nueva Capa',           // Nombre visible en el menú
-    description: 'Descripción de la capa',  // Descripción corta
-    group:       'Geológicos',           // Grupo (con emoji opcional)
-    wfsName:     'mi_nueva_capa',          // TypeName exacto del WFS
-    wmsLayer:    'Mi Nueva Capa',          // Nombre exacto del WMS
-}
-```
-
-### Capas Ráster
-
-Agregar al array `RASTER_LAYERS`:
-
-```typescript
-{
-    id:          'raster_2024',
-    name:        'Raster 2024',
-    description: 'Descripción',
-    group:       'Geológicos',           // Mismo sistema de grupos
-    wmsLayer:    'nombre_capa_wms',
-    year:        2024,                      // Año para badge
-    timeValue:   '2024-01-01',             // Valor TIME para WMS
-}
-```
-
-### Notas Importantes
-
-- **wfsName**: Debe coincidir EXACTAMENTE con el `<Name>` del WFS GetCapabilities (guiones bajos, sin acentos)
-- **wmsLayer**: Debe coincidir EXACTAMENTE con el `<Name>` del WMS GetCapabilities (puede tener espacios/acentos)
-- **group**: Las capas vectoriales y ráster comparten el mismo sistema de grupos
+Los cambios se persisten en el backend FastAPI y se reflejan en el geovisor sin recompilar.
 
 ---
 
-## Configuración de QGIS Server
+## Variables de Entorno de Referencia
 
-### Publicar un Proyecto WMS/WFS
-
-1. **En QGIS Desktop:**
-   - Abrir/crear proyecto `.qgz`
-   - Capa → Propiedades → QGIS Server → Configurar nombres WMS/WFS
-   - Proyecto → Propiedades → QGIS Server → Activar WMS/WFS
-
-2. **Configurar el servidor:**
-   ```bash
-   # Windows (IIS/Apache)
-   # Asegurar que qgis_mapserv.fcgi.exe sea accesible
-   
-   # Linux (systemd)
-   sudo systemctl enable qgis-server
-   sudo systemctl start qgis-server
-   ```
-
-3. **Permisos:**
-   - El usuario del servidor web debe tener acceso de lectura al archivo `.qgz`
-   - Las capas de datos deben ser legibles por el servidor
-
-### GetCapabilities URLs
-
-```
-# WMS GetCapabilities
-http://localhost/qgis/qgis_mapserv.fcgi.exe?SERVICE=WMS&REQUEST=GetCapabilities&MAP=C:/proyecto.qgz
-
-# WFS GetCapabilities  
-http://localhost/qgis/qgis_mapserv.fcgi.exe?SERVICE=WFS&REQUEST=GetCapabilities&MAP=C:/proyecto.qgz
-```
+| Variable | Descripción | Ejemplo |
+|---|---|---|
+| `VITE_API_URL` | URL base del backend FastAPI | `http://localhost:8000` |
+| `VITE_QGIS_SERVER_URL` | URL del ejecutable de QGIS Server | `http://localhost/qgis/qgis_mapserv.fcgi.exe` |
+| `VITE_WFS_TIMEOUT` | Timeout de requests WFS (ms) | `30000` |
+| `VITE_MAX_FEATURES` | Límite de features por request WFS (0 = sin límite) | `0` |
+| `VITE_MAP_CENTER_LAT` | Latitud del centro inicial del mapa | `19.4326` |
+| `VITE_MAP_CENTER_LNG` | Longitud del centro inicial del mapa | `-99.1332` |
+| `VITE_MAP_ZOOM` | Zoom inicial | `11` |
+| `VITE_APP_NAME` | Nombre de la aplicación | `Geovisor` |
+| `VITE_APP_VERSION` | Versión de la aplicación | `1.0.0` |
+| `VITE_DEBUG_MODE` | Activar logs de depuración | `true` |
 
 ---
 
 ## Build para Producción
 
-### 1. Build estándar
 ```bash
+# Crear .env.production con las URLs del servidor real
 npm run build
+# Los archivos compilados quedan en dist/
 ```
 
-Los archivos compilados se generan en `dist/`
+Desplegar el contenido de `dist/` en cualquier servidor web estático (nginx, Apache, S3, etc.).
 
-### 2. Servir archivos estáticos
-```bash
-npm run preview
-```
+---
 
-### 3. Deploy a servidor web
+## Tests
 
-Copiar el contenido de `dist/` a tu servidor web:
+El proyecto incluye tests unitarios con **Vitest**:
 
 ```bash
-# Ejemplo con nginx
-sudo cp -r dist/* /var/www/geovisor/
+npm run test:run        # CI
+npm run test:coverage   # Con reporte de cobertura
 ```
 
-### Variables de entorno para producción
-
-Crear `.env.production`:
-
-```bash
-VITE_QGIS_SERVER_URL=https://tuservidor.com/qgis/qgis_mapserv.fcgi.exe
-VITE_QGIS_VECTOR_PROJECT=/ruta/al/proyecto.qgz
-VITE_QGIS_RASTER_PROJECT=/ruta/al/proyecto.qgz
-VITE_APP_NAME=Geovisor CDMX
-VITE_APP_VERSION=1.0.0
-VITE_DEBUG_MODE=false
-```
+Archivos de test en `src/tests/`:
+- `wfsService.test.ts` — Consultas WFS, filtros CQL, manejo de errores
+- `rasterService.test.ts` — Consultas WMS, GetFeatureInfo
+- `symbologyUtils.test.ts` — Clasificación de simbología y rampas de color
 
 ---
 
 ## Solución de Problemas
 
-### Error: "No se pudo conectar con QGIS Server"
+**"No se pudo conectar con QGIS Server"**
 - Verificar que QGIS Server esté corriendo
-- Confirmar que la URL en `.env` sea correcta
-- Verificar permisos del archivo `.qgz`
+- Confirmar que `VITE_QGIS_SERVER_URL` sea accesible desde el navegador
+- Revisar que el archivo `.qgz` sea legible por el servidor web
 
-### Error: "Capa no encontrada"
-- Confirmar que el `wfsName` o `wmsLayer` coincida exactamente con GetCapabilities
-- Verificar que la capa esté publicada en QGIS Server
+**"Capa no encontrada"**
+- El `wfsName` debe coincidir exactamente con el `<Name>` del WFS GetCapabilities
+- El `wmsLayer` debe coincidir exactamente con el `<Name>` del WMS GetCapabilities
 
-### Error: CORS al cargar capas externas
+**"Error de autenticación / 401"**
+- Verificar que el backend FastAPI esté corriendo en `VITE_API_URL`
+- El token de acceso se almacena en `localStorage`; limpiar caché del navegador si persiste
+
+**CORS al cargar capas externas**
 - El servidor remoto debe permitir CORS
-- Configurar proxy si es necesario
+- Configurar un proxy en `vite.config.ts` si es necesario
 
-### Error: TypeScript "Cannot find module"
+**Error TypeScript "Cannot find module"**
 ```bash
 npm install
 npm run typecheck
@@ -278,21 +288,30 @@ npm run typecheck
 
 ---
 
-## Licencia
+## Configuración de QGIS Server
 
-Este proyecto es parte de una tesis académica de la Facultad de Ingeniería, UNAM.
+### Publicar un proyecto WMS/WFS
+
+1. En **QGIS Desktop**: abrir/crear proyecto `.qgz` → Proyecto → Propiedades → QGIS Server → activar WMS/WFS y configurar nombres de capa.
+2. Verificar acceso:
+```bash
+curl "http://localhost/qgis/qgis_mapserv.fcgi.exe?SERVICE=WMS&REQUEST=GetCapabilities&MAP=/ruta/proyecto.qgz"
+curl "http://localhost/qgis/qgis_mapserv.fcgi.exe?SERVICE=WFS&REQUEST=GetCapabilities&MAP=/ruta/proyecto.qgz"
+```
 
 ---
 
-## Autores
-
-- **Geovisor CDMX** - Visor geoespacial para monitoreo territorial
-
----
-
-## Recursos Adicionales
+## Recursos
 
 - [Documentación de QGIS Server](https://docs.qgis.org/latest/es/docs/server_manual/)
 - [React-Leaflet Documentation](https://react-leaflet.js.org/)
 - [Leaflet Documentation](https://leafletjs.com/)
+- [AWS Terrain Tiles (Elevation)](https://registry.opendata.aws/terrain-tiles/)
 - [Vite Documentation](https://vitejs.dev/)
+- [Vitest Documentation](https://vitest.dev/)
+
+---
+
+## Licencia
+
+Proyecto de tesis académica — Facultad de Ingeniería, UNAM.

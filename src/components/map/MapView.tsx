@@ -17,6 +17,7 @@ import type { ExternalLayer } from '@types/geo';
 import SwipeControl from '@components/map/controls/SwipeControl';
 import SwipePanel from '@components/map/tools/SwipePanel';
 import ElevationProfile from '@components/map/tools/ElevationProfile';
+import AnalysisTool from '@components/map/tools/AnalysisTool';
 import type { SwipeLayerConfig } from '@components/map/controls/SwipeControl';
 import { featureStyle, DEFAULT_SYMBOLOGY } from '@utils/geo/symbologyUtils';
 import GeoRasterLayerComponent from '@components/map/layers/GeoRasterLayerComponent';
@@ -67,10 +68,7 @@ interface MapClickHandlerProps {
 const MapClickHandler: React.FC<MapClickHandlerProps> = ({ onMapClick, swipeActive }) => {
     const map = useMapEvents({
         click: (e) => {
-            // El SwipeControl ya registra su propio handler de click para GetFeatureInfo.
-            // Aquí solo inhibimos el queryPixelValue (raster) durante swipe,
-            // pero los clicks sobre features vectoriales siguen funcionando por sus
-            // propios listeners de GeoJSON.
+            // No disparar query de pixel mientras el comparador está activo
             if (swipeActive) return;
             onMapClick(e, map);
         }
@@ -478,6 +476,7 @@ const MapView: React.FC = () => {
                             onDeactivate={handleSwipeDeactivate}
                         />
                         <ElevationProfile mapInstance={mapInstance} />
+                        <AnalysisTool mapInstance={mapInstance} />
                     </>
                 }
             />
