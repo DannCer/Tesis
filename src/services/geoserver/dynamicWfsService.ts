@@ -94,9 +94,11 @@ class DynamicWFSService {
                 REQUEST: 'GetFeature',
                 TYPENAME: layerName,
                 outputFormat: 'application/vnd.geo+json',
-                maxFeatures: maxFeatures.toString(),
                 srsName,
             });
+            // Solo mandar maxFeatures si el .env lo define (> 0).
+            // Si es 0, QGIS Server usa su propio límite configurado.
+            if (maxFeatures > 0) params.set('maxFeatures', maxFeatures.toString());
 
             if (cql_filter) params.append('CQL_FILTER', cql_filter);
             if (propertyName) params.append('PROPERTYNAME', propertyName);
@@ -244,7 +246,7 @@ class DynamicWFSService {
         try {
             const data = await this.getFeatures(layerName, groupName, {
                 propertyName: fieldName,
-                maxFeatures: 10000,
+                maxFeatures: this.maxFeatures,
             });
             
             const unique = new Set<any>();

@@ -126,3 +126,201 @@
   .form-grid { grid-template-columns: 1fr; }
   .capas-table th, .capas-table td { padding: 0.5rem; }
 }
+/* ── Fila en modo edición ─────────────────────────────────────────────────── */
+.tr-editing {
+  background: #ebf8ff !important;
+}
+.tr-editing td {
+  vertical-align: top;
+  padding: 6px 8px;
+}
+
+.input--inline {
+  width: 100%;
+  min-width: 90px;
+  padding: 4px 8px;
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--color-primary-light, #90cdf4);
+  border-radius: var(--radius-xs);
+  background: white;
+  margin-bottom: 4px;
+}
+.input--inline:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(49,130,206,0.2);
+}
+.input--desc { font-style: italic; color: #718096; }
+
+/* ── Botones de acción en celda ──────────────────────────────────────────── */
+.acciones-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.btn-save-small,
+.btn-cancel-small,
+.btn-edit-small,
+.btn-delete-small,
+.btn-validate-small {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-xs);
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background var(--transition-base), transform var(--transition-fast);
+}
+
+.btn-save-small {
+  background: #f0fff4; border-color: #9ae6b4; color: #276749;
+}
+.btn-save-small:hover:not(:disabled) { background: #c6f6d5; transform: scale(1.1); }
+
+.btn-cancel-small {
+  background: #edf2f7; border-color: #e2e8f0; color: #718096; font-size: 0.75rem;
+}
+.btn-cancel-small:hover:not(:disabled) { background: #e2e8f0; transform: scale(1.1); }
+
+.btn-edit-small {
+  background: #ebf8ff; border-color: #90cdf4; color: #2b6cb0;
+}
+.btn-edit-small:hover { background: #bee3f8; transform: scale(1.1); }
+
+.btn-delete-small {
+  background: #fff5f5; border-color: #feb2b2; color: #c53030;
+}
+.btn-delete-small:hover { background: #fed7d7; transform: scale(1.1); }
+
+.btn-save-small:disabled,
+.btn-cancel-small:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Botón validar en tabla ──────────────────────────────────────────────── */
+.btn-validate-small {
+  background: #edf2f7; border-color: #cbd5e0; color: #4a5568;
+}
+.btn-validate-small:hover:not(:disabled) { background: #e2e8f0; transform: scale(1.1); }
+.btn-validate-small:disabled { cursor: wait; opacity: 0.7; }
+
+.btn-validate--ok    { background: #f0fff4; border-color: #9ae6b4; color: #276749; }
+.btn-validate--error { background: #fff5f5; border-color: #feb2b2; color: #c53030; }
+.btn-validate--loading { background: #ebf8ff; border-color: #90cdf4; color: #2b6cb0; }
+
+/* Chip resultado validación */
+.validation-chip {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 9999px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.validation-chip--ok    { background: #c6f6d5; color: #276749; }
+.validation-chip--error { background: #fed7d7; color: #c53030; }
+
+/* Spinner reutilizable */
+.btn-validate__spinner {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Barra de búsqueda ───────────────────────────────────────────────────── */
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  flex-wrap: wrap;
+}
+.search-wrapper {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+}
+.search-icon {
+  position: absolute;
+  left: 0.6rem;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  font-size: 0.85rem;
+}
+.search-input {
+  padding-left: 2rem;
+  padding-right: 2rem;
+}
+.search-clear {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #a0aec0;
+  font-size: 0.75rem;
+  padding: 2px;
+  line-height: 1;
+}
+.search-clear:hover { color: #718096; }
+.table-count {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ── Columnas ordenables ─────────────────────────────────────────────────── */
+.th-sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.th-sortable:hover { background: rgba(0,0,0,0.04); }
+.sort-icon { margin-left: 4px; font-size: 0.75rem; }
+.sort-icon--inactive { color: #cbd5e0; }
+.sort-icon--active   { color: var(--color-primary); }
+
+/* ── Badge bbox ──────────────────────────────────────────────────────────── */
+.badge-bbox {
+  background: #faf089;
+  color: #744210;
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 9999px;
+  margin-left: 4px;
+  vertical-align: middle;
+  letter-spacing: 0.04em;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.checkbox-label--inline {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+  gap: 4px;
+}
+.checkbox-label--inline input[type="checkbox"] {
+  accent-color: var(--color-primary);
+  width: 12px;
+  height: 12px;
+}

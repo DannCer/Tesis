@@ -152,7 +152,7 @@ export const isValidGeoJSON = (data: any): boolean => {
  */
 export const limitFeatures = <T extends { properties?: any }>(
     features: T[],
-    maxFeatures: number = 10000
+    maxFeatures: number = 200000
 ): T[] => {
     if (features.length <= maxFeatures) return features;
     console.warn(`Limitando features de ${features.length} a ${maxFeatures}`);

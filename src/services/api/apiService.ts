@@ -109,6 +109,9 @@ export const apiService = {
     createGrupo: (g: GrupoCreate): Promise<GrupoResponse> =>
         request('/gestion/grupos', { method: 'POST', body: JSON.stringify(g) }),
 
+    updateGrupo: (id: number, g: GrupoCreate): Promise<GrupoResponse> =>
+        request(`/gestion/grupos/${id}`, { method: 'PUT', body: JSON.stringify(g) }),
+
     deleteGrupo: (id: number): Promise<void> =>
         request(`/gestion/grupos/${id}`, { method: 'DELETE' }),
 
@@ -117,6 +120,9 @@ export const apiService = {
 
     createCapa: (c: ItemCreate): Promise<ItemResponse> =>
         request('/gestion/', { method: 'POST', body: JSON.stringify(c) }),
+
+    updateCapa: (id: number, c: ItemCreate): Promise<ItemResponse> =>
+        request(`/gestion/${id}`, { method: 'PUT', body: JSON.stringify(c) }),
 
     deleteCapa: (id: number): Promise<void> =>
         request(`/gestion/${id}`, { method: 'DELETE' }),

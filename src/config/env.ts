@@ -95,7 +95,7 @@ export const config: Config = {
         vectorProject: vectorProject,
         rasterProject: rasterProject,
         timeout:       getEnvNumber('WFS_TIMEOUT', 30000),
-        maxFeatures:   getEnvNumber('MAX_FEATURES', 10000),
+        maxFeatures:   getEnvNumber('MAX_FEATURES', 0),
         get wmsUrl()       { return buildQgisUrl(this.url, this.vectorProject); },
         get wfsUrl()       { return buildQgisUrl(this.url, this.vectorProject); },
         get wmsRasterUrl() { return buildQgisUrl(this.url, this.rasterProject); },

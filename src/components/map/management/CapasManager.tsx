@@ -20,7 +20,7 @@ interface ValidationResult { status: ValidationStatus; message?: string; }
 type SortField = 'id' | 'name' | 'group' | 'type' | 'wfsName' | 'wmsLayer';
 type SortDir = 'asc' | 'desc';
 
-// ── Validación ────────────────────────────────────────────────────────────────
+// ── Validación WFS/WMS ────────────────────────────────────────────────────────
 
 function buildCapabilitiesUrl(serverUrl: string, service: 'WFS' | 'WMS', version: string, projectPath: string): string {
     return `${serverUrl}?SERVICE=${service}&VERSION=${version}&REQUEST=GetCapabilities&MAP=${projectPath}`;
@@ -84,10 +84,20 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
     const [grupos, setGrupos] = useState<GrupoResponse[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    // Nuevo
     const [isAddingNew, setIsAddingNew] = useState(false);
     const [newCapa, setNewCapa] = useState<ItemCreate>({
         name: '', description: '', group_id: 0, tipo: 'vector', wfsName: '', wmsLayer: '',
     });
+
+    // Edición inline
+    const [editingId, setEditingId] = useState<number | null>(null);
+    const [editForm, setEditForm] = useState<ItemCreate>({
+        name: '', description: '', group_id: 0, tipo: 'vector', wfsName: '', wmsLayer: '',
+    });
+    const [editSaving, setEditSaving] = useState(false);
+
     const [validations, setValidations] = useState<Map<number, ValidationResult>>(new Map());
 
     // Modales
@@ -123,7 +133,7 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
 
     useEffect(() => { loadData(); }, []);
 
-    // ── Capas filtradas + ordenadas ───────────────────────────────────────────
+    // ── Filtrado + ordenado ───────────────────────────────────────────────────
     const capasFiltradas = useMemo(() => {
         const q = search.toLowerCase().trim();
         const filtered = q
@@ -159,8 +169,7 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
         return <span className="sort-icon sort-icon--active">{sortDir === 'asc' ? '↑' : '↓'}</span>;
     };
 
-    // ── CRUD ──────────────────────────────────────────────────────────────────
-
+    // ── Crear ─────────────────────────────────────────────────────────────────
     const handleCreateCapa = async () => {
         if (!newCapa.name.trim() || !newCapa.wfsName.trim() || !newCapa.wmsLayer.trim()) {
             showAlert('Campos requeridos', 'Nombre, WFS Name y WMS Layer son obligatorios.', 'warning');
@@ -181,6 +190,46 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
         }
     };
 
+    // ── Editar ────────────────────────────────────────────────────────────────
+    const startEdit = (capa: ItemResponse) => {
+        const grupo = grupos.find(g => g.nombre === capa.group);
+        setEditingId(capa.id);
+        setEditForm({
+            name: capa.name,
+            description: capa.description ?? '',
+            group_id: grupo?.id ?? 0,
+            tipo: (capa.type as 'vector' | 'raster'),
+            wfsName: capa.wfsName,
+            wmsLayer: capa.wmsLayer,
+        });
+    };
+
+    const cancelEdit = () => setEditingId(null);
+
+    const handleSaveEdit = async () => {
+        if (!editForm.name.trim() || !editForm.wfsName.trim() || !editForm.wmsLayer.trim()) {
+            showAlert('Campos requeridos', 'Nombre, WFS Name y WMS Layer son obligatorios.', 'warning');
+            return;
+        }
+        if (!editForm.group_id || editForm.group_id === 0) {
+            showAlert('Grupo requerido', 'Debes seleccionar un grupo.', 'warning');
+            return;
+        }
+        setEditSaving(true);
+        try {
+            await apiService.updateCapa(editingId!, editForm);
+            setValidations(prev => { const next = new Map(prev); next.delete(editingId!); return next; });
+            setEditingId(null);
+            await loadData();
+            onCapasChange?.();
+        } catch (err: any) {
+            showAlert('Error al actualizar la capa', err.message, 'error');
+        } finally {
+            setEditSaving(false);
+        }
+    };
+
+    // ── Eliminar ──────────────────────────────────────────────────────────────
     const handleDeleteCapa = (id: number, name: string) => {
         setConfirmModal({ isOpen: true, capaId: id, capaNombre: name });
     };
@@ -367,6 +416,93 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
                             <tbody>
                                 {capasFiltradas.map(capa => {
                                     const v = validations.get(capa.id) ?? { status: 'idle' };
+                                    const isEditing = editingId === capa.id;
+
+                                    if (isEditing) {
+                                        return (
+                                            <tr key={capa.id} className="tr-editing">
+                                                <td>{capa.id}</td>
+                                                <td>
+                                                    <input
+                                                        type="text"
+                                                        className="input input--inline"
+                                                        value={editForm.name}
+                                                        onChange={e => setEditForm({ ...editForm, name: e.target.value })}
+                                                        placeholder="Nombre"
+                                                        autoFocus
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        className="input input--inline input--desc"
+                                                        value={editForm.description ?? ''}
+                                                        onChange={e => setEditForm({ ...editForm, description: e.target.value })}
+                                                        placeholder="Descripción (opcional)"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <select
+                                                        className="input input--inline"
+                                                        value={editForm.group_id}
+                                                        onChange={e => setEditForm({ ...editForm, group_id: parseInt(e.target.value) })}
+                                                    >
+                                                        <option value={0}>Seleccionar…</option>
+                                                        {grupos.map(g => (
+                                                            <option key={g.id} value={g.id}>{g.nombre}</option>
+                                                        ))}
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <select
+                                                        className="input input--inline"
+                                                        value={editForm.tipo}
+                                                        onChange={e => setEditForm({ ...editForm, tipo: e.target.value as 'vector' | 'raster' })}
+                                                    >
+                                                        <option value="vector">vector</option>
+                                                        <option value="raster">raster</option>
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="text"
+                                                        className="input input--inline"
+                                                        value={editForm.wfsName}
+                                                        onChange={e => setEditForm({ ...editForm, wfsName: e.target.value })}
+                                                        placeholder="WFS Name"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <input
+                                                        type="text"
+                                                        className="input input--inline"
+                                                        value={editForm.wmsLayer}
+                                                        onChange={e => setEditForm({ ...editForm, wmsLayer: e.target.value })}
+                                                        placeholder="WMS Layer"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <div className="acciones-cell">
+                                                        <button
+                                                            className="btn-save-small"
+                                                            onClick={handleSaveEdit}
+                                                            disabled={editSaving}
+                                                            title="Guardar cambios"
+                                                        >
+                                                            {editSaving ? '…' : '💾'}
+                                                        </button>
+                                                        <button
+                                                            className="btn-cancel-small"
+                                                            onClick={cancelEdit}
+                                                            disabled={editSaving}
+                                                            title="Cancelar edición"
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    }
+
                                     return (
                                         <tr key={capa.id}>
                                             <td>{capa.id}</td>
@@ -379,7 +515,9 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
                                             <td><span className="badge badge-group">{capa.group}</span></td>
                                             <td><span className={`badge badge-${capa.type}`}>{capa.type}</span></td>
                                             <td><code>{capa.wfsName}</code></td>
-                                            <td><code>{capa.wmsLayer}</code></td>
+                                            <td>
+                                                <code>{capa.wmsLayer}</code>
+                                            </td>
                                             <td>
                                                 <div className="acciones-cell">
                                                     <button
@@ -403,6 +541,13 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
                                                             {v.status === 'ok' ? 'OK' : 'Error'}
                                                         </span>
                                                     )}
+                                                    <button
+                                                        className="btn-edit-small"
+                                                        onClick={() => startEdit(capa)}
+                                                        title="Editar capa"
+                                                    >
+                                                        ✏️
+                                                    </button>
                                                     <button className="btn-delete-small" onClick={() => handleDeleteCapa(capa.id, capa.name)} title="Eliminar capa">
                                                         🗑️
                                                     </button>

@@ -14,12 +14,58 @@ interface GruposManagerProps {
     onGruposChange?: () => void;
 }
 
+// ── Validación XML ────────────────────────────────────────────────────────────
+
+type XmlValidStatus = 'idle' | 'loading' | 'ok' | 'error';
+interface XmlValidResult {
+    status: XmlValidStatus;
+    title?: string;
+    layerCount?: number;
+    message?: string;
+}
+
+async function validateGroupXml(serverUrl: string, projectPath: string): Promise<Omit<XmlValidResult, 'status'>> {
+    const url = `${serverUrl}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&MAP=${projectPath}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120_000);
+    try {
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!response.ok) throw new Error(`Servidor respondió HTTP ${response.status}`);
+        const doc = new DOMParser().parseFromString(await response.text(), 'text/xml');
+        const exceptionText = doc.querySelector('ExceptionText')?.textContent;
+        if (exceptionText) throw new Error(`Error del servidor: ${exceptionText}`);
+        const title =
+            doc.querySelector('WMS_Capabilities > Service > Title')?.textContent ??
+            doc.querySelector('Title')?.textContent ??
+            'Sin título';
+        const layers = Array.from(doc.querySelectorAll('Layer > Name')).length;
+        return { title: title.trim(), layerCount: layers };
+    } catch (err: any) {
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') throw new Error('Tiempo de espera agotado (2 min). Verifica la conectividad con el servidor.');
+        throw err;
+    }
+}
+
+// ── Componente ────────────────────────────────────────────────────────────────
+
 const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
     const [grupos, setGrupos] = useState<GrupoResponse[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    // Formulario nuevo grupo
     const [isAddingNew, setIsAddingNew] = useState(false);
     const [newGrupo, setNewGrupo] = useState<GrupoCreate>({ nombre: '', url_proyecto: '' });
+
+    // Estado de edición
+    const [editingId, setEditingId] = useState<number | null>(null);
+    const [editForm, setEditForm] = useState<GrupoCreate>({ nombre: '', url_proyecto: '' });
+    const [editSaving, setEditSaving] = useState(false);
+
+    // Validaciones XML por grupo
+    const [xmlValidations, setXmlValidations] = useState<Map<number, XmlValidResult>>(new Map());
 
     const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; grupoId: number | null; grupoNombre: string }>({
         isOpen: false, grupoId: null, grupoNombre: '',
@@ -27,8 +73,6 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
     const [alertModal, setAlertModal] = useState<{ isOpen: boolean; title: string; message: string; variant?: 'error' | 'warning' | 'success' | 'info' }>({
         isOpen: false, title: '', message: '', variant: 'error',
     });
-
-    const [formError, setFormError] = useState<string | null>(null);
 
     const showAlert = (title: string, message: string, variant: 'error' | 'warning' | 'success' | 'info' = 'error') => {
         setAlertModal({ isOpen: true, title, message, variant });
@@ -38,7 +82,8 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
         setLoading(true);
         setError(null);
         try {
-            setGrupos(await apiService.getGrupos());
+            const data = await apiService.getGrupos();
+            setGrupos(data.sort((a, b) => a.id - b.id));
         } catch (err: any) {
             setError(err.message);
         } finally {
@@ -48,6 +93,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
 
     useEffect(() => { loadGrupos(); }, []);
 
+    // ── Crear ─────────────────────────────────────────────────────────────────
     const handleCreateGrupo = async () => {
         if (!newGrupo.nombre.trim()) {
             showAlert('Campo requerido', 'El nombre del grupo es obligatorio.', 'warning');
@@ -64,6 +110,33 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
         }
     };
 
+    // ── Editar ────────────────────────────────────────────────────────────────
+    const startEdit = (grupo: GrupoResponse) => {
+        setEditingId(grupo.id);
+        setEditForm({ nombre: grupo.nombre, url_proyecto: grupo.url_proyecto ?? '' });
+    };
+
+    const cancelEdit = () => setEditingId(null);
+
+    const handleSaveEdit = async () => {
+        if (!editForm.nombre.trim()) {
+            showAlert('Campo requerido', 'El nombre del grupo es obligatorio.', 'warning');
+            return;
+        }
+        setEditSaving(true);
+        try {
+            await apiService.updateGrupo(editingId!, editForm);
+            setEditingId(null);
+            await loadGrupos();
+            onGruposChange?.();
+        } catch (err: any) {
+            showAlert('Error al actualizar el grupo', err.message, 'error');
+        } finally {
+            setEditSaving(false);
+        }
+    };
+
+    // ── Eliminar ──────────────────────────────────────────────────────────────
     const handleDeleteGrupo = (id: number, nombre: string) => {
         setConfirmModal({ isOpen: true, grupoId: id, grupoNombre: nombre });
     };
@@ -76,6 +149,24 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
             onGruposChange?.();
         } catch (err: any) {
             showAlert('Error al eliminar el grupo', err.message, 'error');
+        }
+    };
+
+    // ── Validar XML ───────────────────────────────────────────────────────────
+    const handleValidateXml = async (grupo: GrupoResponse) => {
+        if (!grupo.url_proyecto) {
+            showAlert('Sin ruta de proyecto', 'Este grupo no tiene una ruta de proyecto configurada.', 'warning');
+            return;
+        }
+        setXmlValidations(prev => new Map(prev).set(grupo.id, { status: 'loading' }));
+        try {
+            const result = await validateGroupXml(config.qgisServer.url, grupo.url_proyecto);
+            setXmlValidations(prev => new Map(prev).set(grupo.id, { status: 'ok', ...result }));
+        } catch (err: any) {
+            setXmlValidations(prev => new Map(prev).set(grupo.id, {
+                status: 'error',
+                message: err.message ?? 'Error desconocido al validar el proyecto',
+            }));
         }
     };
 
@@ -159,9 +250,8 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                     </div>
                     <div className="form-actions">
                         <button className="btn btn-primary" onClick={handleCreateGrupo}>Crear Grupo</button>
-                        <button className="btn btn-secondary" onClick={() => { setIsAddingNew(false); setFormError(null); }}>Cancelar</button>
+                        <button className="btn btn-secondary" onClick={() => setIsAddingNew(false)}>Cancelar</button>
                     </div>
-                    {formError && <div className="form-error-banner">⚠️ {formError}</div>}
                 </div>
             )}
 
@@ -173,29 +263,116 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                     </div>
                 ) : (
                     <div className="grupos-grid">
-                        {grupos.map(grupo => (
-                            <div key={grupo.id} className="grupo-card">
-                                <div className="grupo-header">
-                                    <div className="grupo-info"><h4>{grupo.nombre}</h4></div>
-                                    <button className="btn-delete" onClick={() => handleDeleteGrupo(grupo.id, grupo.nombre)} title="Eliminar grupo">
-                                        🗑️
-                                    </button>
+                        {grupos.map(grupo => {
+                            const xmlVal = xmlValidations.get(grupo.id) ?? { status: 'idle' as XmlValidStatus };
+                            const isEditing = editingId === grupo.id;
+
+                            return (
+                                <div key={grupo.id} className={`grupo-card${isEditing ? ' grupo-card--editing' : ''}`}>
+                                    {isEditing ? (
+                                        /* ── Modo edición ── */
+                                        <div className="grupo-edit-form">
+                                            <div className="form-field">
+                                                <label>Nombre <span className="required">*</span></label>
+                                                <input
+                                                    type="text"
+                                                    className="input"
+                                                    value={editForm.nombre}
+                                                    onChange={e => setEditForm({ ...editForm, nombre: e.target.value })}
+                                                    autoFocus
+                                                />
+                                            </div>
+                                            <div className="form-field">
+                                                <label>Ruta Proyecto QGIS</label>
+                                                <input
+                                                    type="text"
+                                                    className="input"
+                                                    value={editForm.url_proyecto ?? ''}
+                                                    onChange={e => setEditForm({ ...editForm, url_proyecto: e.target.value })}
+                                                    placeholder="C:/mis_proyectos/..."
+                                                />
+                                            </div>
+                                            <div className="form-actions form-actions--compact">
+                                                <button
+                                                    className="btn btn-primary btn--sm"
+                                                    onClick={handleSaveEdit}
+                                                    disabled={editSaving}
+                                                >
+                                                    {editSaving ? 'Guardando…' : '💾 Guardar'}
+                                                </button>
+                                                <button className="btn btn-secondary btn--sm" onClick={cancelEdit} disabled={editSaving}>
+                                                    Cancelar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        /* ── Modo visualización ── */
+                                        <>
+                                            <div className="grupo-header">
+                                                <div className="grupo-info"><h4>{grupo.nombre}</h4></div>
+                                                <div className="grupo-actions">
+                                                    <button
+                                                        className={`btn-validate-xml btn-validate-xml--${xmlVal.status}`}
+                                                        onClick={() => handleValidateXml(grupo)}
+                                                        disabled={xmlVal.status === 'loading' || !grupo.url_proyecto}
+                                                        title={
+                                                            !grupo.url_proyecto
+                                                                ? 'Sin ruta de proyecto configurada'
+                                                                : xmlVal.status === 'idle'
+                                                                    ? 'Validar GetCapabilities XML del proyecto'
+                                                                    : xmlVal.status === 'loading'
+                                                                        ? 'Validando…'
+                                                                        : xmlVal.status === 'ok'
+                                                                            ? `${xmlVal.layerCount} capa(s)`
+                                                                            : xmlVal.message
+                                                        }
+                                                    >
+                                                        {xmlVal.status === 'loading' && <span className="btn-validate__spinner" aria-hidden />}
+                                                        {xmlVal.status === 'idle' && '🔎 XML'}
+                                                        {xmlVal.status === 'ok' && '✅ XML'}
+                                                        {xmlVal.status === 'error' && '❌ XML'}
+                                                    </button>
+                                                    <button className="btn-edit" onClick={() => startEdit(grupo)} title="Editar grupo">✏️</button>
+                                                    <button className="btn-delete" onClick={() => handleDeleteGrupo(grupo.id, grupo.nombre)} title="Eliminar grupo">🗑️</button>
+                                                </div>
+                                            </div>
+
+                                            {grupo.url_proyecto && (
+                                                <div className="grupo-url">
+                                                    <strong>Enlace a proyecto:</strong>
+                                                    <a
+                                                        href={`${config.qgisServer.url}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&MAP=${grupo.url_proyecto}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        style={{ display: 'block', wordBreak: 'break-all', fontSize: '0.85em' }}
+                                                    >
+                                                        Abrir GetCapabilities
+                                                    </a>
+                                                </div>
+                                            )}
+
+                                            {(xmlVal.status === 'ok' || xmlVal.status === 'error') && (
+                                                <div className={`xml-validation-result xml-validation-result--${xmlVal.status}`}>
+                                                    {xmlVal.status === 'ok' ? (
+                                                        <>
+                                                            <span className="xml-result-icon">✅</span>
+                                                            <div>
+                                                                <span className="xml-result-detail">{xmlVal.layerCount} capa(s) publicada(s)</span>
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <span className="xml-result-icon">❌</span>
+                                                            <span>{xmlVal.message}</span>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
                                 </div>
-                                {grupo.url_proyecto && (
-                                    <div className="grupo-url">
-                                        <strong>Enlace a proyecto:</strong>
-                                        <a
-                                            href={`${config.qgisServer.url}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&MAP=${grupo.url_proyecto}`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            style={{ display: 'block', wordBreak: 'break-all', fontSize: '0.85em' }}
-                                        >
-                                            Abrir GetCapabilities
-                                        </a>
-                                    </div>
-                                )}
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
             </div>

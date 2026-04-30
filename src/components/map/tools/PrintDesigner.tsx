@@ -13,12 +13,13 @@ import {
     PAPER_SIZES, DPI_OPTIONS, STANDARD_SCALES,
     buildGetMapUrl, openPrintWindow,
     estimateScale, snapToStandardScale,
-    getPageMm, fmtScale,
+    getPageMm, getPagePx, fmtScale,
     type PrintJob, type PrintOrient, type PrintDPI,
 } from '../../../services/print/printService';
 import { useLayersContext } from '@contexts/LayersContext';
 import type { LayerData } from '@hooks/map';
 import '@styles/PrintDesigner.css';
+import { captureLeafletMap } from '@utils/mapCapture';
 
 // ─── Mapas base disponibles ───────────────────────────────────────────────────
 
@@ -184,6 +185,11 @@ const LiveMapPreview: React.FC<{
                     <span>👁 Activa capas y configura una extensión para ver la vista previa en vivo</span>
                 </div>
             )}
+            {!loading && !error && !noLayers && !url && (
+                <div className="pd-live-overlay pd-live-overlay--empty">
+                    <span className="pd-spin"/> Preparando vista previa…
+                </div>
+            )}
         </div>
     );
 };
@@ -197,7 +203,7 @@ const PrintDesigner: React.FC<PrintDesignerProps> = ({ mapInstance, allLayers, o
     const [orient,     setOrient]     = useState<PrintOrient>('landscape');
     const [customW,    setCustomW]    = useState(297);
     const [customH,    setCustomH]    = useState(420);
-    const [dpi,        setDpi]        = useState<PrintDPI>(150);
+    const [dpi,        setDpi]        = useState<PrintDPI>(300);
     const [baseMapId,  setBaseMapId]  = useState('osm');
     const [useProj,    setUseProj]    = useState<'vector' | 'raster'>('vector');
     const [scaleMode,  setScaleMode]  = useState<'auto' | 'fixed'>('auto');
@@ -216,7 +222,10 @@ const PrintDesigner: React.FC<PrintDesignerProps> = ({ mapInstance, allLayers, o
     const [urlCopied,  setUrlCopied]  = useState(false);
 
     // Vista previa en vivo
-    const [previewMode, setPreviewMode] = useState<'scheme' | 'live'>('scheme');
+    const [previewMode,  setPreviewMode]  = useState<'scheme' | 'live'>('scheme');
+    const [captureMode,  setCaptureMode]  = useState<'wms' | 'canvas'>('canvas');
+    const [capturing,    setCapturing]    = useState(false);
+    const [graticuleStep, setGraticuleStep] = useState(0.25);
     const [liveUrl,     setLiveUrl]     = useState('');
     const [liveLoading, setLiveLoading] = useState(false);
     const [liveError,   setLiveError]   = useState(false);
@@ -291,9 +300,17 @@ const PrintDesigner: React.FC<PrintDesignerProps> = ({ mapInstance, allLayers, o
             subtitle: subtitle || undefined,
             author:   author   || undefined,
             notes:    notes    || undefined,
-            template: template || undefined,
+            template:      template || undefined,
+            graticuleStep: graticuleStep,
         };
-    }, [extent, enabledLayers, paper, orient, customW, customH, dpi, useProj, baseMap, scaleMode, fixedScale, title, subtitle, author, notes, template]);
+    }, [extent, enabledLayers, paper, orient, customW, customH, dpi, useProj, baseMap, scaleMode, fixedScale, title, subtitle, author, notes, template, graticuleStep]);
+
+    // Resetear error al cambiar modo de vista previa
+    useEffect(() => {
+        if (previewMode === 'live') {
+            setLiveError(false);
+        }
+    }, [previewMode]);
 
     // Vista previa WMS en vivo — debounce 700 ms para no saturar el servidor
     useEffect(() => {
@@ -303,6 +320,7 @@ const PrintDesigner: React.FC<PrintDesignerProps> = ({ mapInstance, allLayers, o
         if (!extent || enabledLayers.length === 0) {
             setLiveUrl('');
             setLiveLoading(false);
+            setLiveError(false);
             return;
         }
 
@@ -332,12 +350,32 @@ const PrintDesigner: React.FC<PrintDesignerProps> = ({ mapInstance, allLayers, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [previewMode, JSON.stringify(extent), enabledLayers.map(l => l.id + l.opacity).join(','), paper.id, orient, customW, customH, useProj]);
 
-    const handleOpen = useCallback(() => {
+    const handleOpen = useCallback(async () => {
         const job = buildJob();
         if (!job) { setStatus('err'); setStatusMsg('Sin extensión de mapa disponible.'); return; }
-        const ok = openPrintWindow(job);
-        if (ok) { setStatus('ok'); setStatusMsg('Vista de impresión abierta. Usa Ctrl+P → Guardar como PDF.'); }
-    }, [buildJob]);
+
+        if (captureMode === 'canvas' && mapInstance) {
+            setStatus('busy'); setStatusMsg('Capturando mapa...');
+            setCapturing(true);
+            try {
+                const pageMm = getPageMm(job.paper, job.orientation, job.customMm);
+                const [pw, ph] = getPagePx(pageMm, job.dpi);
+                const dataUrl = await captureLeafletMap(mapInstance, { width: pw, height: ph });
+                if (!dataUrl) throw new Error('No se pudo capturar el canvas del mapa.');
+                const jobWithCapture = { ...job, mapImageDataUrl: dataUrl };
+                const ok = openPrintWindow(jobWithCapture);
+                if (ok) { setStatus('ok'); setStatusMsg('Vista de impresión abierta con captura de pantalla. Usa Ctrl+P → Guardar como PDF.'); }
+            } catch (e: any) {
+                setStatus('err');
+                setStatusMsg(e.message ?? 'Error al capturar el mapa.');
+            } finally {
+                setCapturing(false);
+            }
+        } else {
+            const ok = openPrintWindow(job);
+            if (ok) { setStatus('ok'); setStatusMsg('Vista de impresión abierta. Usa Ctrl+P → Guardar como PDF.'); }
+        }
+    }, [buildJob, captureMode, mapInstance]);
 
     const handleShowUrl = () => {
         const job = buildJob();
@@ -413,20 +451,6 @@ const PrintDesigner: React.FC<PrintDesignerProps> = ({ mapInstance, allLayers, o
                         </div>
 
                         <div className="pd-section">
-                            <div className="pd-section-title">🖨️ Resolución</div>
-                            <div className="pd-dpi-grid">
-                                {DPI_OPTIONS.map(o => (
-                                    <button key={o.value}
-                                        className={`pd-dpi-btn ${dpi === o.value ? 'active' : ''}`}
-                                        onClick={() => setDpi(o.value)}>
-                                        <span className="pd-dpi-n">{o.label}</span>
-                                        <span className="pd-dpi-h">{o.hint}</span>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        <div className="pd-section">
                             <div className="pd-section-title">📏 Escala cartográfica</div>
                             <div className="pd-tab-row">
                                 <button className={`pd-tab ${scaleMode === 'auto' ? 'active' : ''}`} onClick={() => setScaleMode('auto')}>Automática</button>
@@ -449,6 +473,27 @@ const PrintDesigner: React.FC<PrintDesignerProps> = ({ mapInstance, allLayers, o
                                     <span className="pd-hint">Escala 1 : N estándar para cartografía.</span>
                                 </div>
                             )}
+                        </div>
+
+
+                        <div className="pd-section">
+                            <div className="pd-section-title">🔲 Retícula de coordenadas</div>
+                            <div className="pd-dpi-grid">
+                                {[
+                                    { label: 'Sin retícula', value: 0 },
+                                    { label: "15'",          value: 0.25 },
+                                    { label: "30'",          value: 0.5  },
+                                    { label: '1°',           value: 1    },
+                                    { label: '5°',           value: 5    },
+                                ].map(o => (
+                                    <button key={o.value}
+                                        className={`pd-dpi-btn ${graticuleStep === o.value ? 'active' : ''}`}
+                                        onClick={() => setGraticuleStep(o.value)}>
+                                        <span className="pd-dpi-n">{o.label}</span>
+                                        <span className="pd-dpi-h">{o.value > 0 ? `c/${(o.value * 60).toFixed(0)}'` : 'off'}</span>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
 
                         <div className="pd-section">
@@ -573,7 +618,6 @@ const PrintDesigner: React.FC<PrintDesignerProps> = ({ mapInstance, allLayers, o
                                 <div className="pd-preview-tags">
                                     <span>{paper.label}{paper.custom ? ` ${customW}×${customH}mm` : ` (${pageMm[0]}×${pageMm[1]}mm)`}</span>
                                     <span>{orient === 'portrait' ? 'vertical' : 'horizontal'}</span>
-                                    <span>{dpi} dpi</span>
                                     {displayScale && <span>{fmtScale(displayScale)}</span>}
                                 </div>
 
@@ -641,11 +685,27 @@ const PrintDesigner: React.FC<PrintDesignerProps> = ({ mapInstance, allLayers, o
                         {status === 'ok'   && <span className="pd-status pd-status--ok">✓ {statusMsg}</span>}
                     </div>
                     <div className="pd-footer-btns">
+                        <div className="pd-capture-toggle" title="Modo de renderizado del mapa en impresión">
+                            <button
+                                className={`pd-capture-btn ${captureMode === 'canvas' ? 'active' : ''}`}
+                                onClick={() => setCaptureMode('canvas')}
+                                title="Captura el mapa tal como se ve en pantalla (WFS incluido)"
+                            >
+                                📸 Canvas
+                            </button>
+                            <button
+                                className={`pd-capture-btn ${captureMode === 'wms' ? 'active' : ''}`}
+                                onClick={() => setCaptureMode('wms')}
+                                title="Renderiza las capas vía WMS GetMap desde QGIS Server"
+                            >
+                                🗺 WMS
+                            </button>
+                        </div>
                         <button className="pd-btn-cancel" onClick={onClose}>Cancelar</button>
                         <button className="pd-btn-print" onClick={handleOpen}
-                            disabled={!extent || status === 'busy'}>
-                            {status === 'busy'
-                                ? <><span className="pd-spin"/> Generando…</>
+                            disabled={!extent || status === 'busy' || capturing}>
+                            {(status === 'busy' || capturing)
+                                ? <><span className="pd-spin"/> {capturing ? 'Capturando mapa…' : 'Generando…'}</>
                                 : <>🖨️ Abrir vista de impresión</>
                             }
                         </button>
