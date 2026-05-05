@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom';
 import { useMap } from 'react-leaflet';
 import L from 'leaflet';
 import '@styles/SwipeControl.css';
+import { Z_INDEX, SWIPE_CLIP_RETRY_MS } from '@config/constants';
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -19,7 +20,7 @@ export interface SwipeLayerConfig {
     name: string;
     url: string;       // URL base de QGIS Server (ya incluye ?MAP=...)
     layers: string;       // nombre de la capa WMS
-    params?: Record<string, any>;
+    params?: Record<string, unknown>;
 }
 
 interface SwipeControlProps {
@@ -80,8 +81,8 @@ async function queryFeatureInfo(
         const res  = await fetch(`${layerConfig.url}&${params.toString()}`);
         if (!res.ok) return null;
         const json = await res.json();
-        const features: any[] = json?.features ?? [];
-        return features.length > 0 ? (features[0].properties ?? {}) : null;
+        const features: unknown[] = json?.features ?? [];
+        return features.length > 0 ? ((features[0] as { properties?: Record<string, unknown> })?.properties ?? {}) : null;
     } catch {
         return null;
     }
@@ -157,7 +158,7 @@ const SwipeControl: React.FC<SwipeControlProps> = ({ leftLayer, rightLayer, onCl
             format: 'image/png',
             transparent: true,
             opacity: 1,
-            zIndex: 450,
+            zIndex: Z_INDEX.swipeLeft,
             tiled: true,          // ✅ Mejora de renderizado
             buffer: 128,            // ✅ Evita que se corten los WMS en los bordes
             ...(leftLayer.params ?? {}),
@@ -169,7 +170,7 @@ const SwipeControl: React.FC<SwipeControlProps> = ({ leftLayer, rightLayer, onCl
             format: 'image/png',
             transparent: true,
             opacity: 1,
-            zIndex: 451,
+            zIndex: Z_INDEX.swipeRight,
             tiled: true,          // ✅ Mejora de renderizado
             buffer: 128,            // ✅ Evita que se corten los WMS en los bordes
             ...(rightLayer.params ?? {}),
@@ -193,7 +194,7 @@ const SwipeControl: React.FC<SwipeControlProps> = ({ leftLayer, rightLayer, onCl
 
         left.once('load', applyClipWithRetry);
         right.once('load', applyClipWithRetry);
-        setTimeout(applyClipWithRetry, 200); // fallback
+        setTimeout(applyClipWithRetry, SWIPE_CLIP_RETRY_MS); // fallback
 
         // Actualizar clip en movimiento/zoom/resize
         map.on('move zoom resize', applyClipWithRetry);

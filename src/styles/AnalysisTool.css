@@ -1,5 +1,5 @@
-/* AnalysisTool — Herramienta de análisis espacial por buffer / polígono
-   Reutiliza design tokens de variables.css y patrones de ElevationProfile.css */
+/* AnalysisTool — Herramienta de análisis espacial (VERSIÓN MEJORADA)
+   Incluye estilos para todas las nuevas funcionalidades */
 
 /* ── Wrapper y FAB ─────────────────────────────────────────── */
 
@@ -38,8 +38,8 @@
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
-  width: 400px;
-  max-height: 80vh;
+  width: 420px;
+  max-height: 85vh;
   background: var(--color-white);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-lg);
@@ -47,6 +47,7 @@
   display: flex; flex-direction: column;
   animation: at-slide-in var(--transition-base) ease-out;
   overflow: hidden;
+  z-index: 1000;
 }
 
 @keyframes at-slide-in {
@@ -84,7 +85,7 @@
 .at-tab {
   flex: 1; padding: 8px 0;
   background: none; border: none;
-  font-size: 0.8rem; color: var(--color-text-muted); cursor: pointer;
+  font-size: 0.78rem; color: var(--color-text-muted); cursor: pointer;
   border-bottom: 2px solid transparent; margin-bottom: -1px;
   transition: color var(--transition-fast), border-color var(--transition-fast);
 }
@@ -99,6 +100,7 @@
   display: flex; flex-direction: column; gap: 12px;
   font-family: var(--font-body);
   overflow-y: auto;
+  max-height: calc(85vh - 100px);
 }
 
 /* ── Modos de dibujo ───────────────────────────────────────── */
@@ -134,16 +136,6 @@
   color: var(--color-white);
 }
 .at-mode-btn--active svg { color: var(--color-white); }
-.at-mode-btn--danger {
-  border-color: var(--color-danger-border);
-  color: var(--color-danger);
-}
-.at-mode-btn--danger svg { color: var(--color-danger); }
-.at-mode-btn--danger:hover {
-  border-color: var(--color-danger);
-  background: var(--color-danger-light);
-  color: var(--color-danger);
-}
 
 /* ── Buffer distance ───────────────────────────────────────── */
 
@@ -177,6 +169,31 @@
   transition: border-color var(--transition-fast);
 }
 .at-buffer-select:focus { border-color: var(--color-primary-dark); }
+
+/* ── Mediciones ────────────────────────────────────────────── */
+
+.at-measurements {
+  background: var(--color-bg-light);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.at-measurement-item {
+  font-size: 0.78rem;
+  color: var(--color-text-dark);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.at-measurement-item strong {
+  color: var(--color-primary-dark);
+  font-weight: 600;
+}
 
 /* ── Instrucciones ─────────────────────────────────────────── */
 
@@ -225,6 +242,73 @@
   font-size: 0.78rem; color: var(--color-text-dark);
 }
 .at-results-summary strong { color: var(--color-primary-dark); }
+
+/* ── Controles de filtrado ─────────────────────────────────── */
+
+.at-filter-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.at-filter-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--color-gray-400);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  font-family: var(--font-body);
+  color: var(--color-text-dark);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.at-filter-input:focus {
+  border-color: var(--color-primary-dark);
+}
+
+.at-filter-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.76rem;
+  color: var(--color-text-dark);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.at-filter-checkbox input[type="checkbox"] {
+  cursor: pointer;
+}
+
+/* ── Botones de exportación ────────────────────────────────── */
+
+.at-export-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.at-export-btn {
+  flex: 1;
+  padding: 7px 10px;
+  background: var(--color-white);
+  border: 1.5px solid var(--color-primary-dark);
+  border-radius: var(--radius-sm);
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--color-primary-dark);
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: all var(--transition-fast);
+  text-align: center;
+}
+
+.at-export-btn:hover {
+  background: var(--color-primary-dark);
+  color: var(--color-white);
+}
+
+/* ── Tabla de resultados ───────────────────────────────────── */
 
 .at-results-table {
   border-collapse: collapse;
@@ -340,4 +424,282 @@
 }
 .at-new-btn:hover { background: var(--color-primary-dark); color: var(--color-white); }
 
-@media (max-width: 480px) { .at-panel { width: calc(100vw - 32px); } }
+/* ── Estadísticas ──────────────────────────────────────────── */
+
+.at-stats-summary {
+  background: linear-gradient(135deg, var(--color-surface) 0%, var(--color-bg-light) 100%);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+}
+
+.at-stats-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-dark);
+  margin: 0 0 10px 0;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--color-primary-dark);
+}
+
+.at-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.at-stat-card {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  text-align: center;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.at-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.at-stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--color-primary-dark);
+  line-height: 1.2;
+}
+
+.at-stat-label {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+}
+
+/* ── Gráfico de barras ─────────────────────────────────────── */
+
+.at-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.at-chart-row {
+  display: grid;
+  grid-template-columns: 28px 1fr auto 60px;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.76rem;
+}
+
+.at-chart-rank {
+  font-weight: 700;
+  color: var(--color-primary-dark);
+  text-align: center;
+  background: var(--color-surface);
+  border-radius: var(--radius-xs);
+  padding: 2px 4px;
+  font-size: 0.7rem;
+}
+
+.at-chart-label {
+  color: var(--color-text-dark);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.at-chart-bar-container {
+  width: 100%;
+  height: 20px;
+  background: var(--color-gray-200);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+}
+
+.at-chart-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-primary-dark) 0%, var(--color-primary) 100%);
+  border-radius: var(--radius-xs);
+  transition: width 0.3s ease;
+  min-width: 2px;
+}
+
+.at-chart-value {
+  font-weight: 700;
+  color: var(--color-primary-dark);
+  text-align: right;
+  font-size: 0.78rem;
+}
+
+/* ── Distribución por grupo ────────────────────────────────── */
+
+.at-group-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.at-group-stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  transition: background var(--transition-fast);
+}
+
+.at-group-stat-item:hover {
+  background: var(--color-surface);
+}
+
+.at-group-stat-name {
+  color: var(--color-text-dark);
+  font-weight: 500;
+}
+
+.at-group-stat-value {
+  color: var(--color-primary-dark);
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
+
+@media (max-width: 480px) { 
+  .at-panel { 
+    width: calc(100vw - 32px); 
+  }
+  
+  .at-stats-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .at-chart-row {
+    grid-template-columns: 24px 1fr 50px;
+  }
+  
+  .at-chart-bar-container {
+    grid-column: 1 / -1;
+    margin-top: 4px;
+  }
+  
+  .at-export-buttons {
+    flex-direction: column;
+  }
+}
+
+/* ── Accesibilidad ─────────────────────────────────────────── */
+
+.at-panel:focus-within {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2), var(--shadow-lg);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--color-primary-dark);
+  outline-offset: 2px;
+}
+
+/* ── Animaciones suaves ────────────────────────────────────── */
+
+.at-feature-item,
+.at-stat-card,
+.at-group-stat-item {
+  animation: at-fade-in 0.2s ease-out;
+}
+
+@keyframes at-fade-in {
+  from { 
+    opacity: 0; 
+    transform: translateY(4px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+/* ── Estado de carga ───────────────────────────────────────── */
+
+.at-loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 20px;
+  text-align: center;
+}
+
+.at-loading-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--color-gray-200);
+  border-top-color: var(--color-primary-dark);
+  border-radius: 50%;
+  animation: at-spin 0.75s linear infinite;
+}
+
+.at-loading-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-text-dark);
+  margin: 0;
+}
+
+.at-loading-progress {
+  font-size: 0.76rem;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.at-progress-bar {
+  width: 100%;
+  max-width: 220px;
+  height: 5px;
+  background: var(--color-gray-200);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.at-progress-fill {
+  height: 100%;
+  background: var(--color-primary-dark);
+  border-radius: 99px;
+  transition: width 0.3s ease;
+  min-width: 4px;
+}
+
+/* ── Estado vacío ──────────────────────────────────────────── */
+
+.at-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 36px 20px;
+  text-align: center;
+}
+
+.at-empty-icon {
+  font-size: 2rem;
+  opacity: 0.4;
+}
+
+.at-empty-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--color-text-dark);
+  margin: 0;
+}
+
+.at-empty-desc {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  margin: 0;
+  max-width: 260px;
+  line-height: 1.4;
+}

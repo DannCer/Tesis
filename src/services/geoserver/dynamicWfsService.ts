@@ -1,7 +1,7 @@
 /**
  * @fileoverview Servicio WFS dinámico que soporta múltiples proyectos QGIS
  * @module services/dynamicWfsService
- * 
+ *
  * Este servicio extiende la funcionalidad del WFSService original para soportar
  * múltiples proyectos QGIS. En lugar de usar siempre el mismo proyecto hardcoded,
  * construye las URLs dinámicamente según el proyecto asociado a cada grupo.
@@ -24,7 +24,7 @@ class DynamicWFSService {
     private capabilitiesCache = new Map<string, { xml: string; ts: number }>();
     private readonly capabilitiesTtlMs = 5 * 60 * 1000;
     private layerExtentCache = new Map<string, [number, number][] | null>();
-    
+
     // Cache de mapeo grupo -> URL de proyecto
     private groupProjectMap = new Map<string, string>();
 
@@ -49,18 +49,20 @@ class DynamicWFSService {
     }
 
     /**
-     * Obtiene la URL del proyecto QGIS para un grupo específico
-     * Si no se encuentra, usa el proyecto por defecto
+     * Obtiene la URL del proyecto QGIS para un grupo específico.
+     * Retorna null si el grupo no tiene proyecto configurado,
+     * para evitar usar un fallback incorrecto que cause errores 400.
      */
-    private getProjectUrlForGroup(groupName: string): string {
+    private getProjectUrlForGroup(groupName: string): string | null {
         const projectPath = this.groupProjectMap.get(groupName);
-        
+
         if (!projectPath) {
-            logger.warn(`No se encontró proyecto para el grupo "${groupName}", usando proyecto por defecto`);
-            return config.qgisServer.wfsUrl; // Fallback al proyecto por defecto
+            // Sin url_proyecto en la BD -> no hacer peticion al servidor.
+            // El fallback al proyecto por defecto causaria 400 porque la capa no existe en el.
+            logger.debug(`Grupo "${groupName}" sin proyecto configurado. Omitiendo.`);
+            return null;
         }
 
-        // Construir la URL completa con MAP=
         const baseUrl = config.qgisServer.url;
         return buildQgisUrl(baseUrl, projectPath);
     }
@@ -84,27 +86,25 @@ class DynamicWFSService {
                 srsName = 'EPSG:4326',
             } = options;
 
-            // Obtener la URL del proyecto correcto para este grupo
             const baseUrl = this.getProjectUrlForGroup(groupName);
+            if (!baseUrl) return { features: [] };
 
-            // Construir parámetros WFS
-            const params = new URLSearchParams({
-                SERVICE: 'WFS',
-                VERSION: '1.1.0',
-                REQUEST: 'GetFeature',
-                TYPENAME: layerName,
-                outputFormat: 'application/vnd.geo+json',
-                srsName,
-            });
-            // Solo mandar maxFeatures si el .env lo define (> 0).
-            // Si es 0, QGIS Server usa su propio límite configurado.
-            if (maxFeatures > 0) params.set('maxFeatures', maxFeatures.toString());
+            // Construir query string manualmente con encodeURIComponent
+            // para evitar que URLSearchParams codifique espacios como + (rompe QGIS)
+            const parts: string[] = [
+                'SERVICE=WFS',
+                'VERSION=1.1.0',
+                'REQUEST=GetFeature',
+                `TYPENAME=${encodeURIComponent(layerName)}`,
+                `outputFormat=${encodeURIComponent('application/vnd.geo+json')}`,
+                `srsName=${encodeURIComponent(srsName)}`,
+            ];
 
-            if (cql_filter) params.append('CQL_FILTER', cql_filter);
-            if (propertyName) params.append('PROPERTYNAME', propertyName);
+            if (maxFeatures > 0) parts.push(`maxFeatures=${maxFeatures}`);
+            if (cql_filter) parts.push(`CQL_FILTER=${encodeURIComponent(cql_filter)}`);
+            if (propertyName) parts.push(`PROPERTYNAME=${encodeURIComponent(propertyName)}`);
 
-            // Combinar URL base (que ya tiene ?) con los nuevos parámetros
-            const url = `${baseUrl}&${params.toString()}`;
+            const url = `${baseUrl}&${parts.join('&')}`;
             logger.debug(`WFS Request [${groupName}]:`, url);
 
             const controller = new AbortController();
@@ -149,19 +149,20 @@ class DynamicWFSService {
         try {
             const now = Date.now();
             const cached = this.capabilitiesCache.get(groupName);
-            
+
             if (cached && (now - cached.ts) < this.capabilitiesTtlMs) {
                 return cached.xml;
             }
 
             const baseUrl = this.getProjectUrlForGroup(groupName);
+            if (!baseUrl) return '';
+
             const url = `${baseUrl}&SERVICE=WFS&VERSION=1.1.0&REQUEST=GetCapabilities`;
-            
             logger.debug(`GetCapabilities [${groupName}]:`, url);
-            
+
             const response = await fetch(url);
             if (!response.ok) throw new Error(`Error GetCapabilities: ${response.status}`);
-            
+
             const xml = await response.text();
             this.capabilitiesCache.set(groupName, { xml, ts: now });
             return xml;
@@ -181,20 +182,22 @@ class DynamicWFSService {
     ): Promise<any> {
         try {
             const baseUrl = this.getProjectUrlForGroup(groupName);
-            const params = new URLSearchParams({
-                SERVICE: 'WFS',
-                VERSION: '1.1.0',
-                REQUEST: 'GetFeature',
-                TYPENAME: layerName,
-                FEATUREID: featureId,
-                outputFormat: 'application/vnd.geo+json',
-            });
-            
-            const url = `${baseUrl}&${params.toString()}`;
+            if (!baseUrl) return null;
+
+            const parts: string[] = [
+                'SERVICE=WFS',
+                'VERSION=1.1.0',
+                'REQUEST=GetFeature',
+                `TYPENAME=${encodeURIComponent(layerName)}`,
+                `FEATUREID=${encodeURIComponent(featureId)}`,
+                `outputFormat=${encodeURIComponent('application/vnd.geo+json')}`,
+            ];
+
+            const url = `${baseUrl}&${parts.join('&')}`;
             const response = await fetch(url, { headers: { Accept: 'application/json' } });
-            
+
             if (!response.ok) throw new Error(`Error al obtener feature ${featureId}`);
-            
+
             const data = await response.json();
             return data.features[0] ?? null;
         } catch (error) {
@@ -214,19 +217,21 @@ class DynamicWFSService {
     ): Promise<any> {
         try {
             const baseUrl = this.getProjectUrlForGroup(groupName);
-            const params = new URLSearchParams({
-                SERVICE: 'WFS',
-                VERSION: '1.1.0',
-                REQUEST: 'GetFeature',
-                TYPENAME: layerName,
-                outputFormat: 'application/vnd.geo+json',
-                srsName,
-                BBOX: `${bbox.join(',')},${srsName}`,
-            });
-            
-            const url = `${baseUrl}&${params.toString()}`;
+            if (!baseUrl) return { features: [] };
+
+            const parts: string[] = [
+                'SERVICE=WFS',
+                'VERSION=1.1.0',
+                'REQUEST=GetFeature',
+                `TYPENAME=${encodeURIComponent(layerName)}`,
+                `outputFormat=${encodeURIComponent('application/vnd.geo+json')}`,
+                `srsName=${encodeURIComponent(srsName)}`,
+                `BBOX=${encodeURIComponent(`${bbox.join(',')},${srsName}`)}`,
+            ];
+
+            const url = `${baseUrl}&${parts.join('&')}`;
             const response = await fetch(url, { headers: { Accept: 'application/json' } });
-            
+
             if (!response.ok) throw new Error(`Error bbox: ${response.status}`);
             return response.json();
         } catch (error) {
@@ -248,13 +253,13 @@ class DynamicWFSService {
                 propertyName: fieldName,
                 maxFeatures: this.maxFeatures,
             });
-            
+
             const unique = new Set<any>();
             data.features.forEach((f: any) => {
                 const v = f.properties[fieldName];
                 if (v !== null && v !== undefined) unique.add(v);
             });
-            
+
             return Array.from(unique).sort();
         } catch (error) {
             logger.error('Error en getUniqueValues:', error);
@@ -263,7 +268,73 @@ class DynamicWFSService {
     }
 
     /**
-     * Cuenta features
+     * Detecta el nombre del campo de geometría de una capa via DescribeFeatureType.
+     * Cachea el resultado por capa. Retorna 'geometry' como fallback seguro.
+     */
+    private geomFieldCache = new Map<string, string>();
+
+    async getGeometryFieldName(layerName: string, groupName: string): Promise<string> {
+        const cacheKey = `${groupName}:${layerName}`;
+        if (this.geomFieldCache.has(cacheKey)) {
+            return this.geomFieldCache.get(cacheKey)!;
+        }
+
+        try {
+            const baseUrl = this.getProjectUrlForGroup(groupName);
+            if (!baseUrl) return 'geometry';
+
+            const url = `${baseUrl}&SERVICE=WFS&VERSION=1.1.0&REQUEST=DescribeFeatureType&TYPENAME=${encodeURIComponent(layerName)}&outputFormat=${encodeURIComponent('application/json')}`;
+            const resp = await fetch(url);
+            if (!resp.ok) return 'geometry';
+
+            const contentType = resp.headers.get('content-type') ?? '';
+
+            // QGIS puede responder JSON o XML dependiendo de la versión
+            if (contentType.includes('json')) {
+                const json = await resp.json();
+                const props = json?.featureTypes?.[0]?.properties ?? [];
+                const geomField = props.find((p: any) =>
+                    p.type?.toLowerCase().includes('geometry') ||
+                    p.type?.toLowerCase().includes('gml') ||
+                    ['geometry', 'the_geom', 'geom', 'shape', 'wkb_geometry'].includes(p.name?.toLowerCase())
+                );
+                const name = geomField?.name ?? 'geometry';
+                this.geomFieldCache.set(cacheKey, name);
+                return name;
+            } else {
+                // Parsear XML de DescribeFeatureType
+                const xml = await resp.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(xml, 'text/xml');
+                const elements = Array.from(doc.querySelectorAll('element'));
+                const geomCandidates = ['geometry', 'the_geom', 'geom', 'shape', 'wkb_geometry'];
+                const geomEl = elements.find(el => {
+                    const type = (el.getAttribute('type') ?? '').toLowerCase();
+                    const name = (el.getAttribute('name') ?? '').toLowerCase();
+                    return type.includes('geometryproperty') || type.includes('gml:') ||
+                        geomCandidates.includes(name);
+                });
+                const name = geomEl?.getAttribute('name') ?? 'geometry';
+                this.geomFieldCache.set(cacheKey, name);
+                return name;
+            }
+        } catch {
+            return 'geometry';
+        }
+    }
+
+    /**
+     * Cuenta features usando CQL filter espacial sin límite.
+     *
+     * QGIS Server no incluye `totalFeatures` en su respuesta GeoJSON, por lo que
+     * contamos directamente los features devueltos.
+     *
+     * IMPORTANTE: Cuando hay un CQL_FILTER espacial (INTERSECTS / DWithin), NO se
+     * usa PROPERTYNAME porque QGIS Server necesita acceder a la geometría para
+     * evaluar el predicado espacial; omitirla provoca que el filtro se ignore y
+     * se devuelvan 0 features aunque haya intersección real.
+     *
+     * Sin filtro espacial se optimiza con PROPERTYNAME solo el campo ID.
      */
     async getFeatureCount(
         layerName: string,
@@ -272,23 +343,75 @@ class DynamicWFSService {
     ): Promise<number> {
         try {
             const baseUrl = this.getProjectUrlForGroup(groupName);
-            const params = new URLSearchParams({
-                SERVICE: 'WFS',
-                VERSION: '1.1.0',
-                REQUEST: 'GetFeature',
-                TYPENAME: layerName,
-                resultType: 'hits',
-            });
-            
-            if (cql_filter) params.append('CQL_FILTER', cql_filter);
-            
-            const url = `${baseUrl}&${params.toString()}`;
+            if (!baseUrl) return 0;
+
+            // Detectar si el filtro es espacial (INTERSECTS / DWithin)
+            const isSpatialFilter = cql_filter
+                ? /INTERSECTS|DWITHIN|BBOX|CONTAINS|WITHIN|TOUCHES|CROSSES/i.test(cql_filter)
+                : false;
+
+            // Paso 1: optimización con PROPERTYNAME solo cuando NO hay filtro espacial
+            let propertyName: string | null = null;
+            if (!isSpatialFilter) {
+                try {
+                    const sampleParts = [
+                        'SERVICE=WFS', 'VERSION=1.1.0', 'REQUEST=GetFeature',
+                        `TYPENAME=${encodeURIComponent(layerName)}`,
+                        `outputFormat=${encodeURIComponent('application/vnd.geo+json')}`,
+                        'maxFeatures=1',
+                    ];
+                    const sampleUrl = `${baseUrl}&${sampleParts.join('&')}`;
+                    const sampleResp = await fetch(sampleUrl);
+                    if (sampleResp.ok) {
+                        const sampleData = await sampleResp.json();
+                        const props = sampleData.features?.[0]?.properties ?? {};
+                        const idCandidates = ['id', 'fid', 'gid', 'objectid', 'ogc_fid', 'pk'];
+                        const keys = Object.keys(props);
+                        propertyName =
+                            idCandidates.find(k => keys.includes(k)) ??
+                            idCandidates.find(k => keys.map(x => x.toLowerCase()).includes(k)) ??
+                            keys[0] ?? null;
+                    }
+                } catch {
+                    // Sin PROPERTYNAME funciona igual, solo es más pesado
+                }
+            }
+
+            // Paso 2: conteo completo sin maxFeatures
+            // srsName=EPSG:4326 es crítico: le dice a QGIS en qué SRS están
+            // las coordenadas del WKT dentro del CQL_FILTER (lon/lat en grados).
+            // Sin esto, QGIS puede interpretar las coords en el SRS nativo de la
+            // capa (p.ej. EPSG:32614 en metros) y el predicado espacial falla.
+            const parts: string[] = [
+                'SERVICE=WFS', 'VERSION=1.1.0', 'REQUEST=GetFeature',
+                `TYPENAME=${encodeURIComponent(layerName)}`,
+                `outputFormat=${encodeURIComponent('application/vnd.geo+json')}`,
+                'srsName=EPSG%3A4326',
+            ];
+
+            // Solo optimizar con PROPERTYNAME cuando no hay filtro espacial
+            if (propertyName && !isSpatialFilter) {
+                parts.push(`PROPERTYNAME=${encodeURIComponent(propertyName)}`);
+            }
+
+            if (cql_filter) {
+                parts.push(`CQL_FILTER=${encodeURIComponent(cql_filter)}`);
+            }
+
+            const url = `${baseUrl}&${parts.join('&')}`;
+            logger.debug(`getFeatureCount URL:`, url);
+
             const response = await fetch(url);
-            
-            if (!response.ok) throw new Error(`Error al contar: ${response.status}`);
-            
+            if (!response.ok) {
+                if (response.status === 400) {
+                    logger.warn(`getFeatureCount [${layerName}]: 400. CQL incompatible o capa fuera del proyecto.`);
+                    return 0;
+                }
+                throw new Error(`Error al contar: ${response.status}`);
+            }
+
             const data = await response.json();
-            return data.totalFeatures ?? data.numberMatched ?? 0;
+            return data.features?.length ?? 0;
         } catch (error) {
             logger.error('Error en getFeatureCount:', error);
             throw error;
@@ -308,7 +431,7 @@ class DynamicWFSService {
             if (Array.isArray(value)) return `${field} IN (${value.map(v => `'${v}'`).join(',')})`;
             return `${field} = ${value}`;
         });
-        
+
         return this.getFeatures(layerName, groupName, {
             cql_filter: cqlParts.join(' AND '),
         });
@@ -323,12 +446,14 @@ class DynamicWFSService {
     ): Promise<[number, number][] | null> {
         try {
             const cacheKey = `${groupName}:${layerName}`;
-            
+
             if (this.layerExtentCache.has(cacheKey)) {
                 return this.layerExtentCache.get(cacheKey) ?? null;
             }
 
             const capXml = await this.getCapabilities(groupName);
+            if (!capXml) return null;
+
             const parser = new DOMParser();
             const xmlDoc = parser.parseFromString(capXml, 'text/xml');
 
@@ -341,12 +466,11 @@ class DynamicWFSService {
             if (target) {
                 const bbox = target.querySelector('WGS84BoundingBox') ??
                     target.querySelector('LatLongBoundingBox');
-                    
+
                 if (bbox) {
-                    // WFS 1.1: LowerCorner / UpperCorner en "lon lat"
                     const lower = bbox.querySelector('LowerCorner')?.textContent?.trim().split(' ');
                     const upper = bbox.querySelector('UpperCorner')?.textContent?.trim().split(' ');
-                    
+
                     if (lower && upper) {
                         const extent: [number, number][] = [
                             [parseFloat(lower[1]), parseFloat(lower[0])],
@@ -355,8 +479,7 @@ class DynamicWFSService {
                         this.layerExtentCache.set(cacheKey, extent);
                         return extent;
                     }
-                    
-                    // WFS 1.0: atributos minx, miny
+
                     const minx = parseFloat(bbox.getAttribute('minx') ?? '0');
                     const miny = parseFloat(bbox.getAttribute('miny') ?? '0');
                     const maxx = parseFloat(bbox.getAttribute('maxx') ?? '0');
@@ -366,7 +489,7 @@ class DynamicWFSService {
                     return extent;
                 }
             }
-            
+
             this.layerExtentCache.set(cacheKey, null);
             return null;
         } catch (error) {
