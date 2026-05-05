@@ -61,15 +61,27 @@ export async function captureLeafletMap(
     const mapW      = mapRect.width;
     const mapH      = mapRect.height;
 
-    // Escala para pasar de tamaño actual del mapa → tamaño de salida
-    const scaleX = options.width  / mapW;
-    const scaleY = options.height / mapH;
+    // Escala UNIFORME para mantener proporciones del mapa.
+    // Antes se calculaban scaleX y scaleY independientes → distorsión cuando
+    // el ratio del mapa y el del papel no coinciden (ej: mapa 16:9, papel A4).
+    const scale  = Math.min(options.width / mapW, options.height / mapH);
+
+    // Centra la captura en el canvas de salida
+    const offsetX = (options.width  - mapW * scale) / 2;
+    const offsetY = (options.height - mapH * scale) / 2;
 
     const canvas  = document.createElement('canvas');
     canvas.width  = options.width;
     canvas.height = options.height;
     const ctx     = canvas.getContext('2d')!;
-    ctx.scale(scaleX, scaleY);
+
+    // Fondo blanco para el espacio sobrante (letterbox/pillarbox)
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, options.width, options.height);
+
+    ctx.save();
+    ctx.translate(offsetX, offsetY);
+    ctx.scale(scale, scale);
 
     // ── 1. Tiles de mapa base ─────────────────────────────────────────────────
     const tilePane = container.querySelector('.leaflet-tile-pane') as HTMLElement | null;
@@ -161,6 +173,8 @@ export async function captureLeafletMap(
     }
 
     logger.debug('Captura del mapa completada:', `${canvas.width}×${canvas.height}px`);
+
+    ctx.restore();   // ← deshace translate + scale uniforme
 
     try {
         return canvas.toDataURL('image/png');
