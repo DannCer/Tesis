@@ -1706,11 +1706,14 @@
     .svc-url-input { font-size: 0.72rem; }
 }
 /* ── Toolbar slot: herramientas ancladas al lado derecho del menú ───────────── */
+/* ── Toolbar slot: herramientas ancladas al lado derecho del menú ─────────── */
+/* El slot vive FUERA de .desktop-menu para seguir visible en móvil.           */
+
 .layer-menu-toolbar-slot {
     position: absolute;
     top: 70px;
-    left: 100%;          /* se posiciona justo a la derecha del menú */
-    margin-left: 8px;    /* separación del borde/botón de colapso */
+    left: 420px;         /* ancho del menú de escritorio */
+    margin-left: 8px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -1718,22 +1721,54 @@
     pointer-events: auto;
 }
 
-/* Cuando el menú está colapsado el slot sigue visible en la nueva posición */
-.layer-menu.collapsed .layer-menu-toolbar-slot {
-    /* collapsed desplaza el menú con transform: translateX(-320px),
-       por lo que el slot (que es hijo) se mueve con él. Necesitamos
-       compensar para que quede siempre junto al botón de colapso. */
-    left: 100%;
+/* Cuando el menú está colapsado se desplaza −320px; compensamos */
+.layer-menu-toolbar-slot.slot-collapsed {
+    left: calc(420px - 320px + 8px);   /* = 108px */
 }
-/* ── Toolbar slot: herramientas ancladas al lado derecho del menú ─────────── */
-.layer-menu-toolbar-slot {
-    position: absolute;
-    top: 70px;
-    left: 100%;
-    margin-left: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    z-index: 1050;
-    pointer-events: auto;
+
+/* ── Tablet (769 px – 1024 px): menú más estrecho, ajustar posición ── */
+@media (max-width: 1024px) and (min-width: 769px) {
+    .layer-menu-toolbar-slot {
+        top: 8px;
+    }
+}
+
+/* ── Móvil (≤ 768 px): slot flotante esquina superior-izquierda del MAPA ─── */
+/* position: absolute → relativo a .map-view-container-full, que arranca        */
+/* justo debajo del header de la app. Así top:8px es 8px dentro del mapa,       */
+/* no 8px desde el viewport (que caería dentro del header rojo).                 */
+@media (max-width: 768px) {
+    .layer-menu-toolbar-slot {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        margin-left: 0;
+        flex-direction: row;      /* botones en fila horizontal */
+        gap: 6px;
+    }
+    .layer-menu-toolbar-slot.slot-collapsed {
+        left: 8px;                /* sin compensación en móvil */
+    }
+}
+
+/* ── Pantallas muy pequeñas (< 480 px) ───────────────────────────────── */
+@media (max-width: 479px) {
+    .layer-menu-toolbar-slot {
+        top: 6px;
+        left: 6px;
+        gap: 4px;
+    }
+}
+
+/* ── 4K+ (≥ 3840 px) ─────────────────────────────────────────────────── */
+@media (min-width: 3840px) {
+    .layer-menu-toolbar-slot {
+        top: 120px;
+        left: 460px;
+        margin-left: 14px;
+        gap: 14px;
+    }
+    .layer-menu-toolbar-slot.slot-collapsed {
+        left: calc(460px - 320px + 14px);
+    }
 }

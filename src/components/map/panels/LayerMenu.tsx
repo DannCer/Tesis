@@ -1199,8 +1199,17 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({
                     </button>
                 </div>
                 {!collapsed && menuContent}
-                {toolbarSlot && <div className="layer-menu-toolbar-slot">{toolbarSlot}</div>}
             </div>
+
+            {/* Toolbar de herramientas — renderizado fuera del desktop-menu para
+                que permanezca visible en móvil (donde desktop-menu se oculta).
+                La clase `slot-collapsed` permite al CSS compensar el desplazamiento
+                del menú colapsado. */}
+            {toolbarSlot && (
+                <div className={`layer-menu-toolbar-slot${collapsed ? ' slot-collapsed' : ''}`}>
+                    {toolbarSlot}
+                </div>
+            )}
 
             {/* Bottom sheet móvil */}
             <div className={`layer-menu mobile-menu ${menuOpen ? 'open' : ''}`}>

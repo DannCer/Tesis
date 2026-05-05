@@ -125,6 +125,14 @@ const SwipePanel: React.FC<SwipePanelProps> = ({ active, onActivate, onDeactivat
                 onClick={() => active ? handleDeactivate() : setOpen(o => !o)}
                 title={active ? 'Cerrar comparador' : 'Comparar capas'}
             >                
+                {/* Icono: solo visible en móvil */}
+                <svg className="swipe-fab-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <line x1="12" y1="3" x2="12" y2="21" />
+                    <polyline points="8 9 4.5 12 8 15" />
+                    <polyline points="16 9 19.5 12 16 15" />
+                </svg>
+                {/* Label: solo visible en escritorio */}
                 <span className="swipe-fab-label">
                     {active ? 'Cerrar comparador' : 'Comparar capas'}
                 </span>
