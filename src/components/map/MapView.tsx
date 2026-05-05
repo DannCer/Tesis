@@ -597,6 +597,7 @@ const MapView: React.FC = () => {
                 className="leaflet-map-full"
                 preferCanvas={true}
                 doubleClickZoom={false}
+                zoomControl={false}
             >
                 <MapInstanceCapture onReady={handleMapReady} />
 

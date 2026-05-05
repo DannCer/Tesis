@@ -32,7 +32,10 @@
   border-color: var(--color-primary-dark);
 }
 
-/* ── Panel flotante ────────────────────────────────────────── */
+/* ── Visibilidad icono / label según pantalla ──────────────── */
+/* Desktop: ocultar icono, mostrar label */
+.ep-fab-icon  { display: none; }
+.ep-fab-label { display: inline; }
 
 .ep-panel {
   position: absolute;
@@ -183,4 +186,69 @@
 .ep-stat-label { display: block; font-size: 0.65rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 2px; }
 .ep-stat-val   { display: block; font-size: 0.75rem; font-weight: 700; color: var(--color-primary-dark); }
 
-@media (max-width: 480px) { .ep-panel { width: calc(100vw - 32px); } }
+/* ── Responsive ────────────────────────────────────────────── */
+
+/* Tablet / Móvil (≤ 768 px) */
+@media (max-width: 768px) {
+  /* FAB → icono circular sin texto */
+  .ep-fab-label { display: none; }
+  .ep-fab-icon  { display: block; flex-shrink: 0; }
+  .ep-fab {
+    width: 44px; height: 44px;
+    border-radius: var(--radius-full);
+    padding: 0;
+    justify-content: center;
+    gap: 0;
+  }
+
+  /* Panel → ocupa casi todo el ancho y se ancla desde abajo */
+  .ep-panel {
+    position: fixed;
+    width: calc(100vw - 24px);
+    left: 12px; right: 12px;
+    top: auto;
+    bottom: 80px;
+    max-height: 72vh;
+    overflow-y: auto;
+    border-radius: var(--radius-md) var(--radius-md) var(--radius-sm) var(--radius-sm);
+  }
+
+  /* Gráfica más compacta */
+  .ep-chart-svg { height: 140px; }
+  .ep-stats { grid-template-columns: repeat(2, 1fr); }
+
+  /* Selector de resolución en columna */
+  .ep-resolution-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+}
+
+/* Pantallas muy pequeñas (< 480 px) */
+@media (max-width: 479px) {
+  .ep-fab   { width: 40px; height: 40px; }
+  .ep-panel {
+    width: calc(100vw - 16px);
+    left: 8px; right: 8px;
+    bottom: 72px;
+    max-height: 65vh;
+  }
+  .ep-stats { grid-template-columns: 1fr 1fr; }
+  .ep-chart-svg { height: 110px; }
+}
+
+/* 4K+ (≥ 3840 px) */
+@media (min-width: 3840px) {
+  .ep-fab {
+    padding: 14px 24px;
+    font-size: 1.1rem;
+    border-radius: var(--radius-md);
+    border-width: 2px;
+    gap: 10px;
+  }
+  .ep-panel   { width: 560px; }
+  .ep-header  { padding: 14px 20px; font-size: 1.05rem; }
+  .ep-icon-btn { width: 36px; height: 36px; font-size: 1.1rem; }
+  .ep-chart-svg { height: 280px; }
+  .ep-draw-btn  { padding: 12px 20px; font-size: 1rem; }
+  .ep-stat-label { font-size: 0.85rem; }
+  .ep-stat-val   { font-size: 1rem; }
+  .ep-stats { gap: 10px; }
+}

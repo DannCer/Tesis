@@ -117,7 +117,11 @@
 }
 .swipe-fab-active:hover { background: var(--color-primary); color: var(--color-white); }
 
-.swipe-fab-label { font-size: 0.76rem; }
+/* ── Visibilidad icono / label según pantalla ──────────────── */
+
+/* Desktop: ocultar icono, mostrar label */
+.swipe-fab-icon { display: none; }
+.swipe-fab-label { display: inline; }
 
 .swipe-active-dot {
   width: 7px; height: 7px;
@@ -217,9 +221,66 @@
 
 /* ── Responsive ────────────────────────────────────────────── */
 
+/* Tablet (481 px – 768 px) */
 @media (max-width: 768px) {
+  /* FAB → icono circular con tooltip nativo (title) */
   .swipe-fab-label { display: none; }
-  .swipe-fab { width: 44px; height: 44px; border-radius: var(--radius-full); padding: 0; justify-content: center; box-shadow: 0 3px 12px rgba(0,0,0,0.22); }
-  .swipe-config-panel { width: calc(100vw - 24px); right: 0; position: fixed; bottom: 145px; }
+  .swipe-fab-icon  { display: block; flex-shrink: 0; }
+  .swipe-fab {
+    width: 44px; height: 44px;
+    border-radius: var(--radius-full);
+    padding: 0;
+    justify-content: center;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.22);
+  }
+  /* Punto de estado también en móvil */
+  .swipe-active-dot { top: 4px; right: 4px; }
+
+  /* Panel → ancla en la parte inferior de la pantalla */
+  .swipe-config-panel {
+    position: fixed;
+    width: calc(100vw - 24px);
+    left: 12px; right: 12px;
+    bottom: 80px;           /* por encima del FAB móvil del menú de capas */
+    border-radius: var(--radius-md) var(--radius-md) var(--radius-sm) var(--radius-sm);
+    max-height: 80vh;
+    overflow-y: auto;
+  }
   .swipe-label { font-size: 0.65rem; max-width: 90px; padding: 3px 6px; }
+}
+
+/* Pantallas muy pequeñas (< 480 px) */
+@media (max-width: 479px) {
+  .swipe-fab { width: 40px; height: 40px; }
+  .swipe-config-panel {
+    width: calc(100vw - 16px);
+    left: 8px; right: 8px;
+    bottom: 72px;
+  }
+  .swipe-config-body { padding: 10px; gap: 8px; }
+}
+
+/* 4K+ (≥ 3840 px) */
+@media (min-width: 3840px) {
+  .swipe-fab {
+    padding: 14px 24px;
+    font-size: 1.1rem;
+    border-radius: var(--radius-md);
+    border-width: 2px;
+    gap: 10px;
+  }
+  .swipe-fab-label { font-size: 1.05rem; }
+  .swipe-active-dot { width: 11px; height: 11px; }
+
+  .swipe-config-panel { width: 440px; }
+  .swipe-config-header { padding: 16px 20px; font-size: 1.1rem; }
+  .swipe-config-body   { padding: 20px; gap: 14px; }
+  .swipe-select        { padding: 10px 12px; font-size: 1rem; }
+  .swipe-activate-btn  { padding: 14px 20px; font-size: 1.05rem; }
+  .swipe-hint          { font-size: 0.95rem; padding: 10px 12px; }
+  .swipe-side-badge    { font-size: 0.9rem; padding: 4px 10px; }
+
+  .swipe-handle { width: 52px; height: 52px; }
+  .swipe-label  { font-size: 0.95rem; max-width: 200px; padding: 6px 14px; }
+  .swipe-close-btn { width: 36px; height: 36px; font-size: 1rem; }
 }
