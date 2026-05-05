@@ -1,0 +1,410 @@
+/* AnalysisHistory.css - Estilos para el componente de historial */
+
+.ah-container {
+  background: var(--color-white);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--color-gray);
+  overflow: hidden;
+  max-width: 500px;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.ah-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-gray);
+}
+
+.ah-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text-dark);
+  margin: 0;
+}
+
+.ah-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ah-clear-btn {
+  padding: 4px 10px;
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-400);
+  border-radius: var(--radius-xs);
+  font-size: 0.75rem;
+  color: var(--color-text-dark);
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: all var(--transition-fast);
+}
+
+.ah-clear-btn:hover {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  background: var(--color-danger-light);
+}
+
+.ah-close-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-gray-600);
+  font-size: 1.1rem;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  line-height: 1;
+  transition: all var(--transition-fast);
+}
+
+.ah-close-btn:hover {
+  background: var(--color-gray-200);
+  color: var(--color-text-strong);
+}
+
+/* ── Estado vacío ───────────────────────────────────────────────────────── */
+
+.ah-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.ah-empty svg {
+  color: var(--color-gray-400);
+  margin-bottom: 16px;
+}
+
+.ah-empty p {
+  margin: 4px 0;
+  font-size: 0.85rem;
+  color: var(--color-text-dark);
+}
+
+.ah-empty-hint {
+  font-size: 0.75rem !important;
+  color: var(--color-text-muted) !important;
+  max-width: 280px;
+}
+
+/* ── Lista de análisis ──────────────────────────────────────────────────── */
+
+.ah-list {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.ah-item {
+  border-bottom: 1px solid var(--color-gray-200);
+  transition: background var(--transition-fast);
+}
+
+.ah-item:last-child {
+  border-bottom: none;
+}
+
+.ah-item:hover {
+  background: var(--color-bg-light);
+}
+
+/* ── Header del item ────────────────────────────────────────────────────── */
+
+.ah-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ah-item-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ah-item-mode {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-primary-dark);
+}
+
+.ah-item-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+
+.ah-item-time {
+  font-weight: 500;
+}
+
+.ah-item-buffer {
+  color: var(--color-text-muted);
+}
+
+.ah-expand-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-gray-600);
+  font-size: 0.7rem;
+  padding: 4px 8px;
+  border-radius: var(--radius-xs);
+  transition: all var(--transition-fast);
+}
+
+.ah-expand-btn:hover {
+  background: var(--color-gray-200);
+  color: var(--color-text-strong);
+}
+
+/* ── Resumen del item ───────────────────────────────────────────────────── */
+
+.ah-item-summary {
+  display: flex;
+  gap: 16px;
+  padding: 0 16px 12px 16px;
+}
+
+.ah-summary-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ah-summary-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-primary-dark);
+  line-height: 1;
+}
+
+.ah-summary-label {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* ── Detalles expandidos ────────────────────────────────────────────────── */
+
+.ah-item-details {
+  padding: 12px 16px;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-gray-200);
+  animation: ah-slide-down 0.2s ease-out;
+}
+
+@keyframes ah-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ah-section-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 0 0 8px 0;
+}
+
+/* ── Mediciones ─────────────────────────────────────────────────────────── */
+
+.ah-measurements {
+  margin-bottom: 16px;
+}
+
+.ah-measurement {
+  font-size: 0.78rem;
+  color: var(--color-text-dark);
+  padding: 4px 0;
+}
+
+.ah-measurement strong {
+  color: var(--color-primary-dark);
+  font-weight: 600;
+}
+
+/* ── Resultados ─────────────────────────────────────────────────────────── */
+
+.ah-results {
+  margin-bottom: 16px;
+}
+
+.ah-result-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-xs);
+  margin-bottom: 4px;
+  font-size: 0.75rem;
+  transition: background var(--transition-fast);
+}
+
+.ah-result-item:hover {
+  background: var(--color-bg-light);
+}
+
+.ah-result-name {
+  color: var(--color-text-dark);
+  font-weight: 500;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ah-result-count {
+  color: var(--color-primary-dark);
+  font-weight: 700;
+  font-size: 0.8rem;
+  margin-left: 8px;
+}
+
+/* ── Acciones ───────────────────────────────────────────────────────────── */
+
+.ah-item-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-gray-200);
+}
+
+.ah-action-btn {
+  flex: 1;
+  padding: 7px 12px;
+  border: 1.5px solid var(--color-gray-400);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: all var(--transition-fast);
+  background: var(--color-white);
+  color: var(--color-text-dark);
+}
+
+.ah-action-btn:hover {
+  background: var(--color-surface);
+  border-color: var(--color-primary-dark);
+  color: var(--color-primary-dark);
+}
+
+.ah-action-btn--primary {
+  border-color: var(--color-primary-dark);
+  color: var(--color-primary-dark);
+}
+
+.ah-action-btn--primary:hover {
+  background: var(--color-primary-dark);
+  color: var(--color-white);
+}
+
+.ah-action-btn--danger {
+  border-color: var(--color-gray-400);
+  color: var(--color-text-muted);
+}
+
+.ah-action-btn--danger:hover {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  background: var(--color-danger-light);
+}
+
+/* ── Confirmación de eliminación ────────────────────────────────────────── */
+
+.ah-delete-confirm {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--color-text-dark);
+}
+
+.ah-confirm-btn {
+  padding: 5px 12px;
+  border: 1.5px solid var(--color-gray-400);
+  border-radius: var(--radius-xs);
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: all var(--transition-fast);
+  background: var(--color-white);
+  color: var(--color-text-dark);
+}
+
+.ah-confirm-btn:hover {
+  background: var(--color-surface);
+}
+
+.ah-confirm-btn--danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.ah-confirm-btn--danger:hover {
+  background: var(--color-danger);
+  color: var(--color-white);
+}
+
+/* ── Scrollbar personalizado ────────────────────────────────────────────── */
+
+.ah-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ah-list::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+
+.ah-list::-webkit-scrollbar-thumb {
+  background: var(--color-gray-400);
+  border-radius: 4px;
+}
+
+.ah-list::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gray-500);
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+
+@media (max-width: 480px) {
+  .ah-container {
+    max-width: 100%;
+  }
+
+  .ah-item-summary {
+    gap: 12px;
+  }
+
+  .ah-summary-value {
+    font-size: 1rem;
+  }
+}

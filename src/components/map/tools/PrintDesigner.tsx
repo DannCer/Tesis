@@ -20,15 +20,17 @@ import { useLayersContext } from '@contexts/LayersContext';
 import type { LayerData } from '@hooks/map';
 import '@styles/PrintDesigner.css';
 import { captureLeafletMap } from '@utils/mapCapture';
+import { COPY_FEEDBACK_MS, PRINT_PREVIEW_DEBOUNCE_MS, BASE_LAYER_URLS } from '@config/constants';
 
 // ─── Mapas base disponibles ───────────────────────────────────────────────────
+// URLs centralizadas en constants.ts → BASE_LAYER_URLS
 
 const BASE_MAPS = [
-    { id: 'osm',         name: 'OpenStreetMap', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',                                                              thumb: '🗺️' },
-    { id: 'esri-sat',    name: 'ESRI Satélite', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',                    thumb: '🛰️' },
-    { id: 'esri-street', name: 'ESRI Calles',   url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',                 thumb: '🏙️' },
-    { id: 'topo',        name: 'Topográfico',   url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',                                                                thumb: '⛰️' },
-    { id: 'none',        name: 'Sin mapa base', url: '',                                                                                                                thumb: '⬜' },
+    { id: 'osm',         name: 'OpenStreetMap', url: BASE_LAYER_URLS.osm,        thumb: '🗺️' },
+    { id: 'esri-sat',    name: 'ESRI Satélite', url: BASE_LAYER_URLS.esriSat,    thumb: '🛰️' },
+    { id: 'esri-street', name: 'ESRI Calles',   url: BASE_LAYER_URLS.esriStreet, thumb: '🏙️' },
+    { id: 'topo',        name: 'Topográfico',   url: BASE_LAYER_URLS.topo,       thumb: '⛰️' },
+    { id: 'none',        name: 'Sin mapa base', url: '',                          thumb: '⬜' },
 ];
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -344,7 +346,7 @@ const PrintDesigner: React.FC<PrintDesignerProps> = ({ mapInstance, allLayers, o
                 setLiveLoading(true);
                 setLiveError(false);
             }
-        }, 700);
+        }, PRINT_PREVIEW_DEBOUNCE_MS);
 
         return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -365,7 +367,7 @@ const PrintDesigner: React.FC<PrintDesignerProps> = ({ mapInstance, allLayers, o
                 const jobWithCapture = { ...job, mapImageDataUrl: dataUrl };
                 const ok = openPrintWindow(jobWithCapture);
                 if (ok) { setStatus('ok'); setStatusMsg('Vista de impresión abierta con captura de pantalla. Usa Ctrl+P → Guardar como PDF.'); }
-            } catch (e: any) {
+            } catch (e: unknown) {
                 setStatus('err');
                 setStatusMsg(e.message ?? 'Error al capturar el mapa.');
             } finally {
@@ -386,7 +388,7 @@ const PrintDesigner: React.FC<PrintDesignerProps> = ({ mapInstance, allLayers, o
     const handleCopyUrl = () => {
         navigator.clipboard.writeText(mapUrl).catch(() => {});
         setUrlCopied(true);
-        setTimeout(() => setUrlCopied(false), 2000);
+        setTimeout(() => setUrlCopied(false), COPY_FEEDBACK_MS);
     };
 
     // ─── JSX ─────────────────────────────────────────────────────────────────

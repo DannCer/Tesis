@@ -1,4 +1,19 @@
-import { logger } from '@config/env';
+/**
+ * @fileoverview Servicio HTTP centralizado para la API REST (FastAPI).
+ *
+ * Optimizaciones:
+ *  - `API_BASE_URL` ahora se lee de `config.apiUrl` (centralizado en env.ts)
+ *    en vez de acceder a `import.meta.env.VITE_API_URL` directamente.
+ *    Esto garantiza que el único punto de acceso a variables de entorno
+ *    sea `src/config/env.ts`.
+ *  - Se mantiene `export const API_BASE_URL` para compatibilidad con cualquier
+ *    módulo que ya lo importe directamente.
+ *  - Tipado mejorado en `request<T>`: `error: unknown` en lugar de `any`.
+ *
+ * @module services/api/apiService
+ */
+
+import { config, logger } from '@config/env';
 import type {
     GrupoResponse, GrupoCreate,
     ItemResponse, ItemCreate,
@@ -7,11 +22,11 @@ import type { VectorLayerDef, RasterLayerDef } from '@types/geo';
 import type { CurrentUser, TokenResponse } from '@contexts/AuthContext';
 
 // ============================================================================
-// URL BASE — cambia VITE_API_URL en tu .env para apuntar a otro servidor.
-// Desarrollo:  VITE_API_URL=http://localhost:8000
-// Producción:  VITE_API_URL=https://api.observatorio-hidalgo.mx
+// URL BASE — configurada desde VITE_API_URL en los archivos .env
 // ============================================================================
-export const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+
+/** URL base de la API REST. Proviene de config.apiUrl → VITE_API_URL en .env */
+export const API_BASE_URL = config.apiUrl;
 export const API_V1       = `${API_BASE_URL}/api/v1`;
 
 // ============================================================================
@@ -32,16 +47,16 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
         const response = await fetch(url, { ...options, headers });
 
         if (!response.ok) {
-            const err = await response.json().catch(() => ({}));
+            const err = await response.json().catch(() => ({})) as { detail?: string };
             throw new Error(err.detail ?? `HTTP ${response.status}: ${response.statusText}`);
         }
 
         if (response.status === 204) return null as T;
 
-        const data = await response.json();
+        const data = await response.json() as T;
         logger.debug('API Response:', data);
         return data;
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error('API Error:', error);
         throw error;
     }
@@ -53,9 +68,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
 export const apiService = {
 
-    // --------------------------------------------------------------------------
-    // AUTH  —  /api/v1/auth/*
-    // --------------------------------------------------------------------------
+    // ── AUTH  —  /api/v1/auth/* ────────────────────────────────────────────
     auth: {
         /** Login: devuelve access_token y refresh_token */
         login: (username: string, password: string): Promise<TokenResponse> =>
@@ -80,29 +93,19 @@ export const apiService = {
             }),
     },
 
-    // --------------------------------------------------------------------------
-    // ADMIN  —  /api/v1/admin/*
-    // --------------------------------------------------------------------------
+    // ── ADMIN  —  /api/v1/admin/* ──────────────────────────────────────────
     admin: {
-        /** Lista todos los usuarios del sistema */
-        getUsuarios: <T = unknown>(): Promise<T[]> =>
+        getUsuarios:   <T = unknown>(): Promise<T[]> =>
             request('/admin/usuarios'),
 
-        /** Crea un nuevo usuario */
         createUsuario: <TBody, TRes = unknown>(body: TBody): Promise<TRes> =>
-            request('/admin/usuarios', {
-                method: 'POST',
-                body: JSON.stringify(body),
-            }),
+            request('/admin/usuarios', { method: 'POST', body: JSON.stringify(body) }),
 
-        /** Elimina un usuario por id */
         deleteUsuario: (id: number): Promise<void> =>
             request(`/admin/usuarios/${id}`, { method: 'DELETE' }),
     },
 
-    // --------------------------------------------------------------------------
-    // GESTIÓN DE CAPAS  —  /api/v1/gestion/*
-    // --------------------------------------------------------------------------
+    // ── GESTIÓN DE CAPAS  —  /api/v1/gestion/* ────────────────────────────
     getGrupos: (): Promise<GrupoResponse[]> =>
         request('/gestion/grupos'),
 
@@ -130,25 +133,23 @@ export const apiService = {
     healthCheck: (): Promise<unknown> =>
         request('/health'),
 
-    // --------------------------------------------------------------------------
-    // CONVERTERS
-    // --------------------------------------------------------------------------
+    // ── CONVERTERS ────────────────────────────────────────────────────────
     convertItemToVectorLayer: (item: ItemResponse): VectorLayerDef => ({
-        id: `layer_${item.id}`,
-        name: item.name,
+        id:          `layer_${item.id}`,
+        name:        item.name,
         description: item.description ?? '',
-        group: item.group,
-        type: 'vector',
-        wfsName: item.wfsName,
-        wmsLayer: item.wmsLayer,
+        group:       item.group,
+        type:        'vector',
+        wfsName:     item.wfsName,
+        wmsLayer:    item.wmsLayer,
     }),
 
     convertItemToRasterLayer: (item: ItemResponse): RasterLayerDef => ({
-        id: `layer_${item.id}`,
-        name: item.name,
+        id:          `layer_${item.id}`,
+        name:        item.name,
         description: item.description ?? '',
-        group: item.group,
-        type: 'raster',
-        wmsLayer: item.wmsLayer,
+        group:       item.group,
+        type:        'raster',
+        wmsLayer:    item.wmsLayer,
     }),
 };

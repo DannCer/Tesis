@@ -9,6 +9,7 @@ import { config, logger } from '@config/env';
 import ConfirmModal from '@components/common/ConfirmModal';
 import AlertModal from '@components/common/AlertModal';
 import '@styles/CapasManager.css';
+import { CRUD_TIMEOUT_MS } from '@config/constants';
 
 interface CapasManagerProps {
     onCapasChange?: () => void;
@@ -29,7 +30,7 @@ function buildCapabilitiesUrl(serverUrl: string, service: 'WFS' | 'WMS', version
 async function validateVectorLayer(wfsName: string, serverUrl: string, projectPath: string): Promise<void> {
     const url = buildCapabilitiesUrl(serverUrl, 'WFS', '1.1.0', projectPath);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15_000);
+    const timeoutId = setTimeout(() => controller.abort(), CRUD_TIMEOUT_MS);
     try {
         const response = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
@@ -45,9 +46,9 @@ async function validateVectorLayer(wfsName: string, serverUrl: string, projectPa
                 : 'El servidor no publicó ninguna capa WFS';
             throw new Error(`"${wfsName}" no está publicada en el WFS. ${hint}`);
         }
-    } catch (err: any) {
+    } catch (err: unknown) {
         clearTimeout(timeoutId);
-        if (err.name === 'AbortError') throw new Error('Tiempo de espera agotado. Verifica la conectividad con el servidor.');
+        if (err instanceof Error && err.name === 'AbortError') throw new Error('Tiempo de espera agotado. Verifica la conectividad con el servidor.');
         throw err;
     }
 }
@@ -55,7 +56,7 @@ async function validateVectorLayer(wfsName: string, serverUrl: string, projectPa
 async function validateWmsLayer(wmsLayer: string, serverUrl: string, projectPath: string): Promise<void> {
     const url = buildCapabilitiesUrl(serverUrl, 'WMS', '1.3.0', projectPath);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15_000);
+    const timeoutId = setTimeout(() => controller.abort(), CRUD_TIMEOUT_MS);
     try {
         const response = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
@@ -70,9 +71,9 @@ async function validateWmsLayer(wmsLayer: string, serverUrl: string, projectPath
                 : 'El servidor no publicó ninguna capa WMS';
             throw new Error(`"${wmsLayer}" no está publicada en el WMS. ${hint}`);
         }
-    } catch (err: any) {
+    } catch (err: unknown) {
         clearTimeout(timeoutId);
-        if (err.name === 'AbortError') throw new Error('Tiempo de espera agotado. Verifica la conectividad con el servidor.');
+        if (err instanceof Error && err.name === 'AbortError') throw new Error('Tiempo de espera agotado. Verifica la conectividad con el servidor.');
         throw err;
     }
 }
@@ -124,7 +125,7 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
             const [capasData, gruposData] = await Promise.all([apiService.getCapas(), apiService.getGrupos()]);
             setCapas(capasData);
             setGrupos(gruposData);
-        } catch (err: any) {
+        } catch (err: unknown) {
             setError(err.message);
         } finally {
             setLoading(false);
@@ -185,7 +186,7 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
             setIsAddingNew(false);
             await loadData();
             onCapasChange?.();
-        } catch (err: any) {
+        } catch (err: unknown) {
             showAlert('Error al crear la capa', err.message, 'error');
         }
     };
@@ -222,7 +223,7 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
             setEditingId(null);
             await loadData();
             onCapasChange?.();
-        } catch (err: any) {
+        } catch (err: unknown) {
             showAlert('Error al actualizar la capa', err.message, 'error');
         } finally {
             setEditSaving(false);
@@ -241,7 +242,7 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
             setValidations(prev => { const next = new Map(prev); next.delete(confirmModal.capaId!); return next; });
             await loadData();
             onCapasChange?.();
-        } catch (err: any) {
+        } catch (err: unknown) {
             showAlert('Error al eliminar la capa', err.message, 'error');
         }
     };
@@ -271,7 +272,7 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
                     ? `WFS "${capa.wfsName}" y WMS "${capa.wmsLayer}" están disponibles`
                     : `WMS "${capa.wmsLayer}" está disponible`,
             }));
-        } catch (err: any) {
+        } catch (err: unknown) {
             logger.error(`Error validando capa "${capa.name}":`, err);
             setValidations(prev => new Map(prev).set(capa.id, {
                 status: 'error', message: err.message ?? 'Error desconocido al validar la capa',

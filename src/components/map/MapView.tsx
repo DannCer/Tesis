@@ -82,6 +82,7 @@ import { wfsService } from '@services/geoserver/wfsService';
 import { dynamicWfsService } from '@services/geoserver/dynamicWfsService';
 import { dynamicRasterService } from '@services/geoserver/dynamicRasterService';
 import { config, logger } from '@config/env';
+import { Z_INDEX } from '@config/constants';
 import type { LayerConfig } from '@config/layers';
 import type { WFSOptions } from '@types/map';
 import '@styles/mapView.css';
@@ -627,7 +628,7 @@ const MapView: React.FC = () => {
                             transparent={true}
                             opacity={opacityLayers[serie.id] ?? 0.8}
                             params={{ TIME: serie.timeValue, TILED: true }}
-                            zIndex={500 + index}
+                            zIndex={Z_INDEX.rasterBase + index}
                             eventHandlers={{
                                 tileerror: () => setWmsError(`Error cargando ${serie.name}`),
                                 tileload:  () => setWmsError(null),
@@ -659,7 +660,7 @@ const MapView: React.FC = () => {
                             opacity={layer.opacity}
                             selectedFeatureId={selectedFeature}
                             onEachFeature={onEachVectorFeature}
-                            zIndex={400 + index}
+                            zIndex={Z_INDEX.vectorBase + index}
                             wmsBaseUrl={wmsBaseUrl}
                             pane={swipePane}
                         />
@@ -723,7 +724,7 @@ const MapView: React.FC = () => {
                                 format="image/png"
                                 transparent={true}
                                 opacity={opacity}
-                                zIndex={600}
+                                zIndex={Z_INDEX.externalWms}
                             />
                         );
                     }
@@ -776,7 +777,7 @@ const MapView: React.FC = () => {
                                 <div style={{
                                     position: 'fixed', inset: 0,
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    background: 'rgba(0,0,0,0.4)', zIndex: 9999, color: '#fff',
+                                    background: 'rgba(0,0,0,0.4)', zIndex: Z_INDEX.printFab, color: '#fff',
                                 }}>
                                     Cargando diseñador…
                                 </div>

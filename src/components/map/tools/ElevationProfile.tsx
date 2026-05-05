@@ -15,6 +15,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import L from 'leaflet';
 import '@styles/ElevationProfile.css';
+import { ELEVATION_TILES_URL, ELEVATION_MAX_POINTS } from '@config/constants';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -40,7 +41,7 @@ const RESOLUTIONS: { label: string; meters: number }[] = [
     { label: '120m', meters: 120 },
 ];
 
-const MAX_POINTS = 200;
+// MAX_POINTS → now ELEVATION_MAX_POINTS from constants.ts
 
 // Zoom de los tiles Terrarium: 12 ≈ 38m/px, 13 ≈ 19m/px, 14 ≈ 9.5m/px
 const TILE_ZOOM = 13;
@@ -81,7 +82,10 @@ async function loadTile(x: number, y: number, zoom: number): Promise<ImageData> 
     const key = `${zoom}/${x}/${y}`;
     if (tileCache.has(key)) return tileCache.get(key)!;
 
-    const url = `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${zoom}/${x}/${y}.png`;
+    const url = ELEVATION_TILES_URL
+        .replace('{z}', String(zoom))
+        .replace('{x}', String(x))
+        .replace('{y}', String(y));
     return new Promise((resolve, reject) => {
         const img = new Image();
         img.crossOrigin = 'anonymous';
@@ -595,7 +599,7 @@ const ElevationProfile: React.FC<ElevationProfileProps> = ({ mapInstance }) => {
             const resMeters = resolution.meters;
             const totalMeters = totalKm * 1000;
             let numPoints = Math.ceil(totalMeters / resMeters) + 1;
-            numPoints = Math.max(2, Math.min(numPoints, MAX_POINTS));
+            numPoints = Math.max(2, Math.min(numPoints, ELEVATION_MAX_POINTS));
 
             const interpolated = interpolateAlongLine(coords, numPoints);
             const rawElevations = await fetchElevations(interpolated);
@@ -616,8 +620,8 @@ const ElevationProfile: React.FC<ElevationProfileProps> = ({ mapInstance }) => {
 
             setProfileData(result);
             setTab('resultado');
-        } catch (err: any) {
-            setError(`Error al obtener elevaciones: ${err.message}`);
+        } catch (err: unknown) {
+            setError(`Error al obtener elevaciones: ${err instanceof Error ? err.message : String(err)}`);
         } finally {
             setLoading(false);
         }

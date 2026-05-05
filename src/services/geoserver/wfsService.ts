@@ -154,6 +154,78 @@ class WFSService {
         }
     }
 
+    async queryFeatures(
+    layerName: string, 
+    cqlFilter: string,
+    maxFeatures: number = 100
+): Promise<any[]> {
+    try {
+        // Validaciones de entrada
+        if (!layerName || typeof layerName !== 'string') {
+            throw new Error('layerName debe ser un string no vacío');
+        }
+        
+        if (!cqlFilter || typeof cqlFilter !== 'string') {
+            throw new Error('cqlFilter debe ser un string no vacío');
+        }
+        
+        if (maxFeatures < 1 || maxFeatures > 10000) {
+            logger.warn(`maxFeatures fuera de rango (${maxFeatures}), usando 100`);
+            maxFeatures = 100;
+        }
+ 
+        // Configurar opciones para getFeatures
+        const options: WFSOptions = {
+            cql_filter: cqlFilter,
+            maxFeatures: maxFeatures,
+            bypassCache: false, // Usar caché para mejor rendimiento
+            srsName: 'EPSG:4326' // Sistema de coordenadas estándar
+        };
+        
+        logger.debug(
+            `📍 queryFeatures: ${layerName}, max: ${maxFeatures}, CQL: ${cqlFilter.substring(0, 50)}...`
+        );
+ 
+        // Llamar al método principal
+        const result = await this.getFeatures(layerName, options);
+        
+        // getFeatures retorna un GeoJSON FeatureCollection
+        // Estructura esperada: { type: "FeatureCollection", features: [...] }
+        if (result && result.features && Array.isArray(result.features)) {
+            logger.debug(
+                `✅ queryFeatures exitoso: ${result.features.length} features retornados`
+            );
+            return result.features;
+        }
+        
+        // Si no hay features o estructura inesperada
+        if (result && !result.features) {
+            logger.warn(
+                `⚠️ Respuesta WFS sin campo 'features' para ${layerName}`,
+                result
+            );
+        }
+        
+        return [];
+        
+    } catch (error) {
+        // Logging detallado del error
+        logger.error(
+            `❌ Error en queryFeatures para capa '${layerName}':`,
+            {
+                error: error instanceof Error ? error.message : String(error),
+                cqlFilter: cqlFilter.substring(0, 100),
+                maxFeatures
+            }
+        );
+        
+        // Re-lanzar para que el componente maneje el error
+        throw new Error(
+            `Error consultando features de ${layerName}: ${error instanceof Error ? error.message : 'Error desconocido'}`
+        );
+    }
+}
+
     async getCapabilities(): Promise<string> {
         try {
             if (this.capabilitiesCache && this.isCacheValid(this.capabilitiesCache, this.capabilitiesTtlMs)) {

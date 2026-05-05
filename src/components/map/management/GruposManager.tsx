@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiService, GrupoResponse, GrupoCreate } from '@services/api';
 import { config } from '@config/env';
+import { UPLOAD_TIMEOUT_MS } from '@config/constants';
 import ConfirmModal from '@components/common/ConfirmModal';
 import AlertModal from '@components/common/AlertModal';
 import '@styles/GruposManager.css';
@@ -27,7 +28,7 @@ interface XmlValidResult {
 async function validateGroupXml(serverUrl: string, projectPath: string): Promise<Omit<XmlValidResult, 'status'>> {
     const url = `${serverUrl}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&MAP=${projectPath}`;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120_000);
+    const timeoutId = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
     try {
         const response = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
@@ -41,9 +42,9 @@ async function validateGroupXml(serverUrl: string, projectPath: string): Promise
             'Sin título';
         const layers = Array.from(doc.querySelectorAll('Layer > Name')).length;
         return { title: title.trim(), layerCount: layers };
-    } catch (err: any) {
+    } catch (err: unknown) {
         clearTimeout(timeoutId);
-        if (err.name === 'AbortError') throw new Error('Tiempo de espera agotado (2 min). Verifica la conectividad con el servidor.');
+        if (err instanceof Error && err.name === 'AbortError') throw new Error('Tiempo de espera agotado (2 min). Verifica la conectividad con el servidor.');
         throw err;
     }
 }
@@ -84,7 +85,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
         try {
             const data = await apiService.getGrupos();
             setGrupos(data.sort((a, b) => a.id - b.id));
-        } catch (err: any) {
+        } catch (err: unknown) {
             setError(err.message);
         } finally {
             setLoading(false);
@@ -105,7 +106,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
             setIsAddingNew(false);
             await loadGrupos();
             onGruposChange?.();
-        } catch (err: any) {
+        } catch (err: unknown) {
             showAlert('Error al crear el grupo', err.message, 'error');
         }
     };
@@ -129,7 +130,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
             setEditingId(null);
             await loadGrupos();
             onGruposChange?.();
-        } catch (err: any) {
+        } catch (err: unknown) {
             showAlert('Error al actualizar el grupo', err.message, 'error');
         } finally {
             setEditSaving(false);
@@ -147,7 +148,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
             await apiService.deleteGrupo(confirmModal.grupoId);
             await loadGrupos();
             onGruposChange?.();
-        } catch (err: any) {
+        } catch (err: unknown) {
             showAlert('Error al eliminar el grupo', err.message, 'error');
         }
     };
@@ -162,7 +163,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
         try {
             const result = await validateGroupXml(config.qgisServer.url, grupo.url_proyecto);
             setXmlValidations(prev => new Map(prev).set(grupo.id, { status: 'ok', ...result }));
-        } catch (err: any) {
+        } catch (err: unknown) {
             setXmlValidations(prev => new Map(prev).set(grupo.id, {
                 status: 'error',
                 message: err.message ?? 'Error desconocido al validar el proyecto',

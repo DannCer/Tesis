@@ -35,6 +35,15 @@ export default defineConfig(({ mode }) => {
                     target: env.VITE_API_URL ?? 'http://localhost:8000',
                     changeOrigin: true,
                 },
+                // Proxy para QGIS Server: evita CORS en desarrollo
+                // cuando httpd.conf no tiene "Header always set".
+                // Solo activo si VITE_QGIS_PROXY=true en .env.local
+                ...(env.VITE_QGIS_PROXY === 'true' ? {
+                    '/ogis': {
+                        target: env.VITE_QGIS_SERVER_URL ?? 'http://192.168.100.184',
+                        changeOrigin: true,
+                    },
+                } : {}),
             },
         },
 

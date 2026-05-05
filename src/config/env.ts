@@ -35,17 +35,17 @@ export interface Config {
     qgisServer: {
         /** URL base del ejecutable qgis_mapserv.fcgi.exe */
         url: string;
-        /** Ruta al proyecto .qgz de capas vectoriales */
+        /** Ruta al proyecto .qgz de capas vectoriales (opcional) */
         vectorProject: string;
-        /** Ruta al proyecto .qgz de capas ráster */
+        /** Ruta al proyecto .qgz de capas ráster (opcional) */
         rasterProject: string;
         timeout: number;
         maxFeatures: number;
-        /** URL WMS lista para usar (incluye MAP=vectorProject) */
+        /** URL WMS lista para usar (incluye MAP=vectorProject, solo si vectorProject está definido) */
         wmsUrl: string;
-        /** URL WFS lista para usar (incluye MAP=vectorProject) */
+        /** URL WFS lista para usar (incluye MAP=vectorProject, solo si vectorProject está definido) */
         wfsUrl: string;
-        /** URL WMS para capas ráster (incluye MAP=rasterProject) */
+        /** URL WMS para capas ráster (incluye MAP=rasterProject, solo si rasterProject está definido) */
         wmsRasterUrl: string;
     };
     /** Alias de compatibilidad — apunta a qgisServer */
@@ -82,23 +82,25 @@ export interface Config {
 // VALORES BASE (lectura única al arrancar)
 // ============================================================================
 
-const qgisServerUrl  = getEnv('QGIS_SERVER_URL', 'http://localhost/qgis/qgis_mapserv.fcgi.exe');
-const vectorProject  = getEnv('QGIS_VECTOR_PROJECT', 'C:/mis_proyectos/01_Geologicos.qgz');
-const rasterProject  = getEnv('QGIS_RASTER_PROJECT', 'C:/mis_proyectos/01_Geologicos.qgz');
+const qgisServerUrl = getEnv('QGIS_SERVER_URL', 'http://localhost/qgis/qgis_mapserv.fcgi.exe');
+
+// Sin defaults hardcodeados — si no están en el .env quedan vacíos.
+// Los proyectos por capa se configuran en la API (campo url_proyecto de cada grupo).
+const vectorProject = getEnv('QGIS_VECTOR_PROJECT', '');
+const rasterProject = getEnv('QGIS_RASTER_PROJECT', '');
 
 /**
  * Construye la URL base de QGIS Server con el parámetro MAP incluido.
- * WMSTileLayer de react-leaflet añade el resto de parámetros automáticamente.
+ * Retorna solo la URL base si no hay proyecto definido.
  */
 const buildQgisUrl = (baseUrl: string, projectPath: string): string =>
-    `${baseUrl}?MAP=${encodeURIComponent(projectPath)}`;
+    projectPath ? `${baseUrl}?MAP=${encodeURIComponent(projectPath)}` : baseUrl;
 
 // ============================================================================
 // CONFIGURACIÓN PRINCIPAL
 // ============================================================================
 
 export const config: Config = {
-    /** URL de la API REST — proviene de VITE_API_URL en los archivos .env */
     apiUrl: getEnv('API_URL', 'http://localhost:8000'),
 
     qgisServer: {
@@ -112,10 +114,6 @@ export const config: Config = {
         get wmsRasterUrl() { return buildQgisUrl(this.url, this.rasterProject); },
     },
 
-    /**
-     * Alias geoserver → qgisServer para compatibilidad con componentes existentes.
-     * `workspace` queda vacío porque QGIS Server no usa workspaces.
-     */
     get geoserver() {
         return {
             url:         qgisServerUrl,
@@ -124,7 +122,7 @@ export const config: Config = {
             maxFeatures: this.qgisServer.maxFeatures,
             wfsUrl:      this.qgisServer.wfsUrl,
             wmsUrl:      this.qgisServer.wmsUrl,
-            wcsUrl:      this.qgisServer.wmsUrl,  // QGIS Server no tiene WCS
+            wcsUrl:      this.qgisServer.wmsUrl,
         };
     },
 
@@ -137,8 +135,8 @@ export const config: Config = {
         minZoom: getEnvNumber('MAP_MIN_ZOOM', 8),
         maxZoom: getEnvNumber('MAP_MAX_ZOOM', 19),
         maxBounds: [
-            [19.75, -98.75],  // Noreste CDMX
-            [19.05, -99.55],  // Suroeste CDMX
+            [19.75, -98.75],
+            [19.05, -99.55],
         ],
         maxBoundsViscosity: 0.7,
         zoomDelta: 0.5,
@@ -157,7 +155,7 @@ export const config: Config = {
 };
 
 // ============================================================================
-// LOGGER — usa `unknown[]` en lugar de `any[]`
+// LOGGER
 // ============================================================================
 
 export const logger = {
@@ -176,7 +174,10 @@ export const logger = {
 // ============================================================================
 
 if (config.isDevelopment) {
-    const required = ['QGIS_SERVER_URL', 'QGIS_VECTOR_PROJECT', 'API_URL'] as const;
+    // Solo QGIS_SERVER_URL y API_URL son obligatorias.
+    // QGIS_VECTOR_PROJECT / QGIS_RASTER_PROJECT son opcionales:
+    // los proyectos se configuran por grupo desde la API.
+    const required = ['QGIS_SERVER_URL', 'API_URL'] as const;
     const missing  = required.filter(k => !import.meta.env[`VITE_${k}`]);
     if (missing.length > 0) {
         console.warn(
@@ -185,7 +186,7 @@ if (config.isDevelopment) {
     }
     console.log('🗺️ Configuración QGIS Server:', {
         url:           config.qgisServer.url,
-        vectorProject: config.qgisServer.vectorProject,
+        vectorProject: config.qgisServer.vectorProject || '(no definido — se usa url_proyecto por grupo)',
         wmsUrl:        config.qgisServer.wmsUrl,
         wfsUrl:        config.qgisServer.wfsUrl,
     });
