@@ -38,10 +38,18 @@
 .ep-fab-label { display: inline; }
 
 .ep-panel {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
+  /* Fijo sobre el mapa — mismo patrón que DrawTool y el toolbar (z-index 1500).
+     position:absolute + ep-wrapper en flujo normal quedaba enterrado bajo
+     el <MapContainer> de Leaflet (DOM posterior = mayor stacking order). */
+  position: fixed;
+  bottom: 7rem;          /* encima del toolbar (bottom:1.75rem) */
+  left: 50%;
+  transform: translateX(-50%);
+  top: auto;
   width: 360px;
+  max-width: calc(100vw - 2rem);
+  z-index: 1200;         /* por encima de los panes de Leaflet (máx ~700),
+                            por debajo de DrawTool (1400) y toolbar (1500) */
   background: var(--color-white);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-lg);
@@ -51,8 +59,8 @@
 }
 
 @keyframes ep-slide-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 /* ── Header ────────────────────────────────────────────────── */
@@ -201,12 +209,10 @@
     gap: 0;
   }
 
-  /* Panel → ocupa casi todo el ancho y se ancla desde abajo */
+  /* Panel móvil → ancho completo, anclado desde abajo */
   .ep-panel {
-    position: fixed;
     width: calc(100vw - 24px);
     left: 12px; right: 12px;
-    top: auto;
     bottom: 80px;
     max-height: 72vh;
     overflow-y: auto;

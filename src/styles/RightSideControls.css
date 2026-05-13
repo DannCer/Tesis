@@ -1,0 +1,132 @@
+/* ==========================================================================
+   RightSideControls.css
+   Botones integrados en el stack nativo de Leaflet (.leaflet-top.leaflet-right)
+   El contenedor .rsc-container lleva además la clase .leaflet-bar de Leaflet,
+   que ya aporta: box-shadow, border-radius 4px y margen entre grupos.
+   ========================================================================== */
+
+/* ── Tamaños base (escritorio) ─────────────────────────────────────────────
+   Usamos las mismas medidas que los botones +/- nativos de Leaflet (26 × 26)
+   para que todo el stack derecho sea visualmente homogéneo.
+   clamp() escala suavemente en viewports intermedios.                       */
+
+:root {
+    --rsc-btn-size:    clamp(26px, 4vw, 34px);
+    --rsc-icon-size:   clamp(14px, 2.2vw, 18px);
+    --rsc-divider:     1px solid #ccc;
+    --rsc-bg:          #fff;
+    --rsc-bg-hover:    #f4f4f4;
+    --rsc-bg-active:   #e4eff9;
+    --rsc-focus-ring:  2px solid #4a90d9;
+    --rsc-opacity-dis: 0.45;
+}
+
+/* ── Contenedor ─────────────────────────────────────────────────────────────
+   .leaflet-bar ya aplica:
+     box-shadow: 0 1px 5px rgba(0,0,0,.65)
+     border-radius: 4px
+     overflow: hidden                                                         */
+
+.rsc-container {
+    /* Sin padding extra; los botones ocupan 100% del ancho del bar */
+    padding: 0;
+}
+
+/* ── Botón base ─────────────────────────────────────────────────────────────
+   Imita exactamente la anatomía de .leaflet-bar a (zoom +/-)               */
+
+.rsc-btn {
+    display:         flex;
+    align-items:     center;
+    justify-content: center;
+    width:           var(--rsc-btn-size);
+    height:          var(--rsc-btn-size);
+    background:      var(--rsc-bg);
+    border:          none;
+    border-bottom:   var(--rsc-divider);
+    cursor:          pointer;
+    padding:         0;
+    margin:          0;
+    box-sizing:      border-box;
+    transition:      background 0.15s ease;
+
+    /* Reset de estilos de botón nativos */
+    -webkit-appearance: none;
+    appearance:      none;
+    border-radius:   0;          /* border-radius lo controla .leaflet-bar */
+    color:           inherit;
+    font:            inherit;
+    line-height:     1;
+}
+
+/* Último botón del grupo: sin separador inferior */
+.rsc-btn:last-child {
+    border-bottom: none;
+}
+
+/* ── Estados ────────────────────────────────────────────────────────────── */
+
+.rsc-btn:hover:not(.rsc-btn--disabled) {
+    background: var(--rsc-bg-hover);
+}
+
+/* Focus visible (navegación por teclado) */
+.rsc-btn:focus-visible {
+    outline:        var(--rsc-focus-ring);
+    outline-offset: -2px;
+    position:       relative;   /* garantiza que el outline no quede recortado */
+    z-index:        1;
+}
+
+/* Activo — swipe habilitado */
+.rsc-btn--active {
+    background: var(--rsc-bg-active);
+}
+
+.rsc-btn--active:hover {
+    background: color-mix(in srgb, var(--rsc-bg-active) 85%, #000);
+}
+
+/* Desactivado */
+.rsc-btn--disabled {
+    opacity:        var(--rsc-opacity-dis);
+    cursor:         not-allowed;
+    pointer-events: none;
+}
+
+/* ── Icono ──────────────────────────────────────────────────────────────── */
+
+.rsc-img {
+    width:            var(--rsc-icon-size);
+    height:           var(--rsc-icon-size);
+    object-fit:       contain;
+    display:          block;
+    user-select:      none;
+    -webkit-user-drag: none;
+    /* Los PNG son blancos sobre fondo transparente → invertir a negro */
+    filter:           invert(1);
+    transition:       filter 0.15s ease;
+}
+
+/* Cuando el botón está activo, teñir el ícono con el azul del fondo activo */
+.rsc-btn--active .rsc-img {
+    filter: invert(1) sepia(1) saturate(3) hue-rotate(185deg);
+}
+
+/* ── Responsive: móvil (≤ 600 px) ──────────────────────────────────────────
+   Aumentamos el área táctil para cumplir WCAG 2.5.5 (44 × 44 px mínimo)   */
+
+@media (max-width: 600px) {
+    :root {
+        --rsc-btn-size:  36px;
+        --rsc-icon-size: 18px;
+    }
+}
+
+/* ── Alta densidad de píxeles ───────────────────────────────────────────── */
+
+@media (min-resolution: 2dppx) {
+    .rsc-img {
+        image-rendering: auto;    /* deja que el navegador interpole con calidad */
+    }
+}

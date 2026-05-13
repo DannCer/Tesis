@@ -63,8 +63,6 @@ export interface Config {
         zoom: number;
         minZoom: number;
         maxZoom: number;
-        maxBounds: [[number, number], [number, number]];
-        maxBoundsViscosity: number;
         zoomDelta: number;
         zoomSnap: number;
     };
@@ -134,11 +132,6 @@ export const config: Config = {
         zoom:    getEnvNumber('MAP_ZOOM', 11),
         minZoom: getEnvNumber('MAP_MIN_ZOOM', 8),
         maxZoom: getEnvNumber('MAP_MAX_ZOOM', 19),
-        maxBounds: [
-            [19.75, -98.75],
-            [19.05, -99.55],
-        ],
-        maxBoundsViscosity: 0.7,
         zoomDelta: 0.5,
         zoomSnap:  0.5,
     },

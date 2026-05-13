@@ -1,0 +1,306 @@
+/* DynamicAttributeTable — Tabla de atributos dinámica con pestañas por capa
+   Extiende AttributeTable.css; importar ambos archivos.
+   ========================================================================== */
+
+/* ── Wrapper sin overlay (no bloquea el mapa) ───────────────────────────── */
+
+.dat-overlay {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--z-overlay);
+  /* pointer-events solo en el modal, no en el wrapper */
+  pointer-events: none;
+}
+
+/* ── Modal ──────────────────────────────────────────────────────────────── */
+
+.dat-modal {
+  pointer-events: auto;          /* el panel sí captura interacción */
+  width: 100%;
+  max-width: 100%;
+  height: 58vh;
+  min-height: 340px;
+  background: var(--color-white);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: 0 -4px 32px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: attr-slide-up 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Pestañas ───────────────────────────────────────────────────────────── */
+
+.dat-tabs {
+  display: flex;
+  align-items: stretch;
+  background: var(--color-primary-dark);
+  border-bottom: 2px solid var(--color-primary);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+
+.dat-tabs::-webkit-scrollbar { display: none; }
+
+.dat-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1.1rem;
+  background: transparent;
+  border: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  position: relative;
+}
+
+.dat-tab:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-white);
+}
+
+.dat-tab--active {
+  background: var(--color-white);
+  color: var(--color-primary-dark);
+  font-weight: 700;
+  border-bottom: 2px solid var(--color-primary);
+}
+
+.dat-tab--active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--color-white);
+}
+
+.dat-tab-label {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dat-tab-close {
+  margin-left: auto;
+  padding: 0 1rem;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.dat-tab-close:hover { color: var(--color-white); }
+
+/* ── Barra de herramientas ──────────────────────────────────────────────── */
+
+.dat-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.8rem;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.dat-toolbar::-webkit-scrollbar { display: none; }
+
+/* Buscador inline */
+.dat-search {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  width: 180px;
+  min-width: 120px;
+  background: var(--color-white);
+  color: var(--color-text-strong);
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.dat-search:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(205, 23, 30, 0.15);
+}
+
+/* Botones de la barra */
+.dat-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-white);
+  color: var(--color-text-dark);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.dat-tool-btn:hover:not(.dat-tool-btn--disabled) {
+  background: var(--color-gray-100);
+  border-color: var(--color-border-light);
+}
+
+.dat-tool-btn--active {
+  background: rgba(205, 23, 30, 0.08);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.dat-tool-btn--filtered {
+  background: rgba(205, 23, 30, 0.12);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.dat-tool-btn--disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dat-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary);
+  color: var(--color-white);
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0 5px;
+  min-width: 18px;
+  height: 16px;
+}
+
+/* ── Renglones seleccionables ───────────────────────────────────────────── */
+
+.dat-tr {
+  cursor: pointer;
+  user-select: none;
+}
+
+.dat-tr:hover:not(.dat-tr--selected) {
+  background: var(--color-gray-100);
+}
+
+.dat-tr--selected,
+.dat-tr--selected td {
+  background: #00bcd4 !important;
+  color: #003840 !important;
+}
+
+.dat-tr--selected .attr-null {
+  color: #005d6b;
+}
+
+/* ── Barra de estado ────────────────────────────────────────────────────── */
+
+.dat-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 1rem;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.dat-status-count {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  color: var(--color-text-dark);
+}
+
+.dat-status-selected {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: #00bcd4;
+  color: #003840;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+}
+
+.dat-desel-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #003840;
+  font-size: 0.8rem;
+  padding: 0 2px;
+  opacity: 0.7;
+  transition: opacity var(--transition-fast);
+  line-height: 1;
+}
+
+.dat-desel-btn:hover { opacity: 1; }
+
+.dat-status-hint {
+  font-size: 0.72rem;
+  opacity: 0.55;
+  letter-spacing: 0.01em;
+}
+
+.dat-extent-badge {
+  background: rgba(99, 179, 237, 0.2);
+  color: var(--color-info);
+  border: 1px solid var(--color-info-border);
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .dat-modal {
+    height: 70vh;
+  }
+
+  .dat-search {
+    width: 120px;
+    min-width: 90px;
+  }
+
+  .dat-tool-btn span {
+    display: none; /* Solo íconos en móvil */
+  }
+
+  .dat-tool-btn {
+    padding: 0.35rem 0.5rem;
+  }
+
+  .dat-status-hint {
+    display: none;
+  }
+}
