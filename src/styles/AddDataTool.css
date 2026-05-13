@@ -1,0 +1,93 @@
+/* ==========================================================================
+   AddDataTool.css — Panel flotante "Añadir datos"
+   src/styles/AddDataTool.css
+   ========================================================================== */
+
+/* ── Panel flotante ─────────────────────────────────────────────────────── */
+
+.adt-panel {
+    position: fixed;
+    bottom: 7rem;          /* por encima del map-toolbar */
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1400;
+
+    width: 400px;
+    max-width: calc(100vw - 2rem);
+    max-height: 80vh;
+
+    background: var(--color-white, #fff);
+    border-radius: var(--radius-sm, 6px);
+    box-shadow: var(--shadow-lg, 0 8px 32px rgba(0,0,0,0.18));
+    border: 1px solid var(--color-gray, #e0e0e0);
+
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+
+    animation: adt-slide-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes adt-slide-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0);    }
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.adt-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: var(--color-primary-dark, #8d1c3d);
+    color: #fff;
+    flex-shrink: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.adt-header-title {
+    flex: 1;
+    font-family: var(--font-body, sans-serif);
+    letter-spacing: 0.01em;
+}
+
+.adt-close-btn {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.8);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+    flex-shrink: 0;
+}
+.adt-close-btn:hover {
+    color: #fff;
+    background: rgba(255,255,255,0.15);
+}
+
+/* ── Cuerpo scrollable ──────────────────────────────────────────────────── */
+
+.adt-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+    .adt-panel {
+        bottom: 6rem;
+        width: calc(100vw - 1.5rem);
+        left: 0.75rem;
+        transform: none;
+    }
+}

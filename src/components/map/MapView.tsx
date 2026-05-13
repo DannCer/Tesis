@@ -68,9 +68,11 @@ import MapContent from '@components/map/MapContent';
 import LayerMenu from '@components/map/panels/LayerMenu';
 import type { ExternalLayer, GeoJSONFeature } from '@types/geo';
 import SwipeControl from '@components/map/controls/SwipeControl';
-import SwipePanel from '@components/map/tools/SwipePanel';
-import ElevationProfile from '@components/map/tools/ElevationProfile';
-import AnalysisTool from '@components/map/tools/AnalysisTool';
+import SwipePanel            from '@components/map/tools/SwipePanel';
+import RightSideControls     from '@components/map/controls/RightSideControls';
+import DynamicAttributeTable from '@components/map/panels/DynamicAttributeTable';
+import type { DynamicVectorLayer } from '@components/map/panels/DynamicAttributeTable';
+import MapToolbar from '@components/map/tools/MapToolbar';
 import type { SwipeLayerConfig } from '@components/map/controls/SwipeControl';
 import { featureStyle, DEFAULT_SYMBOLOGY } from '@utils/geo/symbologyUtils';
 import GeoRasterLayerComponent from '@components/map/layers/GeoRasterLayerComponent';
@@ -235,6 +237,14 @@ const MapView: React.FC = () => {
     const [swipeLeft,   setSwipeLeft]   = useState<SwipeLayerConfig | null>(null);
     const [swipeRight,  setSwipeRight]  = useState<SwipeLayerConfig | null>(null);
 
+    // Estado del panel de capas (controlado desde MapToolbar)
+    const [layerMenuCollapsed, setLayerMenuCollapsed] = useState(false);
+    const handleCollapseToggle = useCallback(() => setLayerMenuCollapsed(c => !c), []);
+
+    // Estado de la leyenda (controlado desde MapToolbar)
+    const [legendOpen, setLegendOpen] = useState(false);
+    const handleToggleLegend = useCallback(() => setLegendOpen(o => !o), []);
+
     // Registro de capas ya centradas automáticamente
     const autoZoomedVectorLayersRef = useRef<Set<string>>(new Set());
 
@@ -251,6 +261,11 @@ const MapView: React.FC = () => {
         setSwipeLeft(null);
         setSwipeRight(null);
     }, []);
+
+    // Estado del panel de swipe (RightSideControls)
+    const [swipePanelOpen,   setSwipePanelOpen]   = useState(false);
+    const handleToggleSwipePanel = useCallback(() => setSwipePanelOpen(o => !o), []);
+    const [dynamicTableOpen, setDynamicTableOpen] = useState(false);
 
     // ─── Handlers capas externas ──────────────────────────────────────────────
 
@@ -489,6 +504,34 @@ const MapView: React.FC = () => {
         [activeLayers]
     );
 
+    // true si hay al menos una capa activa → habilita el botón de Leyenda
+    const hasActiveLayers = useMemo(() =>
+        activeRasterLayersList.length > 0 ||
+        Object.values(vectorLayers).some(l => l.visible),
+        [activeRasterLayersList, vectorLayers]
+    );
+
+    /** Capas vectoriales visibles con datos → alimentan la tabla dinámica */
+    const dynamicTableLayers = useMemo((): Record<string, DynamicVectorLayer> => {
+        const result: Record<string, DynamicVectorLayer> = {};
+        Object.entries(vectorLayers).forEach(([id, layer]) => {
+            if (layer.visible && layer.data) {
+                // layerIndexRef tiene el LayerConfig con el nombre canónico de la capa
+                const cfg = layerIndexRef.current.get(id);
+                result[id] = {
+                    name: cfg?.name ?? (layer as { name?: string }).name ?? id,
+                    data: layer.data as GeoJSON.FeatureCollection,
+                };
+            }
+        });
+        return result;
+    }, [vectorLayers]);
+
+    const hasVectorLayersForTable = useMemo(
+        () => Object.keys(dynamicTableLayers).length > 0,
+        [dynamicTableLayers]
+    );
+
     const layerMenuData = useMemo(() => ({
         ...vectorLayers,
         ...Object.fromEntries(
@@ -545,6 +588,7 @@ const MapView: React.FC = () => {
     return (
         <div className="map-view-container-full">
 
+            {/* ── Panel lateral de capas ────────────────────────────────────── */}
             <LayerMenu
                 layerState={layerMenuData}
                 layersByGroup={combinedLayersByGroup}
@@ -555,21 +599,25 @@ const MapView: React.FC = () => {
                 externalLayers={externalLayers}
                 externalVisible={externalVisible}
                 externalOpacity={externalOpacity}
-                onAddExternalLayer={handleAddExternalLayer}
                 onRemoveExternalLayer={handleRemoveExternalLayer}
                 onToggleExternalLayer={handleToggleExternalLayer}
                 onExternalOpacityChange={handleExternalOpacityChange}
-                toolbarSlot={
-                    <>
-                        <SwipePanel
-                            active={swipeActive}
-                            onActivate={handleSwipeActivate}
-                            onDeactivate={handleSwipeDeactivate}
-                        />
-                        <ElevationProfile mapInstance={mapInstance} />
-                        <AnalysisTool mapInstance={mapInstance} />
-                    </>
-                }
+                toolbarSlot={null}
+                isCollapsed={layerMenuCollapsed}
+                onCollapseToggle={handleCollapseToggle}
+            />
+
+            {/* ── Barra de herramientas flotante (estilo ATLAS CDMX) ─────────
+                Reemplaza los FABs individuales de ElevationProfile y
+                AnalysisTool con una píldora horizontal centrada.          */}
+            <MapToolbar
+                mapInstance={mapInstance}
+                layerMenuCollapsed={layerMenuCollapsed}
+                onToggleLayerMenu={handleCollapseToggle}
+                legendOpen={legendOpen}
+                onToggleLegend={handleToggleLegend}
+                hasActiveLayers={hasActiveLayers}
+                onAddLayer={handleAddExternalLayer}
             />
 
             <PixelInfoPanel
@@ -589,8 +637,6 @@ const MapView: React.FC = () => {
                 zoom={mapConfig.zoom}
                 minZoom={mapConfig.minZoom}
                 maxZoom={mapConfig.maxZoom}
-                maxBounds={mapConfig.maxBounds}
-                maxBoundsViscosity={mapConfig.maxBoundsViscosity}
                 zoomDelta={mapConfig.zoomDelta}
                 zoomSnap={mapConfig.zoomSnap}
                 style={{ width: '100%', height: '100%' }}
@@ -603,6 +649,19 @@ const MapView: React.FC = () => {
 
                 {/* MapContent nunca necesitó el prop `layers` → eliminado */}
                 <MapContent />
+
+                {/* ── Controles derecha: Swipe + Tabla de Atributos ───────────────
+                    RightSideControls usa useMap() internamente, por lo que DEBE
+                    estar dentro de <MapContainer>. Crea su propio L.Control en
+                    topright y se apila automáticamente con ZoomControl y
+                    BaseLayerControls sin necesidad de CSS de posicionamiento.  */}
+                <RightSideControls
+                    swipeOpen={swipePanelOpen}
+                    onToggleSwipe={handleToggleSwipePanel}
+                    dynamicTableOpen={dynamicTableOpen}
+                    onToggleDynamicTable={() => setDynamicTableOpen(o => !o)}
+                    hasVectorLayers={hasVectorLayersForTable}
+                />
 
                 <MapClickHandler onMapClick={handleMapClick} swipeActive={swipeActive} />
 
@@ -737,6 +796,8 @@ const MapView: React.FC = () => {
                     activeLayers={activeLayers}
                     vectorLayers={vectorLayers as Parameters<typeof Legend>[0]['vectorLayers']}
                     grupos={grupos}
+                    isOpen={legendOpen}
+                    onClose={handleToggleLegend}
                 />
             </MapContainer>
 
@@ -753,6 +814,24 @@ const MapView: React.FC = () => {
                         Haz clic en el mapa para consultar clasificación
                     </div>
                 </div>
+            )}
+
+            {/* Panel de Swipe — siempre montado, visibilidad controlada por RightSideControls */}
+            <SwipePanel
+                active={swipeActive}
+                onActivate={handleSwipeActivate}
+                onDeactivate={handleSwipeDeactivate}
+                panelOpen={swipePanelOpen}
+                onPanelOpenChange={setSwipePanelOpen}
+            />
+
+            {/* Tabla de atributos dinámica */}
+            {dynamicTableOpen && (
+                <DynamicAttributeTable
+                    vectorLayers={dynamicTableLayers}
+                    mapInstance={mapInstance}
+                    onClose={() => setDynamicTableOpen(false)}
+                />
             )}
 
             {/* FAB de impresión — portal al body para evitar clipping del mapa */}

@@ -1,0 +1,424 @@
+/* ==========================================================================
+   DrawTool.css — Panel flotante "Dibujar"
+   src/styles/DrawTool.css
+   ========================================================================== */
+
+/* ── Panel flotante ──────────────────────────────────────────────────────── */
+
+.dt-panel {
+    position: fixed;
+    bottom: 7rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1400;
+
+    width: 660px;
+    max-width: calc(100vw - 2rem);
+    max-height: 82vh;
+
+    background: var(--color-white, #fff);
+    border-radius: var(--radius-sm, 6px);
+    box-shadow: var(--shadow-lg, 0 8px 32px rgba(0,0,0,0.18));
+    border: 1px solid var(--color-gray, #e0e0e0);
+
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+
+    animation: dt-slide-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes dt-slide-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0);    }
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+.dt-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    background: var(--color-primary-dark, #691B31);
+    color: #fff;
+    flex-shrink: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    user-select: none;
+}
+
+.dt-header-icon { font-size: 1rem; }
+
+.dt-header-title {
+    flex: 1;
+    font-family: var(--font-body, sans-serif);
+    letter-spacing: 0.01em;
+}
+
+.dt-close-btn {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.8);
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 2px 5px;
+    border-radius: 4px;
+    line-height: 1;
+    transition: background 0.15s;
+}
+.dt-close-btn:hover { background: rgba(255,255,255,0.15); }
+
+/* ── Cuerpo ──────────────────────────────────────────────────────────────── */
+
+.dt-body {
+    padding: 12px 14px 14px;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.dt-section-label {
+    font-size: 0.78rem;
+    color: var(--color-gray-600, #6c757d);
+    margin: 0 0 4px;
+    font-weight: 500;
+}
+
+/* ── Barra de modos ──────────────────────────────────────────────────────── */
+
+.dt-mode-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 8px;
+    background: var(--color-gray-100, #f1f3f5);
+    border-radius: 6px;
+    flex-wrap: nowrap;
+}
+
+.dt-mode-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 5px;
+    border: 1px solid transparent;
+    background: transparent;
+    cursor: pointer;
+    padding: 5px;
+    transition: background 0.14s, border-color 0.14s;
+    flex-shrink: 0;
+}
+
+.dt-mode-btn svg {
+    width: 20px;
+    height: 20px;
+    display: block;
+}
+
+.dt-mode-btn:hover:not(.dt-mode-btn--active) {
+    background: rgba(0,0,0,0.07);
+    border-color: var(--color-gray-300, #dee2e6);
+}
+
+.dt-mode-btn--active {
+    background: #1a73e8;
+    border-color: #1557b0;
+}
+
+/* ── Panel de opciones ───────────────────────────────────────────────────── */
+
+.dt-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 0;
+}
+
+/* ── Preview row ─────────────────────────────────────────────────────────── */
+
+.dt-preview-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.82rem;
+    color: var(--color-gray-600, #6c757d);
+}
+
+/* ── Campo genérico ──────────────────────────────────────────────────────── */
+
+.dt-field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.dt-label {
+    font-size: 0.82rem;
+    color: #444;
+    min-width: 130px;
+    flex-shrink: 0;
+}
+
+/* ── Color input ─────────────────────────────────────────────────────────── */
+
+.dt-color-input {
+    flex: 1;
+    height: 28px;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    padding: 0;
+    max-width: 200px;
+}
+
+/* ── Spinner numérico ────────────────────────────────────────────────────── */
+
+.dt-spinner-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: 1;
+    max-width: 100px;
+}
+
+.dt-spinner {
+    width: 64px;
+    height: 26px;
+    border: 1px solid var(--color-gray-400, #ced4da);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.82rem;
+    text-align: right;
+    -moz-appearance: textfield;
+}
+.dt-spinner::-webkit-outer-spin-button,
+.dt-spinner::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+.dt-spinner-btns {
+    display: flex;
+    flex-direction: column;
+}
+.dt-spinner-btns button {
+    width: 18px;
+    height: 13px;
+    border: 1px solid var(--color-gray-400, #ced4da);
+    background: var(--color-gray-100, #f1f3f5);
+    cursor: pointer;
+    font-size: 0.55rem;
+    line-height: 1;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.dt-spinner-btns button:first-child { border-radius: 3px 3px 0 0; }
+.dt-spinner-btns button:last-child  { border-radius: 0 0 3px 3px; border-top: none; }
+
+/* ── Select ──────────────────────────────────────────────────────────────── */
+
+.dt-select {
+    flex: 1;
+    max-width: 180px;
+    height: 28px;
+    border: 1px solid var(--color-gray-400, #ced4da);
+    border-radius: 4px;
+    font-size: 0.82rem;
+    padding: 0 6px;
+    background: #fff;
+    cursor: pointer;
+}
+
+/* ── Text input ──────────────────────────────────────────────────────────── */
+
+.dt-text-input {
+    flex: 1;
+    height: 28px;
+    border: 1px solid var(--color-gray-400, #ced4da);
+    border-radius: 4px;
+    padding: 0 8px;
+    font-size: 0.82rem;
+}
+.dt-text-input:focus { outline: none; border-color: #1a73e8; }
+
+/* ── Slider ──────────────────────────────────────────────────────────────── */
+
+.dt-slider-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: 220px;
+}
+
+.dt-slider-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+    color: var(--color-gray-600, #6c757d);
+}
+
+.dt-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.dt-slider-btn {
+    width: 20px;
+    height: 20px;
+    border: 1px solid var(--color-gray-300, #dee2e6);
+    background: var(--color-gray-100, #f1f3f5);
+    border-radius: 4px;
+    font-size: 0.9rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.dt-slider {
+    flex: 1;
+    accent-color: #1a73e8;
+    cursor: pointer;
+}
+
+.dt-slider-pct-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.66rem;
+    color: var(--color-gray-600, #6c757d);
+    padding: 0 2px;
+}
+
+/* ── Checkbox ────────────────────────────────────────────────────────────── */
+
+.dt-checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+    color: #444;
+    cursor: pointer;
+    user-select: none;
+    margin-top: 2px;
+}
+.dt-checkbox-row input { cursor: pointer; }
+
+/* ── Grids de presets ────────────────────────────────────────────────────── */
+
+.dt-preset-grid {
+    display: grid;
+    border: 1px solid var(--color-gray-300, #dee2e6);
+    border-radius: 5px;
+    overflow: hidden;
+    max-height: 130px;
+    overflow-y: auto;
+    background: #fff;
+}
+
+.dt-preset-grid--line {
+    grid-template-columns: repeat(8, 1fr);
+}
+.dt-preset-grid--poly {
+    grid-template-columns: repeat(8, 1fr);
+}
+
+.dt-preset-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 4px;
+    cursor: pointer;
+    border-right: 1px solid var(--color-gray-200, #e9ecef);
+    border-bottom: 1px solid var(--color-gray-200, #e9ecef);
+    transition: background 0.1s;
+}
+.dt-preset-item:hover { background: var(--color-gray-100, #f1f3f5); }
+.dt-preset-item--active { background: #e8f0fe; outline: 2px inset #1a73e8; }
+
+/* ── Grid de símbolos de punto ───────────────────────────────────────────── */
+
+.dt-sym-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    border: 1px solid var(--color-gray-300, #dee2e6);
+    border-radius: 5px;
+    overflow: hidden;
+    max-height: 130px;
+    overflow-y: auto;
+    background: #fff;
+}
+
+.dt-sym-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    cursor: pointer;
+    border-right: 1px solid var(--color-gray-200, #e9ecef);
+    border-bottom: 1px solid var(--color-gray-200, #e9ecef);
+    transition: background 0.1s;
+}
+.dt-sym-item:hover { background: var(--color-gray-100, #f1f3f5); }
+.dt-sym-item--active { background: #e8f0fe; outline: 2px inset #1a73e8; }
+
+/* ── Botones de acción (Deshacer / Rehacer / Borrar) ────────────────────── */
+
+.dt-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-top: auto;
+    padding-top: 6px;
+    border-top: 1px solid var(--color-gray-200, #e9ecef);
+}
+
+.dt-action-btn {
+    padding: 5px 20px;
+    border: 1px solid var(--color-gray-400, #ced4da);
+    border-radius: 4px;
+    background: #fff;
+    font-size: 0.82rem;
+    cursor: pointer;
+    color: #333;
+    transition: background 0.13s, border-color 0.13s;
+}
+.dt-action-btn:hover:not(:disabled) {
+    background: var(--color-gray-100, #f1f3f5);
+    border-color: #aaa;
+}
+.dt-action-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* ── Marcadores de dibujo ────────────────────────────────────────────────── */
+
+.dt-custom-marker {
+    background: none !important;
+    border: none !important;
+}
+
+.dt-text-marker {
+    background: none !important;
+    border: none !important;
+    white-space: nowrap;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 700px) {
+    .dt-panel { width: calc(100vw - 1rem); }
+    .dt-mode-bar { flex-wrap: wrap; }
+    .dt-preset-grid--line,
+    .dt-preset-grid--poly,
+    .dt-sym-grid { grid-template-columns: repeat(6, 1fr); }
+    .dt-label { min-width: 100px; }
+}

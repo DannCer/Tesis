@@ -29,6 +29,10 @@ interface LegendProps {
     externalVisible?: Record<string, boolean>;
     /** Grupos (proyectos) para resolver URLs dinámicas de leyenda */
     grupos?: GrupoResponse[];
+    /** Control externo del panel (MapToolbar) — si false, oculta el panel */
+    isOpen?: boolean;
+    /** Callback para cerrar desde MapToolbar */
+    onClose?: () => void;
 }
 
 // ============================================================================
@@ -211,7 +215,12 @@ const ExternalLayerSection: React.FC<{ layer: ExternalLayer; collapsed: boolean;
 
 const Legend: React.FC<LegendProps> = memo((props) => {
     const { availableLayers: AVAILABLE_LAYERS } = useLayersContext();
-    const { activeLayers, vectorLayers, externalLayers = [], externalVisible = {}, grupos = [] } = props;
+    const {
+        activeLayers, vectorLayers, externalLayers = [], externalVisible = {},
+        grupos = [], isOpen, onClose,
+    } = props;
+    // Control externo: MapToolbar controla visibilidad
+    const controlled = isOpen !== undefined;
     const legendRef = useRef<HTMLDivElement>(null);
     const bodyRef = useRef<HTMLDivElement>(null);
     const [minimized, setMinimized] = useState(false);
@@ -262,7 +271,10 @@ const Legend: React.FC<LegendProps> = memo((props) => {
 
     const visibleExternalLayers = externalLayers.filter(l => externalVisible[l.id] !== false);
     const hasContent = activeVectorIds.length > 0 || activeRasterLayers.length > 0 || visibleExternalLayers.length > 0;
+    // Sin capas activas → nunca mostrar
     if (!hasContent) return null;
+    // Si controlado externamente y el toolbar lo cerró → ocultar
+    if (controlled && !isOpen) return null;
 
     /**
      * MEJORADO: Construye URL de GetLegendGraphic usando proyecto correcto
@@ -307,25 +319,28 @@ const Legend: React.FC<LegendProps> = memo((props) => {
                 {/* Header */}
                 <div className="legend-header">
                     <span className="legend-title">Simbología</span>
-                    <button
-                        className="legend-toggle-btn"
-                        onClick={() => setMinimized(m => !m)}
-                        title={minimized ? 'Expandir' : 'Minimizar'}
-                    >
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="12" height="12"
-                            fill="currentColor"
-                            viewBox="0 0 16 16"
-                            style={{ transform: minimized ? 'rotate(180deg)' : 'none', transition: 'transform 0.25s', display: 'block' }}
+                    {/* Botón minimizar: solo visible cuando NO lo controla MapToolbar */}
+                    {!controlled && (
+                        <button
+                            className="legend-toggle-btn"
+                            onClick={() => setMinimized(m => !m)}
+                            title={minimized ? 'Expandir' : 'Minimizar'}
                         >
-                            <path fillRule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z" />
-                        </svg>
-                    </button>
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="12" height="12"
+                                fill="currentColor"
+                                viewBox="0 0 16 16"
+                                style={{ transform: minimized ? 'rotate(180deg)' : 'none', transition: 'transform 0.25s', display: 'block' }}
+                            >
+                                <path fillRule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z" />
+                            </svg>
+                        </button>
+                    )}
                 </div>
 
-                {/* Cuerpo */}
-                <div ref={bodyRef} className={`legend-body ${minimized ? 'legend-body--hidden' : ''}`}>
+                {/* Cuerpo — cuando controlled, siempre expandido */}
+                <div ref={bodyRef} className={`legend-body ${(!controlled && minimized) ? 'legend-body--hidden' : ''}`}>
 
                     {/* ── Capas vectoriales (simbología desde GeoServer WMS) ── */}
                     {activeVectorLayers.map(layer => (

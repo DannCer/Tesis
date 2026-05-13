@@ -28,6 +28,10 @@ interface ElevationPoint {
 
 interface ElevationProfileProps {
     mapInstance: L.Map | null;
+    /** Control externo del panel (cuando lo maneja MapToolbar) */
+    isOpen?: boolean;
+    /** Callback para cerrar desde MapToolbar */
+    onClose?: () => void;
 }
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
@@ -453,8 +457,14 @@ const ProfileChart: React.FC<ProfileChartProps> = ({ data, onHover, hoveredIdx }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-const ElevationProfile: React.FC<ElevationProfileProps> = ({ mapInstance }) => {
+const ElevationProfile: React.FC<ElevationProfileProps> = ({ mapInstance, isOpen, onClose }) => {
     const [open, setOpen] = useState(false);
+
+    // ── Control externo (MapToolbar) ──────────────────────────────────────────
+    // Si se pasa `isOpen`, el panel lo controla MapToolbar; el FAB propio se oculta.
+    const controlled = isOpen !== undefined;
+    const isVisible  = controlled ? isOpen! : open;
+
     const [tab, setTab] = useState<'medir' | 'resultado'>('medir');
     const [resolution, setResolution] = useState(RESOLUTIONS[2]); // 30m
     const [resOpen, setResOpen] = useState(false);
@@ -630,7 +640,12 @@ const ElevationProfile: React.FC<ElevationProfileProps> = ({ mapInstance }) => {
     // ── Cancelar / Limpiar ────────────────────────────────────────────────────
 
     const handleClose = useCallback(() => {
-        setOpen(false);
+        // Si controlado externamente, notificar al padre (MapToolbar)
+        if (controlled) {
+            onClose?.();
+        } else {
+            setOpen(false);
+        }
         setDrawing(false);
         clearMapLayers();
         setPoints([]);
@@ -638,7 +653,7 @@ const ElevationProfile: React.FC<ElevationProfileProps> = ({ mapInstance }) => {
         setError(null);
         setTab('medir');
         if (mapInstance) mapInstance.getContainer().style.cursor = '';
-    }, [mapInstance, clearMapLayers]);
+    }, [controlled, onClose, mapInstance, clearMapLayers]);
 
     const handleReset = useCallback(() => {
         clearMapLayers();
@@ -697,23 +712,25 @@ const ElevationProfile: React.FC<ElevationProfileProps> = ({ mapInstance }) => {
 
     return (
         <div className="ep-wrapper">
-            {/* Botón flotante */}
-            <button
-                className={`ep-fab ${open ? 'ep-fab--active' : ''}`}
-                onClick={() => (open ? handleClose() : setOpen(true))}
-                title="Perfil de elevación"
-            >
-                {/* Icono: solo visible en móvil */}
-                <svg className="ep-fab-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <polyline points="3 17 8 9 13 14 16 10 21 17" />
-                    <line x1="3" y1="17" x2="21" y2="17" />
-                </svg>
-                {/* Label: solo visible en escritorio */}
-                <span className="ep-fab-label">Perfil de Elevación</span>
-            </button>
+            {/* Botón flotante — se oculta cuando MapToolbar controla el panel */}
+            {!controlled && (
+                <button
+                    className={`ep-fab ${open ? 'ep-fab--active' : ''}`}
+                    onClick={() => (open ? handleClose() : setOpen(true))}
+                    title="Perfil de elevación"
+                >
+                    {/* Icono: solo visible en móvil */}
+                    <svg className="ep-fab-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polyline points="3 17 8 9 13 14 16 10 21 17" />
+                        <line x1="3" y1="17" x2="21" y2="17" />
+                    </svg>
+                    {/* Label: solo visible en escritorio */}
+                    <span className="ep-fab-label">Perfil de Elevación</span>
+                </button>
+            )}
 
             {/* Panel */}
-            {open && (
+            {isVisible && (
                 <div className="ep-panel">
                     {/* Encabezado */}
                     <div className="ep-header">

@@ -40,14 +40,22 @@ function toSwipeLayer(layer: LayerDef, grupos: GrupoResponse[]): SwipeLayerConfi
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface SwipePanelProps {
-    active:       boolean;
-    onActivate:   (left: SwipeLayerConfig, right: SwipeLayerConfig) => void;
-    onDeactivate: () => void;
+    active:             boolean;
+    onActivate:         (left: SwipeLayerConfig, right: SwipeLayerConfig) => void;
+    onDeactivate:       () => void;
+    /** Controlado externamente (RightSideControls) */
+    panelOpen?:         boolean;
+    onPanelOpenChange?: (open: boolean) => void;
 }
 
 // ── Componente ────────────────────────────────────────────────────────────────
 
-const SwipePanel: React.FC<SwipePanelProps> = ({ active, onActivate, onDeactivate }) => {
+const SwipePanel: React.FC<SwipePanelProps> = ({
+    active, onActivate, onDeactivate,
+    panelOpen, onPanelOpenChange,
+}) => {
+    // Si viene controlado externamente, el FAB interno se oculta
+    const isControlled = panelOpen !== undefined;
     // ✅ Capas y grupos dinámicos desde contexto — se actualiza cuando la API responde
     const { vectorLayers, rasterLayers, grupos, loading } = useLayersContext();
 
@@ -57,7 +65,15 @@ const SwipePanel: React.FC<SwipePanelProps> = ({ active, onActivate, onDeactivat
         [vectorLayers, rasterLayers]
     );
 
-    const [open,    setOpen]    = useState(false);
+    const [openInternal, setOpenInternal] = useState(false);
+    // Si se pasan props controladas, úsalas; sino usa estado interno
+    const open    = panelOpen    !== undefined ? panelOpen    : openInternal;
+    const setOpen = onPanelOpenChange !== undefined
+        ? (v: boolean | ((prev: boolean) => boolean)) => {
+              const next = typeof v === 'function' ? v(open) : v;
+              onPanelOpenChange(next);
+          }
+        : setOpenInternal;
     const [leftId,  setLeftId]  = useState('');
     const [rightId, setRightId] = useState('');
 
@@ -118,7 +134,7 @@ const SwipePanel: React.FC<SwipePanelProps> = ({ active, onActivate, onDeactivat
     );
 
     return (
-        <div className="swipe-panel-wrapper">
+        <div className={`swipe-panel-wrapper${isControlled ? " swipe-panel-wrapper--controlled" : ""}`}>
             {/* Botón flotante */}
             <button
                 className={`swipe-fab ${active ? 'swipe-fab-active' : ''}`}

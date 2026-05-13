@@ -284,3 +284,15 @@
   .swipe-label  { font-size: 0.95rem; max-width: 200px; padding: 6px 14px; }
   .swipe-close-btn { width: 36px; height: 36px; font-size: 1rem; }
 }
+/* ── Modo controlado externamente (RightSideControls) ─────── */
+/* Oculta el FAB propio — el botón externo lo reemplaza */
+.swipe-panel-wrapper--controlled .swipe-fab { display: none !important; }
+
+/* El panel de config flota fijo a la derecha, alineado con los botones */
+.swipe-panel-wrapper--controlled .swipe-config-panel {
+  position: fixed;
+  top: 210px;
+  right: 54px;
+  z-index: 1200;
+  animation: swipe-panel-in var(--transition-base);
+}

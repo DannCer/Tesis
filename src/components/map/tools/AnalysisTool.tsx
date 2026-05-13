@@ -55,6 +55,10 @@ interface AnalysisHistory {
 
 interface AnalysisToolProps {
     mapInstance: L.Map | null;
+    /** Control externo del panel (cuando lo maneja MapToolbar) */
+    isOpen?: boolean;
+    /** Callback para cerrar desde MapToolbar */
+    onClose?: () => void;
 }
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
@@ -74,7 +78,9 @@ const NAME_CANDIDATES = [
     'tipo', 'TIPO', 'cve_geo',
 ];
 
-const MAX_FEATURES_LIMIT = 100; // Límite de features por consulta
+// Maximo de features a mostrar en el panel de detalles (atributos).
+// El conteo siempre usa todos los features del area sin limite.
+const MAX_FEATURES_LIMIT = 100;
 
 function pickName(props: Record<string, any>): string {
     for (const k of NAME_CANDIDATES) {
@@ -109,20 +115,12 @@ function toMeters(dist: number, unit: DistUnit): number {
 
 // ─── Filtro espacial en cliente ───────────────────────────────────────────────
 //
-// QGIS Server WFS 1.1.0 no evalúa DWITHIN / INTERSECTS correctamente en
-// CQL_FILTER cuando el SRS de la capa difiere de EPSG:4326.  La estrategia
+// QGIS Server WFS 1.1.0 no evalua DWITHIN / INTERSECTS correctamente en
+// CQL_FILTER cuando el SRS de la capa difiere de EPSG:4326. La estrategia
 // robusta es:
-//   1. Servidor: BBOX (sí soportado) para traer features del área aproximada.
-//   2. Cliente:  filtrado geométrico exacto usando Leaflet distanceTo / ray-cast.
-//
-// Así nunca dependemos de que QGIS evalúe predicados espaciales complejos.
+//   1. Servidor: BBOX (si soportado) para traer features del area aproximada.
+//   2. Cliente:  filtrado geometrico exacto usando Leaflet distanceTo / ray-cast.
 
-/**
- * Calcula el BBOX en grados que envuelve el área de influencia.
- * Para punto → cuadro alrededor del radio.
- * Para línea → cuadro alrededor de todos los puntos + radio.
- * Para polígono → cuadro del polígono.
- */
 function buildBboxCql(mode: DrawMode, pts: L.LatLng[], distMeters: number, geomField = 'geometry'): string {
     const DEG_PER_METER_LAT = 1 / 111320;
 
@@ -134,7 +132,6 @@ function buildBboxCql(mode: DrawMode, pts: L.LatLng[], distMeters: number, geomF
         return `BBOX(${geomField}, ${minLng}, ${minLat}, ${maxLng}, ${maxLat})`;
     }
 
-    // Punto o línea: expandir por radio
     const padLat = distMeters * DEG_PER_METER_LAT;
     const lats = pts.map(p => p.lat);
     const lngs = pts.map(p => p.lng);
@@ -145,14 +142,6 @@ function buildBboxCql(mode: DrawMode, pts: L.LatLng[], distMeters: number, geomF
     return `BBOX(${geomField}, ${minLng}, ${minLat}, ${maxLng}, ${maxLat})`;
 }
 
-/**
- * Filtra un array de GeoJSON features aplicando el predicado espacial exacto
- * en el cliente usando Leaflet.
- *
- * - Punto  → feature dentro del radio (distanceTo)
- * - Línea  → feature dentro del radio de la línea (distancia mínima a segmento)
- * - Polígono → feature dentro del polígono (ray-casting + intersección de bbox)
- */
 function clientSideFilter(
     features: any[],
     mode: DrawMode,
@@ -161,7 +150,6 @@ function clientSideFilter(
 ): any[] {
     if (!features?.length) return [];
 
-    // Extrae la primera coordenada representativa de cualquier geometría GeoJSON
     function featurePoint(f: any): L.LatLng | null {
         const g = f.geometry;
         if (!g) return null;
@@ -176,9 +164,7 @@ function clientSideFilter(
         return L.latLng(coords[1], coords[0]);
     }
 
-    // Distancia de un punto a un segmento de línea (en metros, approx esférica)
     function distToSegment(p: L.LatLng, a: L.LatLng, b: L.LatLng): number {
-        // Proyección plana local (suficiente para la CDMX a escala de kms)
         const R = 111320;
         const cosLat = Math.cos(p.lat * Math.PI / 180);
         const px = (p.lng - a.lng) * R * cosLat;
@@ -191,7 +177,6 @@ function clientSideFilter(
         return Math.sqrt(Math.pow(px - t * dx, 2) + Math.pow(py - t * dy, 2));
     }
 
-    // Ray-casting point-in-polygon (coordenadas geográficas)
     function pointInPolygon(p: L.LatLng, polygon: L.LatLng[]): boolean {
         let inside = false;
         for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
@@ -208,27 +193,15 @@ function clientSideFilter(
     return features.filter(f => {
         const fp = featurePoint(f);
         if (!fp) return false;
-
-        if (mode === 'point') {
-            return fp.distanceTo(pts[0]) <= distMeters;
-        }
-
+        if (mode === 'point') return fp.distanceTo(pts[0]) <= distMeters;
         if (mode === 'line') {
             for (let i = 0; i < pts.length - 1; i++) {
                 if (distToSegment(fp, pts[i], pts[i + 1]) <= distMeters) return true;
             }
             return false;
         }
-
-        // Polígono
         return pointInPolygon(fp, pts);
     });
-}
-
-/** Solo construye el BBOX para el servidor; el filtro exacto se aplica en cliente. */
-function buildCql(mode: DrawMode, pts: L.LatLng[], dist: number, unit: DistUnit, geomField = 'geometry'): string {
-    const distMeters = toMeters(dist, unit);
-    return buildBboxCql(mode, pts, distMeters, geomField);
 }
 
 // ─── Utilidades de medición ───────────────────────────────────────────────────
@@ -242,17 +215,13 @@ function calculateLength(pts: L.LatLng[]): number {
 }
 
 function calculateArea(pts: L.LatLng[]): number {
-    // Fórmula del área usando coordenadas geográficas (aproximación)
     if (pts.length < 3) return 0;
-    
     const coords = [...pts, pts[0]].map(p => [p.lng, p.lat]);
     let area = 0;
-    
     for (let i = 0; i < coords.length - 1; i++) {
         area += coords[i][0] * coords[i + 1][1] - coords[i + 1][0] * coords[i][1];
     }
-    
-    return Math.abs(area / 2) * 111000 * 111000; // Conversión aproximada a m²
+    return Math.abs(area / 2) * 111000 * 111000;
 }
 
 function formatMeasurement(value: number, type: 'length' | 'area'): string {
@@ -273,7 +242,6 @@ function downloadAsCSV(data: any[], filename: string) {
         headers.join(','),
         ...data.map(row => headers.map(h => `"${row[h] ?? ''}"`).join(','))
     ].join('\n');
-    
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -286,12 +254,7 @@ function downloadAsGeoJSON(results: LayerResult[], filename: string) {
         .filter(r => r.features && r.features.length > 0)
         .flatMap(r => r.features || [])
         .filter(f => f.geometry);
-    
-    const geojson = {
-        type: 'FeatureCollection',
-        features: features
-    };
-    
+    const geojson = { type: 'FeatureCollection', features };
     const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -299,14 +262,16 @@ function downloadAsGeoJSON(results: LayerResult[], filename: string) {
     link.click();
 }
 
-// ─── Historial local storage ──────────────────────────────────────────────────
+// ─── Historial — usa sessionStorage en lugar de localStorage ─────────────────
+// localStorage persiste entre sesiones del navegador, lo que puede llevar a
+// datos de analisis obsoletos. sessionStorage se limpia al cerrar la pestana,
+// que es el comportamiento correcto para una herramienta de analisis.
 
 function saveAnalysisToHistory(analysis: AnalysisHistory) {
     try {
         const history = getAnalysisHistory();
         history.unshift(analysis);
-        // Mantener solo los últimos 10
-        localStorage.setItem('analysisHistory', JSON.stringify(history.slice(0, 10)));
+        sessionStorage.setItem('analysisHistory', JSON.stringify(history.slice(0, 10)));
     } catch (err) {
         console.warn('No se pudo guardar en historial:', err);
     }
@@ -314,7 +279,7 @@ function saveAnalysisToHistory(analysis: AnalysisHistory) {
 
 function getAnalysisHistory(): AnalysisHistory[] {
     try {
-        const data = localStorage.getItem('analysisHistory');
+        const data = sessionStorage.getItem('analysisHistory');
         return data ? JSON.parse(data) : [];
     } catch {
         return [];
@@ -323,11 +288,13 @@ function getAnalysisHistory(): AnalysisHistory[] {
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
-const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
+const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClose }) => {
     const { vectorLayers } = useLayersContext();
 
-    // ── UI state ──────────────────────────────────────────────────────────────
     const [open, setOpen] = useState(false);
+    const controlled = isOpen !== undefined;
+    const isVisible  = controlled ? isOpen! : open;
+
     const [tab, setTab] = useState<'dibujar' | 'resultados' | 'estadisticas'>('dibujar');
     const [mode, setMode] = useState<DrawMode>('point');
     const [drawing, setDrawing] = useState(false);
@@ -342,7 +309,6 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
     const [measurements, setMeasurements] = useState<{ area?: number; length?: number; buffer?: number }>({});
     const [featuresLayerGroup, setFeaturesLayerGroup] = useState<L.LayerGroup | null>(null);
 
-    // ── Leaflet refs ──────────────────────────────────────────────────────────
     const drawnPtsRef = useRef<L.LatLng[]>([]);
     const polylineRef = useRef<L.Polyline | null>(null);
     const polygonRef = useRef<L.Polygon | null>(null);
@@ -351,7 +317,10 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
     const previewRef = useRef<L.Polyline | null>(null);
     const markersRef = useRef<L.CircleMarker[]>([]);
 
-    // ── Limpiar capas del mapa ─────────────────────────────────────────────────
+    // Ref para cancelar peticiones WFS en vuelo si el componente se desmonta
+    // o el usuario lanza un nuevo analisis antes de que termine el anterior.
+    const abortControllerRef = useRef<AbortController | null>(null);
+
     const clearMapLayers = useCallback(() => {
         if (!mapInstance) return;
         polylineRef.current?.remove(); polylineRef.current = null;
@@ -365,14 +334,21 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
         featuresLayerGroup?.clearLayers();
     }, [mapInstance, featuresLayerGroup]);
 
-    // ── Reset con confirmación ────────────────────────────────────────────────
+    // Cancelar peticiones en vuelo al desmontar el componente
+    useEffect(() => {
+        return () => {
+            abortControllerRef.current?.abort();
+        };
+    }, []);
+
     const handleReset = useCallback(() => {
         if (drawnPtsRef.current.length > 0) {
-            if (!confirm('¿Descartar la geometría actual y comenzar un nuevo análisis?')) {
-                return;
-            }
+            if (!confirm('¿Descartar la geometría actual y comenzar un nuevo análisis?')) return;
         }
-        
+        // Cancelar analisis en curso si hay uno
+        abortControllerRef.current?.abort();
+        abortControllerRef.current = null;
+
         clearMapLayers();
         setDrawing(false);
         setResults([]);
@@ -382,33 +358,26 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
         setFilterText('');
         setShowOnlyWithData(false);
         setMeasurements({});
+        setLoading(false);
     }, [clearMapLayers]);
 
-    // ── Atajos de teclado ─────────────────────────────────────────────────────
     useEffect(() => {
-        if (!open) return;
-
+        if (!isVisible) return;
         const handleKeyDown = (e: KeyboardEvent) => {
-            // ESC para cancelar dibujo
             if (e.key === 'Escape' && drawing) {
                 clearMapLayers();
                 setDrawing(false);
             }
-            
-            // Enter para finalizar geometría (línea/polígono)
             if (e.key === 'Enter' && drawing && (mode === 'line' || mode === 'polygon')) {
                 if (drawnPtsRef.current.length >= (mode === 'line' ? 2 : 3)) {
                     handleFinishDrawing();
                 }
             }
-
-            // Ctrl+Z para deshacer último punto
             if (e.ctrlKey && e.key === 'z' && drawing && drawnPtsRef.current.length > 0) {
                 e.preventDefault();
                 drawnPtsRef.current.pop();
                 const lastMarker = markersRef.current.pop();
                 lastMarker?.remove();
-                
                 if (mode === 'line' && polylineRef.current) {
                     polylineRef.current.setLatLngs(drawnPtsRef.current);
                 } else if (mode === 'polygon' && drawnPtsRef.current.length >= 2) {
@@ -416,44 +385,28 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
                 }
             }
         };
-
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [open, drawing, mode]);
+    }, [isVisible, drawing, mode]);
 
-    // ── Calcular mediciones ───────────────────────────────────────────────────
     const updateMeasurements = useCallback(() => {
         const pts = drawnPtsRef.current;
-        if (pts.length === 0) {
-            setMeasurements({});
-            return;
-        }
-
+        if (pts.length === 0) { setMeasurements({}); return; }
         const newMeasurements: typeof measurements = {};
-
         if (mode === 'point' || mode === 'line') {
             const distValue = parseFloat(dist) || 0;
-            const distMeters = unit === 'kilometers' ? distValue * 1000 
-                             : unit === 'miles' ? distValue * 1609.34 
+            const distMeters = unit === 'kilometers' ? distValue * 1000
+                             : unit === 'miles' ? distValue * 1609.34
                              : distValue;
             newMeasurements.buffer = distMeters;
         }
-
-        if (mode === 'line' && pts.length >= 2) {
-            newMeasurements.length = calculateLength(pts);
-        }
-
-        if (mode === 'polygon' && pts.length >= 3) {
-            newMeasurements.area = calculateArea(pts);
-        }
-
+        if (mode === 'line' && pts.length >= 2) newMeasurements.length = calculateLength(pts);
+        if (mode === 'polygon' && pts.length >= 3) newMeasurements.area = calculateArea(pts);
         setMeasurements(newMeasurements);
     }, [mode, dist, unit]);
 
-    // ── Iniciar dibujo ────────────────────────────────────────────────────────
     const handleStartDrawing = useCallback(() => {
         if (!mapInstance) return;
-        
         clearMapLayers();
         setDrawing(true);
         setError(null);
@@ -462,13 +415,8 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
         const onClick = (e: L.LeafletMouseEvent) => {
             const pt = e.latlng;
             drawnPtsRef.current.push(pt);
-
             const marker = L.circleMarker(pt, {
-                radius: 5,
-                color: '#2563eb',
-                fillColor: '#fff',
-                fillOpacity: 1,
-                weight: 2
+                radius: 5, color: '#2563eb', fillColor: '#fff', fillOpacity: 1, weight: 2
             }).addTo(mapInstance);
             markersRef.current.push(marker);
 
@@ -476,15 +424,11 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
                 markerRef.current = marker;
                 const distVal = parseFloat(dist) || 0;
                 if (distVal > 0) {
-                    const radiusMeters = unit === 'kilometers' ? distVal * 1000 
-                                       : unit === 'miles' ? distVal * 1609.34 
-                                       : distVal;
+                    const radiusMeters = unit === 'kilometers' ? distVal * 1000
+                                       : unit === 'miles' ? distVal * 1609.34 : distVal;
                     circleRef.current = L.circle(pt, {
-                        radius: radiusMeters,
-                        color: '#2563eb',
-                        fillColor: '#2563eb',
-                        fillOpacity: 0.1,
-                        weight: 2
+                        radius: radiusMeters, color: '#2563eb',
+                        fillColor: '#2563eb', fillOpacity: 0.1, weight: 2
                     }).addTo(mapInstance);
                 }
                 setDrawing(false);
@@ -493,10 +437,7 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
                 updateMeasurements();
             } else if (mode === 'line') {
                 if (drawnPtsRef.current.length === 1) {
-                    polylineRef.current = L.polyline([pt], {
-                        color: '#2563eb',
-                        weight: 3
-                    }).addTo(mapInstance);
+                    polylineRef.current = L.polyline([pt], { color: '#2563eb', weight: 3 }).addTo(mapInstance);
                 } else {
                     polylineRef.current?.setLatLngs(drawnPtsRef.current);
                 }
@@ -505,10 +446,7 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
                 if (drawnPtsRef.current.length >= 2) {
                     if (!polygonRef.current) {
                         polygonRef.current = L.polygon(drawnPtsRef.current, {
-                            color: '#2563eb',
-                            fillColor: '#2563eb',
-                            fillOpacity: 0.1,
-                            weight: 2
+                            color: '#2563eb', fillColor: '#2563eb', fillOpacity: 0.1, weight: 2
                         }).addTo(mapInstance);
                     } else {
                         polygonRef.current.setLatLngs(drawnPtsRef.current);
@@ -520,15 +458,11 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
 
         const onMove = (e: L.LeafletMouseEvent) => {
             if (drawnPtsRef.current.length === 0) return;
-            
             const last = drawnPtsRef.current[drawnPtsRef.current.length - 1];
             const preview = [last, e.latlng];
-            
             if (!previewRef.current) {
                 previewRef.current = L.polyline(preview, {
-                    color: '#94a3b8',
-                    weight: 2,
-                    dashArray: '5,5'
+                    color: '#94a3b8', weight: 2, dashArray: '5,5'
                 }).addTo(mapInstance);
             } else {
                 previewRef.current.setLatLngs(preview);
@@ -536,39 +470,18 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
         };
 
         mapInstance.on('click', onClick);
-        if (mode !== 'point') {
-            mapInstance.on('mousemove', onMove);
-        }
+        if (mode !== 'point') mapInstance.on('mousemove', onMove);
     }, [mapInstance, mode, dist, unit, clearMapLayers, updateMeasurements]);
 
-    // ── Finalizar dibujo (línea/polígono) ─────────────────────────────────────
     const handleFinishDrawing = useCallback(() => {
         if (!mapInstance) return;
-        
         mapInstance.off('click');
         mapInstance.off('mousemove');
         previewRef.current?.remove();
         previewRef.current = null;
         setDrawing(false);
         updateMeasurements();
-
-        // Agregar buffer si es línea
-        if (mode === 'line') {
-            const distVal = parseFloat(dist) || 0;
-            if (distVal > 0 && polylineRef.current) {
-                const radiusMeters = unit === 'kilometers' ? distVal * 1000 
-                                   : unit === 'miles' ? distVal * 1609.34 
-                                   : distVal;
-                
-                // Crear corredor visual alrededor de la línea
-                const corridor = L.polyline(drawnPtsRef.current, {
-                    color: '#2563eb',
-                    weight: (radiusMeters / 50), // Escalar visual
-                    opacity: 0.3
-                }).addTo(mapInstance);
-            }
-        }
-    }, [mapInstance, mode, dist, unit, updateMeasurements]);
+    }, [mapInstance, updateMeasurements]);
 
     // ── Ejecutar análisis ─────────────────────────────────────────────────────
     const runAnalysis = useCallback(async () => {
@@ -576,28 +489,31 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
             setError('⚠️ Debes dibujar una geometría primero');
             return;
         }
-
         if (mode === 'line' && drawnPtsRef.current.length < 2) {
             setError('⚠️ Una línea requiere al menos 2 puntos');
             return;
         }
-
         if (mode === 'polygon' && drawnPtsRef.current.length < 3) {
             setError('⚠️ Un polígono requiere al menos 3 puntos');
             return;
         }
-
         const distVal = parseFloat(dist) || 0;
         if ((mode === 'point' || mode === 'line') && distVal <= 0) {
             setError('⚠️ La distancia debe ser mayor a 0');
             return;
         }
 
+        // Cancelar analisis anterior si aun esta en curso
+        abortControllerRef.current?.abort();
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
         setError(null);
         setLoading(true);
         setTab('resultados');
 
         const pts = drawnPtsRef.current;
+        const distMeters = toMeters(distVal, unit);
 
         const allResults: LayerResult[] = vectorLayers.map(vl => ({
             layerId: vl.id,
@@ -606,33 +522,39 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
             group: vl.group || 'Sin grupo',
             count: null,
             features: null,
-            loadingDetails: false
+            loadingDetails: false,
         }));
 
         setResults(allResults);
 
-        // Consultar en paralelo — cada capa detecta su propio campo de geometría
         await Promise.all(
             allResults.map(async (lr, idx) => {
+                // No continuar si el analisis fue cancelado
+                if (controller.signal.aborted) return;
                 try {
-                    // Detectar el campo de geometría real de cada capa (con fallback a 'geometry')
                     const geomField = await dynamicWfsService.getGeometryFieldName(lr.wfsName, lr.group);
-                    const distMeters = toMeters(distVal, unit);
-                    // BBOX en servidor (QGIS lo soporta correctamente en WFS 1.1.0)
-                    const bboxCql = buildBboxCql(mode, pts, distMeters, geomField);
-                    console.debug(`[AnalysisTool] ${lr.wfsName} | geomField=${geomField} | BBOX CQL=${bboxCql}`);
-                    // Traer todos los features del BBOX y filtrar exactamente en cliente
-                    const bboxData = await dynamicWfsService.getFeatures(lr.wfsName, lr.group, { cql_filter: bboxCql, maxFeatures: 0 });
+                    const bboxCql   = buildBboxCql(mode, pts, distMeters, geomField);
+                    console.debug(`[AnalysisTool] ${lr.wfsName} | geomField=${geomField} | CQL=${bboxCql}`);
+
+                    // maxFeatures: 0 = sin limite. El conteo debe ser exacto
+                    // para todas las capas independientemente de su densidad.
+                    const bboxData = await dynamicWfsService.getFeatures(
+                        lr.wfsName, lr.group, { cql_filter: bboxCql, maxFeatures: 0 }
+                    );
+
+                    if (controller.signal.aborted) return;
+
                     const filtered = clientSideFilter(bboxData.features ?? [], mode, pts, distMeters);
-                    const count = filtered.length;
+                    const count    = filtered.length;
                     console.debug(`[AnalysisTool] ${lr.wfsName} | BBOX=${bboxData.features?.length ?? 0} | exactos=${count}`);
-                    
+
                     setResults(prev => {
                         const updated = [...prev];
                         updated[idx] = { ...updated[idx], count };
                         return updated;
                     });
                 } catch (err) {
+                    if (controller.signal.aborted) return;
                     console.error(`Error consultando ${lr.layerName}:`, err);
                     setResults(prev => {
                         const updated = [...prev];
@@ -643,9 +565,9 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
             })
         );
 
+        if (controller.signal.aborted) return;
         setLoading(false);
 
-        // Guardar en historial
         const analysisRecord: AnalysisHistory = {
             id: Date.now().toString(),
             timestamp: Date.now(),
@@ -653,18 +575,14 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
             distance: distVal,
             unit,
             results: allResults,
-            measurements
+            measurements,
         };
         saveAnalysisToHistory(analysisRecord);
-
     }, [mode, dist, unit, vectorLayers, measurements]);
 
     // ── Cargar detalles de una capa ──────────────────────────────────────────
     const loadDetails = useCallback(async (lr: LayerResult, idx: number) => {
-        if (lr.features) {
-            setDetailLayerId(lr.layerId);
-            return;
-        }
+        if (lr.features) { setDetailLayerId(lr.layerId); return; }
 
         setResults(prev => {
             const updated = [...prev];
@@ -674,37 +592,29 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
         setDetailLayerId(lr.layerId);
 
         try {
-            const pts = drawnPtsRef.current;
-            const distVal = parseFloat(dist) || 0;
+            const pts        = drawnPtsRef.current;
+            const distVal    = parseFloat(dist) || 0;
             const distMeters = toMeters(distVal, unit);
-            // Detectar el campo de geometría real de la capa antes de construir el CQL
-            const geomField = await dynamicWfsService.getGeometryFieldName(lr.wfsName, lr.group);
-            // BBOX en servidor + filtro exacto en cliente (QGIS WFS 1.1.0 no evalúa DWITHIN/INTERSECTS)
-            const bboxCql = buildBboxCql(mode, pts, distMeters, geomField);
-            
-            // Usar dynamicWfsService para respetar el proyecto QGIS
-            // correcto de cada grupo (igual que en el conteo inicial).
+            const geomField  = await dynamicWfsService.getGeometryFieldName(lr.wfsName, lr.group);
+            const bboxCql    = buildBboxCql(mode, pts, distMeters, geomField);
+
+            // MAX_FEATURES_LIMIT limita solo los atributos mostrados en el panel,
+            // no el conteo. El usuario ve cuantos hay en total desde la fase de conteo.
             const data = await dynamicWfsService.getFeatures(
-                lr.wfsName,
-                lr.group,   // proyecto correcto para este grupo
-                { cql_filter: bboxCql, maxFeatures: 0 }
+                lr.wfsName, lr.group,
+                { cql_filter: bboxCql, maxFeatures: MAX_FEATURES_LIMIT }
             );
-            // Filtro exacto en cliente: elimina los features del BBOX que no intersectan
+
             const features = clientSideFilter(data?.features ?? [], mode, pts, distMeters);
 
             setResults(prev => {
                 const updated = [...prev];
-                updated[idx] = { 
-                    ...updated[idx], 
-                    features: features || [], 
-                    loadingDetails: false 
-                };
+                updated[idx] = { ...updated[idx], features: features || [], loadingDetails: false };
                 return updated;
             });
         } catch (err) {
             console.error(`Error cargando detalles de ${lr.layerName}:`, err);
             setError(`⚠️ Error al cargar detalles: ${err instanceof Error ? err.message : 'Error desconocido'}`);
-            
             setResults(prev => {
                 const updated = [...prev];
                 updated[idx] = { ...updated[idx], loadingDetails: false };
@@ -716,41 +626,22 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
     // ── Visualizar features en el mapa ────────────────────────────────────────
     const showFeaturesOnMap = useCallback((layerResult: LayerResult) => {
         if (!mapInstance || !layerResult.features) return;
-
-        // Limpiar capa anterior
         featuresLayerGroup?.clearLayers();
-        
         const newLayerGroup = L.layerGroup().addTo(mapInstance);
-
         let bounds: L.LatLngBounds | null = null;
 
         layerResult.features.forEach(feature => {
             if (!feature.geometry) return;
-
             const layer = L.geoJSON(feature.geometry, {
-                style: {
-                    color: '#ff7800',
-                    weight: 2,
-                    fillOpacity: 0.3
-                },
-                pointToLayer: (geoJsonPoint, latlng) => {
-                    return L.circleMarker(latlng, {
-                        radius: 6,
-                        color: '#ff7800',
-                        fillColor: '#fff',
-                        fillOpacity: 1,
-                        weight: 2
-                    });
-                }
+                style: { color: '#ff7800', weight: 2, fillOpacity: 0.3 },
+                pointToLayer: (_geoJsonPoint, latlng) =>
+                    L.circleMarker(latlng, {
+                        radius: 6, color: '#ff7800', fillColor: '#fff', fillOpacity: 1, weight: 2
+                    }),
             });
-
             layer.addTo(newLayerGroup);
-
-            // Añadir popup con nombre
             const name = pickName(feature.properties || {});
             layer.bindPopup(`<strong>${name}</strong><br/>${layerResult.layerName}`);
-
-            // Acumular bounds
             const layerBounds = layer.getBounds();
             if (layerBounds.isValid()) {
                 bounds = bounds ? bounds.extend(layerBounds) : layerBounds;
@@ -758,84 +649,63 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
         });
 
         setFeaturesLayerGroup(newLayerGroup);
-
-        // Hacer zoom a los features
-        if (bounds && bounds.isValid()) {
-            mapInstance.fitBounds(bounds, { padding: [50, 50] });
+        if (bounds && (bounds as L.LatLngBounds).isValid()) {
+            mapInstance.fitBounds(bounds as L.LatLngBounds, { padding: [50, 50] });
         }
     }, [mapInstance, featuresLayerGroup]);
 
-    // ── Exportar resultados ───────────────────────────────────────────────────
+    // ── Exportar ──────────────────────────────────────────────────────────────
     const handleExportCSV = useCallback(() => {
         const data = results
             .filter(r => (r.count ?? 0) > 0)
-            .map(r => ({
-                Capa: r.layerName,
-                Grupo: r.group,
-                'Total Features': r.count || 0
-            }));
-
-        if (data.length === 0) {
-            alert('No hay resultados para exportar');
-            return;
-        }
-
-        const timestamp = new Date().toISOString().split('T')[0];
-        downloadAsCSV(data, `analisis-espacial-${timestamp}.csv`);
+            .map(r => ({ Capa: r.layerName, Grupo: r.group, 'Total Features': r.count || 0 }));
+        if (data.length === 0) { alert('No hay resultados para exportar'); return; }
+        downloadAsCSV(data, `analisis-espacial-${new Date().toISOString().split('T')[0]}.csv`);
     }, [results]);
 
     const handleExportGeoJSON = useCallback(() => {
-        const hasFeatures = results.some(r => r.features && r.features.length > 0);
-        if (!hasFeatures) {
+        if (!results.some(r => r.features && r.features.length > 0)) {
             alert('Primero debes cargar los detalles de las capas con features');
             return;
         }
-
-        const timestamp = new Date().toISOString().split('T')[0];
-        downloadAsGeoJSON(results, `analisis-espacial-${timestamp}.geojson`);
+        downloadAsGeoJSON(results, `analisis-espacial-${new Date().toISOString().split('T')[0]}.geojson`);
     }, [results]);
 
-    // ── Resultados filtrados ──────────────────────────────────────────────────
+    // ── Resultados filtrados y estadísticas ──────────────────────────────────
     const filteredResults = results.filter(r => {
         if (showOnlyWithData && (r.count ?? 0) === 0) return false;
         if (filterText && !r.layerName.toLowerCase().includes(filterText.toLowerCase())) return false;
         return true;
     });
 
-    // ── Estadísticas ──────────────────────────────────────────────────────────
     const stats = {
         totalFeatures: results.reduce((sum, r) => sum + (r.count ?? 0), 0),
         layersWithData: results.filter(r => (r.count ?? 0) > 0).length,
         topLayers: results
             .filter(r => (r.count ?? 0) > 0)
             .sort((a, b) => (b.count ?? 0) - (a.count ?? 0))
-            .slice(0, 5)
+            .slice(0, 5),
     };
 
-    const hasResults = results.length > 0;
+    const hasResults      = results.length > 0;
     const totalWithFeatures = results.filter(r => (r.count ?? 0) > 0).length;
-    const maxCount = Math.max(...results.map(r => r.count ?? 0), 1);
+    const maxCount        = Math.max(...results.map(r => r.count ?? 0), 1);
 
     return (
         <div className="at-wrapper">
-            <button
-                className={`at-fab ${open ? 'at-fab--active' : ''}`}
-                onClick={() => setOpen(!open)}
-                aria-label="Herramienta de análisis espacial"
-                aria-expanded={open}
-            >
-                {/* Icono: solo visible en móvil */}
-                <svg className="at-fab-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="11" cy="11" r="7" />
-                    <line x1="16.5" y1="16.5" x2="22" y2="22" />
-                    <line x1="8" y1="11" x2="14" y2="11" />
-                    <line x1="11" y1="8" x2="11" y2="14" />
-                </svg>
-                {/* Label: solo visible en escritorio */}
-                <span className="at-fab-label">Análisis Espacial</span>
-            </button>
+            {!controlled && (
+                <button
+                    className={`at-fab ${open ? 'at-fab--active' : ''}`}
+                    onClick={() => setOpen(!open)}
+                    aria-label="Herramienta de análisis espacial"
+                    aria-expanded={open}
+                >
+                    <span style={{ fontSize: '1.1rem' }}>🔍</span>
+                    Análisis Espacial
+                </button>
+            )}
 
-            {open && (
+            {isVisible && (
                 <div className="at-panel" role="dialog" aria-label="Panel de análisis espacial">
                     {/* ─── Header ──────────────────────────────────────── */}
                     <div className="at-header">
@@ -846,128 +716,68 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
                         <div className="at-header-title">Análisis Espacial</div>
                         <div className="at-header-actions">
                             {hasResults && (
-                                <button
-                                    className="at-icon-btn"
-                                    onClick={handleReset}
-                                    title="Resetear"
-                                    aria-label="Resetear análisis"
-                                >
-                                    ↻
-                                </button>
+                                <button className="at-icon-btn" onClick={handleReset} title="Resetear" aria-label="Resetear análisis">↻</button>
                             )}
                             <button
                                 className="at-icon-btn at-close-btn"
-                                onClick={() => setOpen(false)}
+                                onClick={() => controlled ? onClose?.() : setOpen(false)}
                                 aria-label="Cerrar panel"
-                            >
-                                ✕
-                            </button>
+                            >✕</button>
                         </div>
                     </div>
 
                     {/* ─── Tabs ────────────────────────────────────────── */}
                     <div className="at-tabs" role="tablist">
-                        <button
-                            className={`at-tab ${tab === 'dibujar' ? 'at-tab--active' : ''}`}
-                            onClick={() => setTab('dibujar')}
-                            role="tab"
-                            aria-selected={tab === 'dibujar'}
-                        >
+                        <button className={`at-tab ${tab === 'dibujar' ? 'at-tab--active' : ''}`}
+                            onClick={() => setTab('dibujar')} role="tab" aria-selected={tab === 'dibujar'}>
                             Dibujar
                         </button>
-                        <button
-                            className={`at-tab ${tab === 'resultados' ? 'at-tab--active' : ''}`}
-                            onClick={() => setTab('resultados')}
-                            disabled={!hasResults}
-                            role="tab"
-                            aria-selected={tab === 'resultados'}
-                        >
+                        <button className={`at-tab ${tab === 'resultados' ? 'at-tab--active' : ''}`}
+                            onClick={() => setTab('resultados')} disabled={!hasResults}
+                            role="tab" aria-selected={tab === 'resultados'}>
                             Resultados
                         </button>
-                        <button
-                            className={`at-tab ${tab === 'estadisticas' ? 'at-tab--active' : ''}`}
-                            onClick={() => setTab('estadisticas')}
-                            disabled={!hasResults}
-                            role="tab"
-                            aria-selected={tab === 'estadisticas'}
-                        >
+                        <button className={`at-tab ${tab === 'estadisticas' ? 'at-tab--active' : ''}`}
+                            onClick={() => setTab('estadisticas')} disabled={!hasResults}
+                            role="tab" aria-selected={tab === 'estadisticas'}>
                             Estadísticas
                         </button>
                     </div>
 
-                    {error && (
-                        <div className="at-error" role="alert">
-                            {error}
-                        </div>
-                    )}
+                    {error && <div className="at-error" role="alert">{error}</div>}
 
                     {/* ─── Tab: Dibujar ────────────────────────────────── */}
                     {tab === 'dibujar' && (
                         <div className="at-body">
-                            {/* Modos de dibujo */}
                             <div>
                                 <p className="at-mode-label">Tipo de geometría</p>
                                 <div className="at-mode-btns">
-                                    <button
-                                        className={`at-mode-btn ${mode === 'point' ? 'at-mode-btn--active' : ''}`}
-                                        onClick={() => !drawing && setMode('point')}
-                                        disabled={drawing}
-                                        aria-label="Dibujar punto"
-                                    >
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                                            <circle cx="12" cy="12" r="4" />
-                                        </svg>
-                                        Punto
-                                    </button>
-                                    <button
-                                        className={`at-mode-btn ${mode === 'line' ? 'at-mode-btn--active' : ''}`}
-                                        onClick={() => !drawing && setMode('line')}
-                                        disabled={drawing}
-                                        aria-label="Dibujar línea"
-                                    >
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <path d="M3 3l18 18" />
-                                        </svg>
-                                        Línea
-                                    </button>
-                                    <button
-                                        className={`at-mode-btn ${mode === 'polygon' ? 'at-mode-btn--active' : ''}`}
-                                        onClick={() => !drawing && setMode('polygon')}
-                                        disabled={drawing}
-                                        aria-label="Dibujar polígono"
-                                    >
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                            <path d="M12 2l10 6-10 6L2 8z" />
-                                        </svg>
-                                        Polígono
-                                    </button>
+                                    {(['point', 'line', 'polygon'] as DrawMode[]).map(m => (
+                                        <button key={m}
+                                            className={`at-mode-btn ${mode === m ? 'at-mode-btn--active' : ''}`}
+                                            onClick={() => !drawing && setMode(m)}
+                                            disabled={drawing}
+                                            aria-label={`Dibujar ${m}`}
+                                        >
+                                            {m === 'point' && <><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="4"/></svg>Punto</>}
+                                            {m === 'line'  && <><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3l18 18"/></svg>Línea</>}
+                                            {m === 'polygon' && <><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l10 6-10 6L2 8z"/></svg>Polígono</>}
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
 
-                            {/* Buffer distance */}
                             {(mode === 'point' || mode === 'line') && (
                                 <div className="at-buffer-row">
                                     <label className="at-buffer-label" htmlFor="buffer-distance">
                                         {mode === 'point' ? 'Radio' : 'Buffer'}:
                                     </label>
-                                    <input
-                                        id="buffer-distance"
-                                        type="number"
-                                        className="at-buffer-input"
-                                        value={dist}
-                                        onChange={e => setDist(e.target.value)}
-                                        min="0"
-                                        step="0.1"
-                                        disabled={drawing}
-                                        aria-label="Distancia del buffer"
-                                    />
-                                    <select
-                                        className="at-buffer-select"
-                                        value={unit}
+                                    <input id="buffer-distance" type="number" className="at-buffer-input"
+                                        value={dist} onChange={e => setDist(e.target.value)}
+                                        min="0" step="0.1" disabled={drawing} aria-label="Distancia del buffer" />
+                                    <select className="at-buffer-select" value={unit}
                                         onChange={e => setUnit(e.target.value as DistUnit)}
-                                        disabled={drawing}
-                                        aria-label="Unidad de medida"
-                                    >
+                                        disabled={drawing} aria-label="Unidad de medida">
                                         {Object.entries(UNIT_LABELS).map(([k, v]) => (
                                             <option key={k} value={k}>{v}</option>
                                         ))}
@@ -975,77 +785,45 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
                                 </div>
                             )}
 
-                            {/* Mediciones */}
                             {Object.keys(measurements).length > 0 && (
                                 <div className="at-measurements">
                                     <p className="at-mode-label">📏 Mediciones</p>
                                     {measurements.length !== undefined && (
-                                        <div className="at-measurement-item">
-                                            Longitud: <strong>{formatMeasurement(measurements.length, 'length')}</strong>
-                                        </div>
+                                        <div className="at-measurement-item">Longitud: <strong>{formatMeasurement(measurements.length!, 'length')}</strong></div>
                                     )}
                                     {measurements.area !== undefined && (
-                                        <div className="at-measurement-item">
-                                            Área: <strong>{formatMeasurement(measurements.area, 'area')}</strong>
-                                        </div>
+                                        <div className="at-measurement-item">Área: <strong>{formatMeasurement(measurements.area, 'area')}</strong></div>
                                     )}
                                     {measurements.buffer !== undefined && (
-                                        <div className="at-measurement-item">
-                                            Buffer: <strong>{formatMeasurement(measurements.buffer, 'length')}</strong>
-                                        </div>
+                                        <div className="at-measurement-item">Buffer: <strong>{formatMeasurement(measurements.buffer, 'length')}</strong></div>
                                     )}
                                 </div>
                             )}
 
-                            {/* Instrucciones */}
                             {!drawing && drawnPtsRef.current.length === 0 && (
                                 <p className="at-instructions">
-                                    {mode === 'point' && (
-                                        <>Haz <strong>clic</strong> en el mapa para colocar un punto y crear un área de consulta circular.</>
-                                    )}
-                                    {mode === 'line' && (
-                                        <>Haz <strong>clic</strong> para agregar puntos. <strong>Enter</strong> para finalizar o botón "Finalizar".</>
-                                    )}
-                                    {mode === 'polygon' && (
-                                        <>Haz <strong>clic</strong> para agregar vértices. <strong>Enter</strong> para finalizar o botón "Finalizar". <strong>Ctrl+Z</strong> para deshacer.</>
-                                    )}
+                                    {mode === 'point' && <>Haz <strong>clic</strong> en el mapa para colocar un punto y crear un área de consulta circular.</>}
+                                    {mode === 'line'  && <>Haz <strong>clic</strong> para agregar puntos. <strong>Enter</strong> para finalizar.</>}
+                                    {mode === 'polygon' && <>Haz <strong>clic</strong> para agregar vértices. <strong>Enter</strong> para finalizar. <strong>Ctrl+Z</strong> para deshacer.</>}
                                 </p>
                             )}
 
-                            {/* Shortcuts hint */}
                             {drawing && (mode === 'line' || mode === 'polygon') && (
-                                <p className="at-hint">
-                                    ⌨️ <strong>ESC</strong> cancelar | <strong>Enter</strong> finalizar | <strong>Ctrl+Z</strong> deshacer
-                                </p>
+                                <p className="at-hint">⌨️ <strong>ESC</strong> cancelar | <strong>Enter</strong> finalizar | <strong>Ctrl+Z</strong> deshacer</p>
                             )}
 
-                            {/* Botón de acción */}
                             <div>
                                 {!drawing && drawnPtsRef.current.length === 0 ? (
-                                    <button
-                                        className="at-action-btn"
-                                        onClick={handleStartDrawing}
-                                        disabled={!mapInstance}
-                                    >
+                                    <button className="at-action-btn" onClick={handleStartDrawing} disabled={!mapInstance}>
                                         ✏ Dibujar en el mapa
                                     </button>
                                 ) : drawing && (mode === 'line' || mode === 'polygon') ? (
-                                    <button
-                                        className="at-action-btn at-action-btn--drawing"
-                                        onClick={handleFinishDrawing}
-                                        disabled={
-                                            (mode === 'line' && drawnPtsRef.current.length < 2) ||
-                                            (mode === 'polygon' && drawnPtsRef.current.length < 3)
-                                        }
-                                    >
+                                    <button className="at-action-btn at-action-btn--drawing" onClick={handleFinishDrawing}
+                                        disabled={(mode === 'line' && drawnPtsRef.current.length < 2) || (mode === 'polygon' && drawnPtsRef.current.length < 3)}>
                                         ✔ Finalizar ({drawnPtsRef.current.length} pts)
                                     </button>
                                 ) : (
-                                    <button
-                                        className="at-action-btn"
-                                        onClick={runAnalysis}
-                                        disabled={loading}
-                                    >
+                                    <button className="at-action-btn" onClick={runAnalysis} disabled={loading}>
                                         {loading ? '⏳ Analizando...' : '🔍 Ejecutar Análisis'}
                                     </button>
                                 )}
@@ -1056,8 +834,6 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
                     {/* ─── Tab: Resultados ──────────────────────────────── */}
                     {tab === 'resultados' && hasResults && (
                         <div className="at-body">
-
-                            {/* ── Estado: cargando ────────────────────────── */}
                             {loading && (
                                 <div className="at-loading-state">
                                     <div className="at-loading-spinner" />
@@ -1066,34 +842,23 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
                                         {results.filter(r => r.count !== null).length} de {results.length} capas analizadas
                                     </p>
                                     <div className="at-progress-bar">
-                                        <div
-                                            className="at-progress-fill"
-                                            style={{
-                                                width: `${(results.filter(r => r.count !== null).length / results.length) * 100}%`
-                                            }}
-                                        />
+                                        <div className="at-progress-fill"
+                                            style={{ width: `${(results.filter(r => r.count !== null).length / results.length) * 100}%` }} />
                                     </div>
                                 </div>
                             )}
 
-                            {/* ── Estado: sin coincidencias ───────────────── */}
                             {!loading && totalWithFeatures === 0 && (
                                 <div className="at-empty-state">
                                     <div className="at-empty-icon">🔍</div>
                                     <p className="at-empty-title">Sin resultados</p>
-                                    <p className="at-empty-desc">
-                                        Ninguna capa tiene features dentro del área dibujada.
-                                    </p>
-                                    <button className="at-new-btn" onClick={handleReset}>
-                                        + Nuevo análisis
-                                    </button>
+                                    <p className="at-empty-desc">Ninguna capa tiene features dentro del área dibujada.</p>
+                                    <button className="at-new-btn" onClick={handleReset}>+ Nuevo análisis</button>
                                 </div>
                             )}
 
-                            {/* ── Resultados con coincidencias ────────────── */}
                             {!loading && totalWithFeatures > 0 && (
                                 <>
-                                    {/* Resumen */}
                                     <div className="at-results-summary">
                                         <strong>{stats.totalFeatures.toLocaleString()}</strong> features en{' '}
                                         <strong>{totalWithFeatures}</strong> {totalWithFeatures === 1 ? 'capa' : 'capas'}
@@ -1101,15 +866,10 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
                                     </div>
 
                                     <div className="at-export-buttons">
-                                        <button className="at-export-btn" onClick={handleExportCSV} aria-label="Exportar CSV">
-                                            📊 Exportar CSV
-                                        </button>
-                                        <button className="at-export-btn" onClick={handleExportGeoJSON} aria-label="Exportar GeoJSON">
-                                            🗺️ Exportar GeoJSON
-                                        </button>
+                                        <button className="at-export-btn" onClick={handleExportCSV} aria-label="Exportar CSV">📊 Exportar CSV</button>
+                                        <button className="at-export-btn" onClick={handleExportGeoJSON} aria-label="Exportar GeoJSON">🗺️ Exportar GeoJSON</button>
                                     </div>
 
-                                    {/* Tabla — solo capas con coincidencia, ordenadas por count desc */}
                                     <table className="at-results-table">
                                         <thead>
                                             <tr>
@@ -1129,33 +889,24 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
                                                         <React.Fragment key={lr.layerId}>
                                                             <tr>
                                                                 <td className="at-layer-name">{lr.layerName}</td>
-                                                                <td className="at-count">
-                                                                    {lr.count?.toLocaleString()}
-                                                                </td>
+                                                                <td className="at-count">{lr.count?.toLocaleString()}</td>
                                                                 <td>
                                                                     <div style={{ display: 'flex', gap: '4px' }}>
-                                                                        <button
-                                                                            className="at-details-btn"
+                                                                        <button className="at-details-btn"
                                                                             onClick={() => {
-                                                                                if (detailLayerId === lr.layerId) {
-                                                                                    setDetailLayerId(null);
-                                                                                } else {
-                                                                                    loadDetails(lr, realIdx);
-                                                                                }
+                                                                                if (detailLayerId === lr.layerId) setDetailLayerId(null);
+                                                                                else loadDetails(lr, realIdx);
                                                                             }}
                                                                             disabled={lr.loadingDetails}
                                                                             aria-label={`Ver detalles de ${lr.layerName}`}
-                                                                            aria-expanded={detailLayerId === lr.layerId}
-                                                                        >
+                                                                            aria-expanded={detailLayerId === lr.layerId}>
                                                                             {lr.loadingDetails ? '…' : detailLayerId === lr.layerId ? 'Ocultar' : 'Detalles'}
                                                                         </button>
                                                                         {lr.features && lr.features.length > 0 && (
-                                                                            <button
-                                                                                className="at-details-btn"
+                                                                            <button className="at-details-btn"
                                                                                 onClick={() => showFeaturesOnMap(lr)}
                                                                                 title="Ver en mapa"
-                                                                                aria-label={`Mostrar ${lr.layerName} en el mapa`}
-                                                                            >
+                                                                                aria-label={`Mostrar ${lr.layerName} en el mapa`}>
                                                                                 🗺️
                                                                             </button>
                                                                         )}
@@ -1163,7 +914,6 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
                                                                 </td>
                                                             </tr>
 
-                                                            {/* Panel de detalles */}
                                                             {detailLayerId === lr.layerId && lr.features && (
                                                                 <tr>
                                                                     <td colSpan={3} style={{ padding: '0 8px 10px' }}>
@@ -1196,10 +946,7 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
                                                                                     </div>
                                                                                 );
                                                                             })}
-                                                                            <button
-                                                                                className="at-detail-close"
-                                                                                onClick={() => setDetailLayerId(null)}
-                                                                            >
+                                                                            <button className="at-detail-close" onClick={() => setDetailLayerId(null)}>
                                                                                 Cerrar detalles
                                                                             </button>
                                                                         </div>
@@ -1211,10 +958,7 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
                                                 })}
                                         </tbody>
                                     </table>
-
-                                    <button className="at-new-btn" onClick={handleReset}>
-                                        + Nuevo análisis
-                                    </button>
+                                    <button className="at-new-btn" onClick={handleReset}>+ Nuevo análisis</button>
                                 </>
                             )}
                         </div>
@@ -1250,10 +994,8 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
                                                 <span className="at-chart-rank">#{idx + 1}</span>
                                                 <span className="at-chart-label">{lr.layerName}</span>
                                                 <div className="at-chart-bar-container">
-                                                    <div
-                                                        className="at-chart-bar"
-                                                        style={{ width: `${((lr.count ?? 0) / maxCount) * 100}%` }}
-                                                    />
+                                                    <div className="at-chart-bar"
+                                                        style={{ width: `${((lr.count ?? 0) / maxCount) * 100}%` }} />
                                                 </div>
                                                 <span className="at-chart-value">{(lr.count ?? 0).toLocaleString()}</span>
                                             </div>
@@ -1262,7 +1004,6 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
                                 </>
                             )}
 
-                            {/* Análisis por grupo */}
                             {(() => {
                                 const byGroup = results
                                     .filter(r => (r.count ?? 0) > 0)
@@ -1271,9 +1012,7 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance }) => {
                                         acc[group] = (acc[group] || 0) + (r.count ?? 0);
                                         return acc;
                                     }, {} as Record<string, number>);
-
                                 const groupEntries = Object.entries(byGroup).sort((a, b) => b[1] - a[1]);
-
                                 return groupEntries.length > 0 ? (
                                     <>
                                         <h3 className="at-stats-title">📁 Distribución por Grupo</h3>
