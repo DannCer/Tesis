@@ -319,7 +319,7 @@ const AttributeTable: React.FC<AttributeTableProps> = memo(({ layerName, feature
         const url  = URL.createObjectURL(blob);
         const a    = document.createElement('a');
         a.href = url;
-        a.download = `${layerName}_atributos.csv`;
+        a.download = `${layerName.replace(/[/\\:*?"<>|]/g, '_')}_atributos.csv`;
         a.click();
         URL.revokeObjectURL(url);
     }, [columns, processedRows, layerName]);

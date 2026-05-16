@@ -3,6 +3,7 @@
  *  - Pestañas por cada capa vectorial activa
  *  - Filtrado por extensión de mapa (moveend / zoomend)
  *  - Selección de renglones (click, Ctrl+click, Shift+click)
+ *  - Resaltado de features seleccionadas en el mapa (color institucional)
  *  - Zoom a entidades seleccionadas
  *  - SQL WHERE, búsqueda global, ordenamiento, paginación, export CSV
  *  - Redimensionamiento de columnas por arrastre
@@ -16,37 +17,47 @@ import React, {
 import L from 'leaflet';
 import '@styles/DynamicAttributeTable.css';
 
+// Los colores institucionales y la capa de resaltado son gestionados por MapView
+
 // ============================================================================
 // TIPOS
 // ============================================================================
 
 export interface DynamicVectorLayer {
-    /** Nombre legible para mostrar en la pestaña */
     name: string;
-    /** Features GeoJSON de la capa */
     data: GeoJSON.FeatureCollection | null;
 }
 
 export interface DynamicAttributeTableProps {
-    /** Solo se renderizan las capas visibles */
     vectorLayers: Record<string, DynamicVectorLayer>;
-    /** Instancia del mapa para filtrar por extensión */
     mapInstance: L.Map | null;
     onClose: () => void;
+    /** Capa Leaflet de resaltado compartida con MapView */
+    highlightLayerRef: React.MutableRefObject<L.GeoJSON | null>;
+    /** Feature clicada en el mapa que debe seleccionarse en la tabla */
+    mapSelectedFeature?: { layerId: string; feature: GeoJSON.Feature } | null;
+    /** Callback para avisar que el evento ya fue consumido */
+    onMapFeatureConsumed?: () => void;
+}
+
+/** Entrada del pipeline — preserva el índice original de feature */
+interface PipelineEntry {
+    row: Record<string, unknown>;
+    fi: number; // índice en extentFeatures
 }
 
 // ============================================================================
-// PARSER SQL WHERE (misma lógica que AttributeTable)
+// PARSER SQL WHERE
 // ============================================================================
 
-interface SqlError { message: string }
-type SqlResult = { rows: Record<string, unknown>[] } | SqlError;
-
-function applySqlWhere(rows: Record<string, unknown>[], sql: string): SqlResult {
+function applySqlFilter(
+    entries: PipelineEntry[],
+    sql: string,
+): PipelineEntry[] | { message: string } {
     const expr = sql.trim();
-    if (!expr) return { rows };
+    if (!expr) return entries;
     try {
-        return { rows: rows.filter(row => evalExpr(expr, row)) };
+        return entries.filter(({ row }) => evalExpr(expr, row));
     } catch (e) {
         return { message: e instanceof Error ? e.message : 'Error en la expresión SQL' };
     }
@@ -69,9 +80,10 @@ function evalExpr(expr: string, row: Record<string, unknown>): boolean {
     const andParts = splitLogical(s, 'AND');
     if (andParts.length > 1) return andParts.every(p => evalExpr(p, row));
     if (/^NOT\s+/i.test(s)) return !evalExpr(s.slice(4).trim(), row);
-    if (s.startsWith('(') && matchingParen(s) === s.length - 1) return evalExpr(s.slice(1, -1), row);
+    if (s.startsWith('(') && matchingParen(s) === s.length - 1)
+        return evalExpr(s.slice(1, -1), row);
     const f = extractField(s);
-    if (!f) throw new Error(`Campo no reconocido en: "${s.slice(0, 50)}"`);
+    if (!f) throw new Error(`Campo no reconocido: "${s.slice(0, 50)}"`);
     const { field, rest } = f;
     const colVal = row[field];
     const r = rest.trim();
@@ -88,8 +100,7 @@ function evalExpr(expr: string, row: Record<string, unknown>): boolean {
     }
     const cmpM = r.match(/^(!=|<>|<=|>=|=|<|>)\s*([\s\S]+)$/);
     if (cmpM) {
-        const op = cmpM[1];
-        const rawVal = cmpM[2];
+        const op = cmpM[1], rawVal = cmpM[2];
         const strM = rawVal.trim().match(/^'([^']*)'$/);
         if (strM) {
             const a = String(colVal ?? '').toLowerCase();
@@ -97,10 +108,7 @@ function evalExpr(expr: string, row: Record<string, unknown>): boolean {
             if (op === '=' || op === '==') return a === b;
             if (op === '!=' || op === '<>') return a !== b;
             const res = a.localeCompare(b);
-            if (op === '<') return res < 0;
-            if (op === '<=') return res <= 0;
-            if (op === '>') return res > 0;
-            if (op === '>=') return res >= 0;
+            return op === '<' ? res < 0 : op === '<=' ? res <= 0 : op === '>' ? res > 0 : res >= 0;
         }
         const num = parseFloat(rawVal.trim());
         if (!isNaN(num)) {
@@ -108,14 +116,11 @@ function evalExpr(expr: string, row: Record<string, unknown>): boolean {
             if (isNaN(a)) return false;
             if (op === '=' || op === '==') return a === num;
             if (op === '!=' || op === '<>') return a !== num;
-            if (op === '<') return a < num;
-            if (op === '<=') return a <= num;
-            if (op === '>') return a > num;
-            if (op === '>=') return a >= num;
+            return op === '<' ? a < num : op === '<=' ? a <= num : op === '>' ? a > num : a >= num;
         }
         throw new Error(`Valor no reconocido: "${rawVal.trim().slice(0, 30)}"`);
     }
-    throw new Error(`Operador no reconocido en: "${r.slice(0, 40)}"`);
+    throw new Error(`Operador no reconocido: "${r.slice(0, 40)}"`);
 }
 
 function matchingParen(s: string): number {
@@ -159,46 +164,34 @@ function splitLogical(expr: string, keyword: string): string[] {
 // UTILIDADES GEOESPACIALES
 // ============================================================================
 
-/** Calcula el bounding box de una geometría GeoJSON ([minLng, minLat, maxLng, maxLat]) */
-function geomBBox(geom: GeoJSON.Geometry | null | undefined): [number, number, number, number] | null {
+function geomBBox(
+    geom: GeoJSON.Geometry | null | undefined,
+): [number, number, number, number] | null {
     if (!geom) return null;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-
     const expand = (lng: number, lat: number) => {
-        if (lng < minX) minX = lng;
-        if (lat < minY) minY = lat;
-        if (lng > maxX) maxX = lng;
-        if (lat > maxY) maxY = lat;
+        if (lng < minX) minX = lng; if (lat < minY) minY = lat;
+        if (lng > maxX) maxX = lng; if (lat > maxY) maxY = lat;
     };
-
-    const walkCoords = (coords: unknown): void => {
-        if (!Array.isArray(coords)) return;
-        if (typeof coords[0] === 'number') {
-            expand(coords[0] as number, coords[1] as number);
-        } else {
-            (coords as unknown[]).forEach(c => walkCoords(c));
-        }
+    const walk = (c: unknown): void => {
+        if (!Array.isArray(c)) return;
+        if (typeof c[0] === 'number') expand(c[0] as number, c[1] as number);
+        else (c as unknown[]).forEach(walk);
     };
-
-    walkCoords((geom as { coordinates?: unknown }).coordinates);
+    walk((geom as { coordinates?: unknown }).coordinates);
     return minX === Infinity ? null : [minX, minY, maxX, maxY];
 }
 
-/** True si la feature tiene algún vértice o bbox que intersecta con los bounds del mapa */
-function featureIntersectsBounds(feature: GeoJSON.Feature, bounds: L.LatLngBounds): boolean {
-    const bbox = geomBBox(feature.geometry);
-    if (!bbox) return true; // sin geometría → incluir siempre
-    const [minLng, minLat, maxLng, maxLat] = bbox;
-    const fb = L.latLngBounds([minLat, minLng], [maxLat, maxLng]);
-    return bounds.intersects(fb);
+function featureIntersectsBounds(f: GeoJSON.Feature, bounds: L.LatLngBounds): boolean {
+    const bbox = geomBBox(f.geometry);
+    if (!bbox) return true;
+    return bounds.intersects(L.latLngBounds([bbox[1], bbox[0]], [bbox[3], bbox[2]]));
 }
 
-/** Calcula los bounds de una feature individual para zoom */
-function featureBounds(feature: GeoJSON.Feature): L.LatLngBounds | null {
-    const bbox = geomBBox(feature.geometry);
+function featureBounds(f: GeoJSON.Feature): L.LatLngBounds | null {
+    const bbox = geomBBox(f.geometry);
     if (!bbox) return null;
-    const [minLng, minLat, maxLng, maxLat] = bbox;
-    const b = L.latLngBounds([minLat, minLng], [maxLat, maxLng]);
+    const b = L.latLngBounds([bbox[1], bbox[0]], [bbox[3], bbox[2]]);
     return b.isValid() ? b : null;
 }
 
@@ -217,77 +210,83 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
     vectorLayers,
     mapInstance,
     onClose,
+    highlightLayerRef,
+    mapSelectedFeature,
+    onMapFeatureConsumed,
 }) => {
-    // ── Capas visibles disponibles como pestañas ────────────────────────────
+
+    // ── Capas visibles disponibles ──────────────────────────────────────────
     const visibleLayerIds = useMemo(() =>
         Object.entries(vectorLayers)
             .filter(([, l]) => l.data && l.data.features.length > 0)
             .map(([id]) => id),
-        [vectorLayers]
+        [vectorLayers],
     );
 
-    const [activeTab,        setActiveTab]        = useState<string>('');
-    const [filterByExtent,   setFilterByExtent]   = useState(false);
-    const [mapBounds,        setMapBounds]        = useState<L.LatLngBounds | null>(null);
-    const [selectedIndices,  setSelectedIndices]  = useState<Set<number>>(new Set());
-    const lastClickedIdx = useRef<number | null>(null);
+    const [activeTab,       setActiveTab]       = useState<string>('');
+    const [filterByExtent,  setFilterByExtent]  = useState(false);
+    const [mapBounds,       setMapBounds]       = useState<L.LatLngBounds | null>(null);
+    // selectedFiSet: índices en extentFeatures (no en processedEntries)
+    const [selectedFiSet,   setSelectedFiSet]   = useState<Set<number>>(new Set());
+    const lastClickedFi = useRef<number | null>(null);
 
-    // ── SQL / Búsqueda ──────────────────────────────────────────────────────
-    const [searchTerm,         setSearchTerm]         = useState('');
-    const [debouncedSearch,    setDebouncedSearch]    = useState('');
-    const [sqlInput,           setSqlInput]           = useState('');
-    const [sqlApplied,         setSqlApplied]         = useState('');
-    const [sqlError,           setSqlError]           = useState('');
-    const [sqlOpen,            setSqlOpen]            = useState(false);
-    const [sortColumn,         setSortColumn]         = useState<string | null>(null);
-    const [sortDirection,      setSortDirection]      = useState<'asc' | 'desc'>('asc');
-    const [currentPage,        setCurrentPage]        = useState(1);
-    const [columnWidths,       setColumnWidths]       = useState<Record<string, number>>({});
+    // ── SQL / búsqueda / UI ─────────────────────────────────────────────────
+    const [searchTerm,      setSearchTerm]      = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
+    const [sqlInput,        setSqlInput]        = useState('');
+    const [sqlApplied,      setSqlApplied]      = useState('');
+    const [sqlError,        setSqlError]        = useState('');
+    const [sqlOpen,         setSqlOpen]         = useState(false);
+    const [sortColumn,      setSortColumn]      = useState<string | null>(null);
+    const [sortDirection,   setSortDirection]   = useState<'asc' | 'desc'>('asc');
+    const [currentPage,     setCurrentPage]     = useState(1);
+    const [columnWidths,    setColumnWidths]    = useState<Record<string, number>>({});
+
     const resizingRef = useRef<{ col: string; startX: number; startW: number } | null>(null);
     const sortColRef  = useRef<string | null>(null);
     const sortDirRef  = useRef<'asc' | 'desc'>('asc');
 
-    // ── Sincronizar pestaña activa con capas visibles ───────────────────────
+    // La capa de resaltado es gestionada por MapView y se recibe via `highlightLayerRef`
+
+    // ── Sincronizar pestaña activa ──────────────────────────────────────────
     useEffect(() => {
         if (visibleLayerIds.length === 0) { setActiveTab(''); return; }
         if (!visibleLayerIds.includes(activeTab)) {
             setActiveTab(visibleLayerIds[0]);
-            setSelectedIndices(new Set());
+            setSelectedFiSet(new Set());
+            highlightLayerRef.current?.clearLayers();
         }
     }, [visibleLayerIds, activeTab]);
 
-    // Limpiar selección al cambiar pestaña
     const handleTabChange = useCallback((id: string) => {
         setActiveTab(id);
-        setSelectedIndices(new Set());
+        setSelectedFiSet(new Set());
+        highlightLayerRef.current?.clearLayers();
         setCurrentPage(1);
-        setSqlInput('');
-        setSqlApplied('');
-        setSqlError('');
-        setSearchTerm('');
-        setDebouncedSearch('');
-        setSortColumn(null);
-        sortColRef.current = null;
-        lastClickedIdx.current = null;
+        setSqlInput(''); setSqlApplied(''); setSqlError('');
+        setSearchTerm(''); setDebouncedSearch('');
+        setSortColumn(null); sortColRef.current = null;
+        lastClickedFi.current = null;
     }, []);
 
-    // ── Escuchar eventos del mapa ───────────────────────────────────────────
+    // ── Limpiar highlight al cerrar ─────────────────────────────────────────
+    const handleClose = useCallback(() => {
+        highlightLayerRef.current?.clearLayers();
+        onClose();
+    }, [onClose]);
+
+    // ── Eventos del mapa ────────────────────────────────────────────────────
     useEffect(() => {
         if (!mapInstance) return;
         const update = () => setMapBounds(mapInstance.getBounds());
-        update(); // captura el estado inicial
-        mapInstance.on('moveend', update);
-        mapInstance.on('zoomend', update);
-        return () => {
-            mapInstance.off('moveend', update);
-            mapInstance.off('zoomend', update);
-        };
+        update();
+        mapInstance.on('moveend zoomend', update);
+        return () => { mapInstance.off('moveend zoomend', update); };
     }, [mapInstance]);
 
-    // ── Redimensionamiento de columnas ──────────────────────────────────────
+    // ── Resize de columnas ──────────────────────────────────────────────────
     const handleResizeStart = useCallback((col: string, e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         resizingRef.current = { col, startX: e.clientX, startW: columnWidths[col] || 150 };
         document.body.style.cursor = 'col-resize';
         document.body.style.userSelect = 'none';
@@ -312,184 +311,229 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
         };
     }, []);
 
-    // ── Debounce de búsqueda ────────────────────────────────────────────────
+    // ── Debounce búsqueda ───────────────────────────────────────────────────
     useEffect(() => {
         const t = window.setTimeout(() => setDebouncedSearch(searchTerm), SEARCH_DEBOUNCE);
         return () => clearTimeout(t);
     }, [searchTerm]);
 
-    // ── Datos de la capa activa ─────────────────────────────────────────────
-    const activeLayer = vectorLayers[activeTab];
-    const allFeatures: GeoJSON.Feature[] = useMemo(
-        () => activeLayer?.data?.features ?? [],
-        [activeLayer]
-    );
+    // ── Features de la capa activa ──────────────────────────────────────────
+    const activeLayer   = vectorLayers[activeTab];
+    const allFeatures   = useMemo(() => activeLayer?.data?.features ?? [], [activeLayer]);
+
+    const extentFeatures = useMemo(() => {
+        if (!filterByExtent || !mapBounds) return allFeatures as GeoJSON.Feature[];
+        return (allFeatures as GeoJSON.Feature[]).filter(f => featureIntersectsBounds(f, mapBounds));
+    }, [allFeatures, filterByExtent, mapBounds]);
 
     const columns = useMemo(() => {
         const keys = new Set<string>();
         allFeatures.forEach(f => {
-            if (f.properties) Object.keys(f.properties).forEach(k => keys.add(k));
+            const feat = f as GeoJSON.Feature;
+            if (feat.properties) Object.keys(feat.properties).forEach(k => keys.add(k));
         });
         return Array.from(keys);
     }, [allFeatures]);
 
-    // ── Filtro por extensión de mapa ────────────────────────────────────────
-    const extentFeatures = useMemo(() => {
-        if (!filterByExtent || !mapBounds) return allFeatures;
-        return allFeatures.filter(f => featureIntersectsBounds(f, mapBounds));
-    }, [allFeatures, filterByExtent, mapBounds]);
-
-    const baseRows = useMemo(
-        () => extentFeatures.map(f => (f.properties as Record<string, unknown>) || {}),
-        [extentFeatures]
+    // ── Pipeline con índice de feature preservado ───────────────────────────
+    const baseEntries = useMemo<PipelineEntry[]>(
+        () => extentFeatures.map((f, fi) => ({
+            row: (f.properties as Record<string, unknown>) || {},
+            fi,
+        })),
+        [extentFeatures],
     );
 
-    // ── SQL ─────────────────────────────────────────────────────────────────
-    const sqlRows = useMemo(() => {
-        if (!sqlApplied.trim()) return baseRows;
-        const result = applySqlWhere(baseRows, sqlApplied);
-        return 'message' in result ? [] : result.rows;
-    }, [baseRows, sqlApplied]);
+    const sqlEntries = useMemo<PipelineEntry[]>(() => {
+        if (!sqlApplied.trim()) return baseEntries;
+        const result = applySqlFilter(baseEntries, sqlApplied);
+        return 'message' in result ? [] : result;
+    }, [baseEntries, sqlApplied]);
 
-    // ── Búsqueda + ordenamiento ─────────────────────────────────────────────
-    const processedRows = useMemo(() => {
-        let rows = sqlRows;
+    const processedEntries = useMemo<PipelineEntry[]>(() => {
+        let entries = sqlEntries;
         if (debouncedSearch.trim()) {
             const term = debouncedSearch.toLowerCase();
-            rows = rows.filter(row =>
-                Object.values(row).some(v => String(v ?? '').toLowerCase().includes(term))
+            entries = entries.filter(({ row }) =>
+                Object.values(row).some(v => String(v ?? '').toLowerCase().includes(term)),
             );
         }
         if (sortColumn) {
-            rows = [...rows].sort((a, b) => {
-                const va = String(a[sortColumn] ?? '');
-                const vb = String(b[sortColumn] ?? '');
+            entries = [...entries].sort((a, b) => {
+                const va = String(a.row[sortColumn] ?? '');
+                const vb = String(b.row[sortColumn] ?? '');
                 const ord = va.localeCompare(vb, undefined, { numeric: true });
                 return sortDirection === 'asc' ? ord : -ord;
             });
         }
-        return rows;
-    }, [sqlRows, debouncedSearch, sortColumn, sortDirection]);
+        return entries;
+    }, [sqlEntries, debouncedSearch, sortColumn, sortDirection]);
 
-    const totalPages    = Math.max(1, Math.ceil(processedRows.length / ROWS_PER_PAGE));
-    const paginatedRows = processedRows.slice(
+    const totalPages       = Math.max(1, Math.ceil(processedEntries.length / ROWS_PER_PAGE));
+    const paginatedEntries = processedEntries.slice(
         (currentPage - 1) * ROWS_PER_PAGE,
-        currentPage * ROWS_PER_PAGE
+        currentPage * ROWS_PER_PAGE,
     );
 
-    // ── Selección de renglones ──────────────────────────────────────────────
-    const handleRowClick = useCallback((globalIdx: number, e: React.MouseEvent) => {
-        setSelectedIndices(prev => {
+    // ── Selección + actualización de capa de resaltado ──────────────────────
+    const handleRowClick = useCallback((fi: number, e: React.MouseEvent) => {
+        setSelectedFiSet(prev => {
             const next = new Set(prev);
-            if (e.shiftKey && lastClickedIdx.current !== null) {
-                const from = Math.min(lastClickedIdx.current, globalIdx);
-                const to   = Math.max(lastClickedIdx.current, globalIdx);
-                for (let i = from; i <= to; i++) next.add(i);
+            if (e.shiftKey && lastClickedFi.current !== null) {
+                const fiList = processedEntries.map(en => en.fi);
+                const fromIdx = fiList.indexOf(lastClickedFi.current);
+                const toIdx   = fiList.indexOf(fi);
+                if (fromIdx !== -1 && toIdx !== -1) {
+                    const lo = Math.min(fromIdx, toIdx);
+                    const hi = Math.max(fromIdx, toIdx);
+                    for (let i = lo; i <= hi; i++) next.add(fiList[i]);
+                }
             } else if (e.ctrlKey || e.metaKey) {
-                if (next.has(globalIdx)) next.delete(globalIdx);
-                else next.add(globalIdx);
+                if (next.has(fi)) next.delete(fi); else next.add(fi);
             } else {
-                if (next.size === 1 && next.has(globalIdx)) next.clear();
-                else { next.clear(); next.add(globalIdx); }
+                if (next.size === 1 && next.has(fi)) next.clear();
+                else { next.clear(); next.add(fi); }
             }
-            lastClickedIdx.current = globalIdx;
+            lastClickedFi.current = fi;
             return next;
         });
-    }, []);
+    }, [processedEntries]);
+
+    // Sincronizar capa de resaltado con la selección
+    useEffect(() => {
+        const hl = highlightLayerRef.current;
+        if (!hl) return;
+        hl.clearLayers();
+        if (selectedFiSet.size === 0) return;
+        selectedFiSet.forEach(fi => {
+            const feature = extentFeatures[fi];
+            if (feature) hl.addData(feature);
+        });
+    }, [selectedFiSet, extentFeatures]);
 
     const clearSelection = useCallback(() => {
-        setSelectedIndices(new Set());
-        lastClickedIdx.current = null;
+        setSelectedFiSet(new Set());
+        lastClickedFi.current = null;
     }, []);
+
+    // ── Selección desde clic en el mapa ─────────────────────────────────────
+    useEffect(() => {
+        if (!mapSelectedFeature) return;
+        const { layerId, feature } = mapSelectedFeature;
+
+        // 1. Cambiar a la pestaña de la capa correspondiente (si está visible)
+        if (visibleLayerIds.includes(layerId) && activeTab !== layerId) {
+            // handleTabChange limpia selección, así que actualizamos el tab primero
+            setActiveTab(layerId);
+            setCurrentPage(1);
+            setSqlInput(''); setSqlApplied(''); setSqlError('');
+            setSearchTerm(''); setDebouncedSearch('');
+            setSortColumn(null); sortColRef.current = null;
+            lastClickedFi.current = null;
+        }
+
+        // 2. Buscar el índice de la feature en las features de esa capa
+        //    Usamos comparación por referencia (mismo objeto GeoJSON)
+        const layerFeatures = vectorLayers[layerId]?.data?.features ?? [];
+        const fi = layerFeatures.indexOf(feature as GeoJSON.GeoJsonObject);
+
+        if (fi !== -1) {
+            setSelectedFiSet(new Set([fi]));
+            lastClickedFi.current = fi;
+            // Scroll a la página que contiene esa fila
+            const page = Math.floor(fi / ROWS_PER_PAGE) + 1;
+            setCurrentPage(page);
+        }
+
+        onMapFeatureConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mapSelectedFeature]);
 
     // ── Zoom a seleccionados ────────────────────────────────────────────────
     const zoomToSelected = useCallback(() => {
-        if (!mapInstance || selectedIndices.size === 0) return;
+        if (!mapInstance || selectedFiSet.size === 0) return;
         let combined: L.LatLngBounds | null = null;
-        selectedIndices.forEach(idx => {
-            const feature = extentFeatures[idx];
-            if (!feature) return;
-            const fb = featureBounds(feature);
+        selectedFiSet.forEach(fi => {
+            const fb = featureBounds(extentFeatures[fi]);
             if (!fb) return;
             combined = combined ? combined.extend(fb) : fb;
         });
         if (combined && (combined as L.LatLngBounds).isValid()) {
             mapInstance.fitBounds(combined as L.LatLngBounds, { padding: [30, 30], maxZoom: 16 });
         }
-    }, [mapInstance, selectedIndices, extentFeatures]);
+    }, [mapInstance, selectedFiSet, extentFeatures]);
 
-    // ── Actualizar: re-captura bounds actuales ──────────────────────────────
     const handleRefresh = useCallback(() => {
         if (mapInstance) setMapBounds(mapInstance.getBounds());
     }, [mapInstance]);
 
-    // ── Handlers SQL ────────────────────────────────────────────────────────
+    // ── SQL ─────────────────────────────────────────────────────────────────
     const applySQL = useCallback(() => {
         setSqlError('');
-        const test = applySqlWhere(baseRows, sqlInput);
+        const test = applySqlFilter(baseEntries, sqlInput);
         if ('message' in test) { setSqlError(test.message); }
-        else { setSqlApplied(sqlInput); setCurrentPage(1); }
-    }, [sqlInput, baseRows]);
+        else { setSqlApplied(sqlInput); setCurrentPage(1); clearSelection(); }
+    }, [sqlInput, baseEntries, clearSelection]);
 
     const clearSQL = useCallback(() => {
         setSqlInput(''); setSqlApplied(''); setSqlError(''); setCurrentPage(1);
     }, []);
 
-    // ── Ordenamiento ─────────────────────────────────────────────────────────
+    // ── Ordenamiento ────────────────────────────────────────────────────────
     const handleSort = useCallback((col: string) => {
         if (sortColRef.current === col) {
             const nd = sortDirRef.current === 'asc' ? 'desc' : 'asc';
-            sortDirRef.current = nd;
-            setSortDirection(nd);
+            sortDirRef.current = nd; setSortDirection(nd);
         } else {
-            sortColRef.current = col;
-            sortDirRef.current = 'asc';
-            setSortColumn(col);
-            setSortDirection('asc');
-            setCurrentPage(1);
+            sortColRef.current = col; sortDirRef.current = 'asc';
+            setSortColumn(col); setSortDirection('asc'); setCurrentPage(1);
         }
     }, []);
 
     // ── Exportar CSV ────────────────────────────────────────────────────────
     const exportCSV = useCallback(() => {
         const header = columns.join(',');
-        const csvRows = processedRows.map(row =>
+        const csvRows = processedEntries.map(({ row }) =>
             columns.map(col => {
                 const val = String(row[col] ?? '');
                 return val.includes(',') || val.includes('"')
                     ? `"${val.replace(/"/g, '""')}"` : val;
-            }).join(',')
+            }).join(','),
         );
-        const blob = new Blob(['\uFEFF' + [header, ...csvRows].join('\n')], { type: 'text/csv;charset=utf-8;' });
-        const url  = URL.createObjectURL(blob);
-        const a    = document.createElement('a');
+        const blob = new Blob(
+            ['\uFEFF' + [header, ...csvRows].join('\n')],
+            { type: 'text/csv;charset=utf-8;' },
+        );
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
         a.href = url;
-        a.download = `${activeLayer?.name ?? activeTab}_atributos.csv`;
+        a.download = `${(activeLayer?.name ?? activeTab).replace(/[/\\:*?"<>|]/g, '_')}_atributos.csv`;
         a.click();
         URL.revokeObjectURL(url);
-    }, [columns, processedRows, activeLayer, activeTab]);
+    }, [columns, processedEntries, activeLayer, activeTab]);
 
-    // ── Estado derivado para UI ─────────────────────────────────────────────
-    const hasSqlFilter    = !!sqlApplied.trim();
-    const selCount        = selectedIndices.size;
-    const totalFeatures   = allFeatures.length;
-    const extentFiltered  = filterByExtent && extentFeatures.length !== totalFeatures;
+    // ── Estado derivado UI ──────────────────────────────────────────────────
+    const hasSqlFilter   = !!sqlApplied.trim();
+    const selCount       = selectedFiSet.size;
+    const totalFeatures  = allFeatures.length;
+    const extentFiltered = filterByExtent && extentFeatures.length !== totalFeatures;
 
-    // ── Sin capas visibles ───────────────────────────────────────────────────
+    // ── Sin capas visibles ──────────────────────────────────────────────────
     if (visibleLayerIds.length === 0) {
         return (
             <div className="dat-overlay">
                 <div className="dat-modal">
-                    <div className="dat-header">
-                        <span className="dat-header-title">
-                            <TabIcon /> Tabla de Atributos Dinámica
+                    <div className="dat-tabs">
+                        <span style={{ padding: '0.6rem 1rem', color: 'rgba(255,255,255,0.7)', fontSize: '0.85rem' }}>
+                            Tabla de Atributos
                         </span>
-                        <button className="attr-btn attr-btn-close" onClick={onClose}>✕</button>
+                        <div style={{ flex: 1 }} />
+                        <button className="dat-tab-close" onClick={handleClose}>✕</button>
                     </div>
                     <div className="attr-table-empty" style={{ margin: 'auto', padding: '2rem' }}>
                         <p>No hay capas vectoriales activas con datos cargados.</p>
                         <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.5rem' }}>
-                            Activa una o más capas vectoriales en el panel de capas para ver sus atributos.
+                            Activa una capa vectorial en el panel de capas para ver sus atributos.
                         </p>
                     </div>
                 </div>
@@ -501,9 +545,7 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
         <div className="dat-overlay">
             <div className="dat-modal">
 
-                {/* ══════════════════════════════════════════════════════════
-                    PESTAÑAS — una por capa vectorial activa
-                ══════════════════════════════════════════════════════════ */}
+                {/* ══ PESTAÑAS ══════════════════════════════════════════════ */}
                 <div className="dat-tabs" role="tablist">
                     {visibleLayerIds.map(id => (
                         <button
@@ -518,16 +560,12 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
                             <span className="dat-tab-label">{vectorLayers[id]?.name ?? id}</span>
                         </button>
                     ))}
-                    {/* Spacer + botón cerrar */}
                     <div style={{ flex: 1 }} />
-                    <button className="dat-tab-close" onClick={onClose} title="Cerrar tabla">✕</button>
+                    <button className="dat-tab-close" onClick={handleClose} title="Cerrar tabla">✕</button>
                 </div>
 
-                {/* ══════════════════════════════════════════════════════════
-                    BARRA DE HERRAMIENTAS
-                ══════════════════════════════════════════════════════════ */}
+                {/* ══ BARRA DE HERRAMIENTAS ═══════════════════════════════ */}
                 <div className="dat-toolbar">
-                    {/* Buscar */}
                     <input
                         type="text"
                         className="dat-search"
@@ -536,81 +574,64 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
                         onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                     />
 
-                    {/* Filtrar por extensión */}
                     <button
                         className={`dat-tool-btn${filterByExtent ? ' dat-tool-btn--active' : ''}`}
                         onClick={() => setFilterByExtent(v => !v)}
-                        title={filterByExtent ? 'Mostrando solo entidades en la extensión del mapa' : 'Filtrar por extensión del mapa'}
+                        title={filterByExtent
+                            ? 'Mostrando solo entidades en la vista del mapa'
+                            : 'Filtrar por extensión del mapa'}
                     >
                         <ExtentIcon />
                         <span>Filtrar por extensión</span>
                         {filterByExtent && <span className="dat-badge">{extentFeatures.length}</span>}
                     </button>
 
-                    {/* Zoom a seleccionados */}
                     <button
                         className={`dat-tool-btn${selCount === 0 ? ' dat-tool-btn--disabled' : ''}`}
                         onClick={selCount > 0 ? zoomToSelected : undefined}
-                        title={selCount > 0 ? `Zoom a ${selCount} entidad(es) seleccionada(s)` : 'Selecciona entidades para hacer zoom'}
+                        title={selCount > 0
+                            ? `Zoom a ${selCount} entidad(es) seleccionada(s)`
+                            : 'Selecciona entidades para hacer zoom'}
                         aria-disabled={selCount === 0}
                     >
-                        <ZoomIcon />
-                        <span>Acercar</span>
+                        <ZoomIcon /><span>Acercar</span>
                     </button>
 
-                    {/* Borrar selección */}
                     <button
                         className={`dat-tool-btn${selCount === 0 ? ' dat-tool-btn--disabled' : ''}`}
                         onClick={selCount > 0 ? clearSelection : undefined}
                         title="Borrar selección"
                         aria-disabled={selCount === 0}
                     >
-                        <ClearIcon />
-                        <span>Borrar selección</span>
+                        <ClearIcon /><span>Borrar selección</span>
                     </button>
 
-                    {/* Filtro SQL */}
                     <button
                         className={`dat-tool-btn${sqlOpen ? ' dat-tool-btn--active' : ''}${hasSqlFilter ? ' dat-tool-btn--filtered' : ''}`}
                         onClick={() => setSqlOpen(o => !o)}
                         title="Filtro SQL WHERE"
                     >
-                        <SqlIcon />
-                        <span>SQL</span>
+                        <SqlIcon /><span>SQL</span>
                     </button>
 
-                    {/* Actualizar */}
-                    <button
-                        className="dat-tool-btn"
-                        onClick={handleRefresh}
-                        title="Actualizar extensión del mapa"
-                    >
-                        <RefreshIcon />
-                        <span>Actualizar</span>
+                    <button className="dat-tool-btn" onClick={handleRefresh} title="Actualizar extensión del mapa">
+                        <RefreshIcon /><span>Actualizar</span>
                     </button>
 
-                    {/* CSV */}
-                    <button
-                        className="dat-tool-btn"
-                        onClick={exportCSV}
-                        title="Exportar a CSV"
-                    >
-                        <CsvIcon />
-                        <span>CSV</span>
+                    <button className="dat-tool-btn" onClick={exportCSV} title="Exportar a CSV">
+                        <CsvIcon /><span>CSV</span>
                     </button>
                 </div>
 
-                {/* ══════════════════════════════════════════════════════════
-                    PANEL SQL
-                ══════════════════════════════════════════════════════════ */}
+                {/* ══ PANEL SQL ═════════════════════════════════════════════ */}
                 {sqlOpen && (
                     <div className="attr-sql-panel">
                         <div className="attr-sql-label">
                             <code>WHERE</code>
                             <span className="attr-sql-hint">
                                 Ej: <em>&quot;campo&quot; &gt; 100</em> &nbsp;|&nbsp;
-                                <em>&quot;nombre&quot; LIKE &apos;%ciudad%&apos;</em> &nbsp;|&nbsp;
-                                <em>clave IS NULL</em>
+                                <em>&quot;nombre&quot; LIKE &apos;%valor%&apos;</em> &nbsp;|&nbsp;
+                                <em>campo IS NULL</em>
                             </span>
                         </div>
                         <div className="attr-sql-row">
@@ -656,15 +677,13 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
                     </div>
                 )}
 
-                {/* ══════════════════════════════════════════════════════════
-                    CUERPO — TABLA
-                ══════════════════════════════════════════════════════════ */}
+                {/* ══ TABLA ════════════════════════════════════════════════ */}
                 <div className="attr-table-body">
                     {allFeatures.length === 0 ? (
                         <div className="attr-table-empty">
                             <p>Esta capa no tiene datos cargados.</p>
                         </div>
-                    ) : processedRows.length === 0 ? (
+                    ) : processedEntries.length === 0 ? (
                         <div className="attr-table-empty">
                             <p>Ningún registro coincide con los filtros aplicados.</p>
                             {hasSqlFilter && (
@@ -682,14 +701,20 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
                                         <th
                                             key={col}
                                             className={`attr-th attr-th-sortable${sortColumn === col ? ' sorted' : ''}`}
-                                            style={{ width: columnWidths[col] ? `${columnWidths[col]}px` : '150px', minWidth: '60px', position: 'relative' }}
+                                            style={{
+                                                width: columnWidths[col] ? `${columnWidths[col]}px` : '150px',
+                                                minWidth: '60px',
+                                                position: 'relative',
+                                            }}
                                         >
                                             <div
                                                 className="attr-th-content"
                                                 onClick={() => handleSort(col)}
                                                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                                             >
-                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{col}</span>
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {col}
+                                                </span>
                                                 <span className="sort-icon">
                                                     {sortColumn === col ? (sortDirection === 'asc' ? ' ▲' : ' ▼') : ' ⇅'}
                                                 </span>
@@ -700,19 +725,16 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
                                 </tr>
                             </thead>
                             <tbody>
-                                {paginatedRows.map((row, pageIdx) => {
-                                    // Índice global en `extentFeatures` para selección
-                                    const globalIdx = (currentPage - 1) * ROWS_PER_PAGE + pageIdx;
-                                    const isSelected = selectedIndices.has(globalIdx);
+                                {paginatedEntries.map(({ row, fi }, pageIdx) => {
+                                    const globalNum  = (currentPage - 1) * ROWS_PER_PAGE + pageIdx + 1;
+                                    const isSelected = selectedFiSet.has(fi);
                                     return (
                                         <tr
-                                            key={globalIdx}
+                                            key={fi}
                                             className={`attr-tr dat-tr${isSelected ? ' dat-tr--selected' : ''}`}
-                                            onClick={e => handleRowClick(globalIdx, e)}
+                                            onClick={e => handleRowClick(fi, e)}
                                         >
-                                            <td className="attr-td attr-td-num">
-                                                {globalIdx + 1}
-                                            </td>
+                                            <td className="attr-td attr-td-num">{globalNum}</td>
                                             {columns.map(col => (
                                                 <td key={col} className="attr-td" title={String(row[col] ?? '')}>
                                                     {row[col] === null || row[col] === undefined
@@ -728,31 +750,27 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
                     )}
                 </div>
 
-                {/* ══════════════════════════════════════════════════════════
-                    PAGINACIÓN
-                ══════════════════════════════════════════════════════════ */}
+                {/* ══ PAGINACIÓN ════════════════════════════════════════════ */}
                 {totalPages > 1 && (
                     <div className="attr-table-pagination">
-                        <button className="attr-page-btn" onClick={() => setCurrentPage(1)}              disabled={currentPage === 1}>«</button>
-                        <button className="attr-page-btn" onClick={() => setCurrentPage(p => p - 1)}    disabled={currentPage === 1}>‹</button>
+                        <button className="attr-page-btn" onClick={() => setCurrentPage(1)}           disabled={currentPage === 1}>«</button>
+                        <button className="attr-page-btn" onClick={() => setCurrentPage(p => p - 1)} disabled={currentPage === 1}>‹</button>
                         <span className="attr-page-info">
-                            {(currentPage - 1) * ROWS_PER_PAGE + 1}–{Math.min(currentPage * ROWS_PER_PAGE, processedRows.length)} de {processedRows.length}
+                            {(currentPage - 1) * ROWS_PER_PAGE + 1}–{Math.min(currentPage * ROWS_PER_PAGE, processedEntries.length)} de {processedEntries.length}
                         </span>
-                        <button className="attr-page-btn" onClick={() => setCurrentPage(p => p + 1)}    disabled={currentPage === totalPages}>›</button>
-                        <button className="attr-page-btn" onClick={() => setCurrentPage(totalPages)}     disabled={currentPage === totalPages}>»</button>
+                        <button className="attr-page-btn" onClick={() => setCurrentPage(p => p + 1)} disabled={currentPage === totalPages}>›</button>
+                        <button className="attr-page-btn" onClick={() => setCurrentPage(totalPages)}  disabled={currentPage === totalPages}>»</button>
                     </div>
                 )}
 
-                {/* ══════════════════════════════════════════════════════════
-                    BARRA DE ESTADO
-                ══════════════════════════════════════════════════════════ */}
+                {/* ══ BARRA DE ESTADO ══════════════════════════════════════ */}
                 <div className="dat-statusbar">
                     <span className="dat-status-count">
-                        {processedRows.length}
-                        {(hasSqlFilter || extentFiltered) && processedRows.length !== totalFeatures && (
+                        {processedEntries.length}
+                        {(hasSqlFilter || extentFiltered) && processedEntries.length !== totalFeatures && (
                             <span style={{ opacity: 0.65 }}> / {totalFeatures}</span>
                         )}{' '}entidades
-                        {hasSqlFilter  && <span className="attr-sql-badge">SQL</span>}
+                        {hasSqlFilter   && <span className="attr-sql-badge">SQL</span>}
                         {extentFiltered && <span className="dat-extent-badge">Extensión</span>}
                     </span>
                     {selCount > 0 && (
@@ -762,9 +780,7 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
                         </span>
                     )}
                     <span style={{ flex: 1 }} />
-                    <span className="dat-status-hint">
-                        Shift+clic para rango · Ctrl+clic para múltiple
-                    </span>
+                    <span className="dat-status-hint">Shift+clic: rango · Ctrl+clic: múltiple</span>
                 </div>
 
             </div>
@@ -776,7 +792,7 @@ DynamicAttributeTable.displayName = 'DynamicAttributeTable';
 export default DynamicAttributeTable;
 
 // ============================================================================
-// ÍCONOS SVG internos (sin dependencia externa)
+// ÍCONOS SVG
 // ============================================================================
 
 const TabIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
@@ -784,39 +800,33 @@ const TabIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
         <path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm15 2h-4v3h4V4zm0 4h-4v3h4V8zm0 4h-4v3h3a1 1 0 0 0 1-1v-2zm-5 3v-3H6v3h4zm-5 0v-3H1v2a1 1 0 0 0 1 1h3zm-4-4h4V8H1v3zm0-4h4V4H1v3zm5-3v3h4V4H6zm4 4H6v3h4V8z"/>
     </svg>
 );
-
 const ExtentIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
         <path d="M2 2h2v2H2V2zm0 4h2v2H2V6zm0 4h2v2H2v-2zm4-8h2v2H6V2zm0 4h2v2H6V6zm0 4h2v2H6v-2zm4-8h2v2h-2V2zm0 4h2v2h-2V6zm0 4h2v2h-2v-2zM1 1v14h14V1H1zm1 1h12v12H2V2z"/>
     </svg>
 );
-
 const ZoomIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
         <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.099zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
         <path d="M6.5 3a.5.5 0 0 1 .5.5V6h2.5a.5.5 0 0 1 0 1H7v2.5a.5.5 0 0 1-1 0V7H3.5a.5.5 0 0 1 0-1H6V3.5a.5.5 0 0 1 .5-.5z"/>
     </svg>
 );
-
 const ClearIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
         <path d="M2.5 1a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1H3v9a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V4h.5a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H10a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1H2.5zm3 4a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-1 0v-7a.5.5 0 0 1 .5-.5zM8 5a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-1 0v-7A.5.5 0 0 1 8 5zm3 .5v7a.5.5 0 0 1-1 0v-7a.5.5 0 0 1 1 0z"/>
     </svg>
 );
-
 const SqlIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
         <path d="M6 10.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 0 1h-7a.5.5 0 0 1-.5-.5zm-2-3a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11a.5.5 0 0 1-.5-.5z"/>
     </svg>
 );
-
 const RefreshIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
         <path fillRule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
         <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
     </svg>
 );
-
 const CsvIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
         <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>

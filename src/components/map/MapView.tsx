@@ -201,6 +201,11 @@ const escapeHtml = (value: unknown): string => {
 
 const POPUP_SKIP_KEYS = new Set(['bbox', 'geometry', 'the_geom', 'geom']);
 
+/** Colores institucionales leídos de las CSS vars (con fallback) */
+const HL_COLOR      = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim()      || '#cd171e';
+const HL_COLOR_DARK = getComputedStyle(document.documentElement).getPropertyValue('--color-primary-dark').trim() || '#691B31';
+const HIGHLIGHT_PANE = 'map-highlight-pane';
+
 // ─── MapView ──────────────────────────────────────────────────────────────────
 
 const MapView: React.FC = () => {
@@ -248,6 +253,9 @@ const MapView: React.FC = () => {
     // Registro de capas ya centradas automáticamente
     const autoZoomedVectorLayersRef = useRef<Set<string>>(new Set());
 
+    /** Capa Leaflet de resaltado compartida entre popup y tabla de atributos */
+    const mapHighlightLayerRef = useRef<L.GeoJSON | null>(null);
+
     // ─── Handlers swipe ───────────────────────────────────────────────────────
 
     const handleSwipeActivate = useCallback((left: SwipeLayerConfig, right: SwipeLayerConfig) => {
@@ -266,6 +274,13 @@ const MapView: React.FC = () => {
     const [swipePanelOpen,   setSwipePanelOpen]   = useState(false);
     const handleToggleSwipePanel = useCallback(() => setSwipePanelOpen(o => !o), []);
     const [dynamicTableOpen, setDynamicTableOpen] = useState(false);
+
+    // Feature seleccionada desde el mapa → se comunica a DynamicAttributeTable
+    const [mapSelectedFeature, setMapSelectedFeature] = useState<{
+        layerId: string;
+        feature: GeoJSON.Feature;
+    } | null>(null);
+
 
     // ─── Handlers capas externas ──────────────────────────────────────────────
 
@@ -336,6 +351,20 @@ const MapView: React.FC = () => {
         setLayerOpacity,
     } = useWFSLayers();
 
+    /**
+     * WeakMap feature → layerId: permite que onEachVectorFeature (callback
+     * compartido sin parámetro layerId) identifique la capa de cada feature.
+     * Se reconstruye cada vez que cambia vectorLayers.
+     */
+    const featureToLayerIdRef = useRef<WeakMap<object, string>>(new WeakMap());
+    useEffect(() => {
+        const wm = new WeakMap<object, string>();
+        Object.entries(vectorLayers).forEach(([id, layer]) => {
+            (layer.data?.features ?? []).forEach(f => wm.set(f, id));
+        });
+        featureToLayerIdRef.current = wm;
+    }, [vectorLayers]);
+
     const {
         activeLayers,
         opacityLayers,
@@ -395,6 +424,45 @@ const MapView: React.FC = () => {
         }
     }, [mapInstance]);
 
+    // ─── Capa de resaltado — se crea una vez cuando mapInstance está listo ────
+
+    useEffect(() => {
+        if (!mapInstance) return;
+
+        // Crear pane propio (encima de overlayPane:400, debajo de popupPane:700)
+        if (!mapInstance.getPane(HIGHLIGHT_PANE)) {
+            const pane = mapInstance.createPane(HIGHLIGHT_PANE);
+            pane.style.zIndex = '450';
+            pane.style.pointerEvents = 'none';
+        }
+
+        const hl = L.geoJSON(undefined, {
+            pane: HIGHLIGHT_PANE,
+            style: () => ({
+                color:       HL_COLOR_DARK,
+                fillColor:   HL_COLOR,
+                fillOpacity: 0.30,
+                weight:      3,
+                opacity:     1,
+            }),
+            pointToLayer: (_f, latlng) =>
+                L.circleMarker(latlng, {
+                    pane:        HIGHLIGHT_PANE,
+                    radius:      10,
+                    color:       HL_COLOR_DARK,
+                    fillColor:   HL_COLOR,
+                    fillOpacity: 0.50,
+                    weight:      3,
+                }),
+        }).addTo(mapInstance);
+
+        mapHighlightLayerRef.current = hl;
+        return () => {
+            hl.remove();
+            mapHighlightLayerRef.current = null;
+        };
+    }, [mapInstance]);
+
     // ─── Popup de feature vectorial ───────────────────────────────────────────
 
     const onEachVectorFeature = useCallback((feature: GeoJSONFeature, layer: L.Layer) => {
@@ -438,8 +506,20 @@ const MapView: React.FC = () => {
                 const fid = feature.id ?? props.id ?? crypto.randomUUID();
                 setSelectedFeature(fid as string | number);
                 layer.openPopup(e.latlng);
+                // Resaltar la feature en el mapa
+                const hl = mapHighlightLayerRef.current;
+                if (hl) {
+                    hl.clearLayers();
+                    hl.addData(feature as GeoJSON.Feature);
+                }
+                // Notificar a la tabla de atributos qué feature fue clicada
+                const lid = featureToLayerIdRef.current.get(feature);
+                if (lid) setMapSelectedFeature({ layerId: lid, feature: feature as GeoJSON.Feature });
             },
-            popupclose: () => setSelectedFeature(null),
+            popupclose: () => {
+                setSelectedFeature(null);
+                mapHighlightLayerRef.current?.clearLayers();
+            },
         });
     }, []);
 
@@ -831,6 +911,9 @@ const MapView: React.FC = () => {
                     vectorLayers={dynamicTableLayers}
                     mapInstance={mapInstance}
                     onClose={() => setDynamicTableOpen(false)}
+                    highlightLayerRef={mapHighlightLayerRef}
+                    mapSelectedFeature={mapSelectedFeature}
+                    onMapFeatureConsumed={() => setMapSelectedFeature(null)}
                 />
             )}
 

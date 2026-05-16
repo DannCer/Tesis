@@ -187,7 +187,7 @@ async function downloadVectorFormat(
         const blobUrl = URL.createObjectURL(blob);
         const a       = Object.assign(document.createElement('a'), {
             href:     blobUrl,
-            download: `${layer.id}.${fmt.ext}`,
+            download: `${(layer.name ?? layer.id).replace(/[/\\:*?"<>|]/g, '_')}.${fmt.ext}`,
         });
         document.body.appendChild(a);
         a.click();

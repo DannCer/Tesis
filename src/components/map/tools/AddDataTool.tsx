@@ -15,6 +15,7 @@ import {
     SymbologyStyle, SymbologyMode, GeomType, DEFAULT_SYMBOLOGY,
     detectGeomType, extractFields, autoCategorize,
     classifyFeatures, getRampGradientCSS, RAMP_NAMES,
+    evaluateSQLWhere,
 } from '@utils/geo/symbologyUtils';
 import type { ExternalLayer } from '@types/geo';
 import { CAPABILITIES_TIMEOUT_MS } from '@config/constants';
@@ -87,7 +88,7 @@ const SymbologyEditor: React.FC<SymbologyEditorProps> = ({ features, geomType, s
             const categories = autoCategorize(features, field);
             updateSym({ mode, field, categories, expression: undefined });
         } else if (mode === 'expression') {
-            updateSym({ mode, expression: '' });
+            updateSym({ mode, expression: '', otherColor: '#e74c3c' });
         } else {
             updateSym({ mode, categories: undefined, expression: undefined });
         }
@@ -109,12 +110,23 @@ const SymbologyEditor: React.FC<SymbologyEditorProps> = ({ features, geomType, s
     const handleExpressionTest = useCallback(() => {
         if (!symbology.expression?.trim()) return;
         try {
-            const results = classifyFeatures(features, symbology.expression);
-            updateSym({ categories: results });
+            let matched = 0;
+            let invalid = 0;
+            for (const feature of features) {
+                const result = evaluateSQLWhere(symbology.expression, feature.properties ?? {});
+                if (result === null) { invalid++; }
+                else if (result)     { matched++; }
+            }
+            const total = features.length;
+            if (invalid === total) {
+                logger.error('La expresión SQL no produjo resultados válidos.');
+            } else {
+                logger.info(`Expresión SQL: ${matched} de ${total} elementos coinciden.`);
+            }
         } catch (e) {
-            logger.error('Error en expresión de simbología:', e);
+            logger.error('Error en expresión SQL de simbología:', e);
         }
-    }, [features, symbology.expression, updateSym]);
+    }, [features, symbology.expression]);
 
     return (
         <div className="sym-editor">
@@ -196,8 +208,40 @@ const SymbologyEditor: React.FC<SymbologyEditorProps> = ({ features, geomType, s
 
             {symbology.mode === 'expression' && (
                 <div className="sym-field">
-                    <label className="sym-label">Expresión JavaScript</label>
-                    <textarea className="sym-expression-input" value={symbology.expression ?? ''} onChange={e => updateSym({ expression: e.target.value })} placeholder={'// Ejemplo:\nfeature.properties.tipo === "A" ? "#e74c3c" : "#3498db"'} rows={4} />
+                    <label className="sym-label">Expresión SQL (WHERE)</label>
+                    <textarea
+                        className="sym-expression-input"
+                        value={symbology.expression ?? ''}
+                        onChange={e => updateSym({ expression: e.target.value })}
+                        placeholder={[
+                            "-- Ejemplos:",
+                            "tipo = 'residencial'",
+                            "poblacion > 5000",
+                            "area BETWEEN 100 AND 500",
+                            "nombre LIKE '%norte%'",
+                            "clase IN ('A', 'B') AND valor >= 10",
+                        ].join('\n')}
+                        rows={5}
+                        spellCheck={false}
+                    />
+                    <div className="sym-field-row" style={{ marginTop: '6px', gap: '8px', alignItems: 'center' }}>
+                        <span className="sym-label" style={{ margin: 0 }}>✓ Coincide</span>
+                        <input
+                            type="color"
+                            value={symbology.color ?? '#2ecc71'}
+                            onChange={e => updateSym({ color: e.target.value })}
+                            className="sym-color-input"
+                            title="Color cuando la condición se cumple"
+                        />
+                        <span className="sym-label" style={{ margin: 0, marginLeft: '8px' }}>✗ No coincide</span>
+                        <input
+                            type="color"
+                            value={symbology.otherColor ?? '#e74c3c'}
+                            onChange={e => updateSym({ otherColor: e.target.value })}
+                            className="sym-color-input"
+                            title="Color cuando la condición no se cumple"
+                        />
+                    </div>
                     <button className="sym-test-btn" onClick={handleExpressionTest}>▶ Probar expresión</button>
                 </div>
             )}
@@ -278,7 +322,12 @@ const AddDataTool: React.FC<AddDataToolProps> = ({ isOpen, onClose, onAddLayer }
             if (!file) { setError('Selecciona un archivo vectorial'); return; }
             setLoading(true);
             try {
-                const fc       = await fileToGeoJSON(file);
+                const result = await fileToGeoJSON(file);
+                if (!result.ok) {
+                    setError(result.error);
+                    return;
+                }
+                const fc       = result.data;
                 const detected = detectGeomType(fc.features);
                 setPendingFeatures(fc.features);
                 setGeomType(detected);
@@ -311,7 +360,7 @@ const AddDataTool: React.FC<AddDataToolProps> = ({ isOpen, onClose, onAddLayer }
         <div className="adt-panel" role="dialog" aria-label="Agregar capa">
 
             {/* ── Header ─────────────────────────────────────────────── */}
-            <div className="adt-header">
+            <div className="adt-header" data-drag-handle>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M12 5v14M5 12h14" />
                 </svg>

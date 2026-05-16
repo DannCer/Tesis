@@ -1048,7 +1048,7 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
     return (
         <div className="dt-panel" role="dialog" aria-label="Dibujar">
             {/* ── Header ──────────────────────────────────────────────────── */}
-            <div className="dt-header">
+            <div className="dt-header" data-drag-handle>
                 <span className="dt-header-icon">✏️</span>
                 <span className="dt-header-title">Dibujar</span>
                 <button className="dt-close-btn" onClick={onClose} aria-label="Cerrar">−</button>

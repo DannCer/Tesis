@@ -15,6 +15,7 @@ import AnalysisTool      from '@components/map/tools/AnalysisTool';
 import AddDataTool       from '@components/map/tools/AddDataTool';
 import DrawTool          from '@components/map/tools/DrawTool';
 import CoordinatesTool   from '@components/map/tools/CoordinatesTool';
+import DraggablePanel    from '@components/common/DraggablePanel';
 import type { ExternalLayer } from '@types/geo';
 import type L from 'leaflet';
 
@@ -159,31 +160,41 @@ const MapToolbar: React.FC<MapToolbarProps> = ({
             </div>
 
             {/* ── Paneles flotantes ────────────────────────────────── */}
-            <ElevationProfile
-                mapInstance={mapInstance}
-                isOpen={activePanel === 'elevacion'}
-                onClose={closePanel}
-            />
-            <AnalysisTool
-                mapInstance={mapInstance}
-                isOpen={activePanel === 'analisis'}
-                onClose={closePanel}
-            />
-            <AddDataTool
-                isOpen={activePanel === 'adddata'}
-                onClose={closePanel}
-                onAddLayer={onAddLayer}
-            />
-            <DrawTool
-                mapInstance={mapInstance}
-                isOpen={activePanel === 'dibujar'}
-                onClose={closePanel}
-            />
-            <CoordinatesTool
-                mapInstance={mapInstance}
-                isOpen={activePanel === 'coordenadas'}
-                onClose={closePanel}
-            />
+            <DraggablePanel isOpen={activePanel === 'analisis'}    defaultWidth={420} zIndex={1200}>
+                <AnalysisTool
+                    mapInstance={mapInstance}
+                    isOpen={activePanel === 'analisis'}
+                    onClose={closePanel}
+                />
+            </DraggablePanel>
+            <DraggablePanel isOpen={activePanel === 'elevacion'}   defaultWidth={360} zIndex={1200}>
+                <ElevationProfile
+                    mapInstance={mapInstance}
+                    isOpen={activePanel === 'elevacion'}
+                    onClose={closePanel}
+                />
+            </DraggablePanel>
+            <DraggablePanel isOpen={activePanel === 'adddata'}     defaultWidth={400} zIndex={1400}>
+                <AddDataTool
+                    isOpen={activePanel === 'adddata'}
+                    onClose={closePanel}
+                    onAddLayer={onAddLayer}
+                />
+            </DraggablePanel>
+            <DraggablePanel isOpen={activePanel === 'dibujar'}     defaultWidth={660} zIndex={1400}>
+                <DrawTool
+                    mapInstance={mapInstance}
+                    isOpen={activePanel === 'dibujar'}
+                    onClose={closePanel}
+                />
+            </DraggablePanel>
+            <DraggablePanel isOpen={activePanel === 'coordenadas'} defaultWidth={480} zIndex={1400}>
+                <CoordinatesTool
+                    mapInstance={mapInstance}
+                    isOpen={activePanel === 'coordenadas'}
+                    onClose={closePanel}
+                />
+            </DraggablePanel>
         </>
     );
 };

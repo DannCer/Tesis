@@ -240,13 +240,15 @@ function downloadAsCSV(data: any[], filename: string) {
     const headers = Object.keys(data[0] || {});
     const csv = [
         headers.join(','),
-        ...data.map(row => headers.map(h => `"${row[h] ?? ''}"`).join(','))
+        ...data.map(row => headers.map(h => `"${String(row[h] ?? '').replace(/"/g, '""')}"`).join(','))
     ].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const link = Object.assign(document.createElement('a'), { href: url, download: filename });
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 }
 
 function downloadAsGeoJSON(results: LayerResult[], filename: string) {
@@ -255,11 +257,13 @@ function downloadAsGeoJSON(results: LayerResult[], filename: string) {
         .flatMap(r => r.features || [])
         .filter(f => f.geometry);
     const geojson = { type: 'FeatureCollection', features };
-    const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
+    const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/geo+json;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const link = Object.assign(document.createElement('a'), { href: url, download: filename });
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 }
 
 // ─── Historial — usa sessionStorage en lugar de localStorage ─────────────────
@@ -708,7 +712,7 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
             {isVisible && (
                 <div className="at-panel" role="dialog" aria-label="Panel de análisis espacial">
                     {/* ─── Header ──────────────────────────────────────── */}
-                    <div className="at-header">
+                    <div className="at-header" data-drag-handle>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <circle cx="11" cy="11" r="8" />
                             <path d="m21 21-4.35-4.35" />
