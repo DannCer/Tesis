@@ -7,7 +7,7 @@ import type L from 'leaflet';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
-export type SymbologyMode = 'single' | 'categorical' | 'classified';
+export type SymbologyMode = 'single' | 'categorical' | 'classified' | 'expression';
 
 export interface CategoryEntry {
     value: string;
@@ -124,6 +124,270 @@ function generateDistinctColors(count: number): string[] {
         const light = (45 + (i % 5) * 7)  / 100;   // 0.45 … 0.73
         return hslToHex(hue, sat, light);
     });
+}
+
+// ─── Evaluador SQL WHERE ──────────────────────────────────────────────────────
+
+type SQLToken =
+    | { type: 'ident';  val: string  }
+    | { type: 'string'; val: string  }
+    | { type: 'number'; val: number  }
+    | { type: 'op';     val: string  }
+    | { type: 'kw';     val: string  }
+    | { type: 'lparen' | 'rparen' | 'comma' };
+
+const SQL_KEYWORDS = new Set([
+    'AND', 'OR', 'NOT', 'IN', 'BETWEEN', 'LIKE',
+    'IS', 'NULL', 'TRUE', 'FALSE',
+]);
+
+function tokenizeSQL(expr: string): SQLToken[] {
+    const tokens: SQLToken[] = [];
+    let i = 0;
+    while (i < expr.length) {
+        // Espacios
+        if (/\s/.test(expr[i])) { i++; continue; }
+
+        // Literal de cadena
+        if (expr[i] === "'" || expr[i] === '"') {
+            const q = expr[i++];
+            let s = '';
+            while (i < expr.length && expr[i] !== q) {
+                if (expr[i] === '\\') i++;
+                s += expr[i++];
+            }
+            i++;
+            tokens.push({ type: 'string', val: s });
+            continue;
+        }
+
+        // Número
+        if (/\d/.test(expr[i]) || (expr[i] === '-' && /\d/.test(expr[i + 1] ?? ''))) {
+            let s = '';
+            if (expr[i] === '-') s += expr[i++];
+            while (i < expr.length && /[\d.]/.test(expr[i])) s += expr[i++];
+            tokens.push({ type: 'number', val: parseFloat(s) });
+            continue;
+        }
+
+        // Operadores de dos caracteres
+        const two = expr.slice(i, i + 2);
+        if (['<>', '!=', '>=', '<='].includes(two)) {
+            tokens.push({ type: 'op', val: two === '<>' ? '!=' : two });
+            i += 2; continue;
+        }
+
+        // Operadores de un carácter
+        if ('=<>'.includes(expr[i])) {
+            tokens.push({ type: 'op', val: expr[i] });
+            i++; continue;
+        }
+
+        // Paréntesis y coma
+        if (expr[i] === '(') { tokens.push({ type: 'lparen' }); i++; continue; }
+        if (expr[i] === ')') { tokens.push({ type: 'rparen' }); i++; continue; }
+        if (expr[i] === ',') { tokens.push({ type: 'comma'  }); i++; continue; }
+
+        // Identificador o palabra clave
+        if (/[a-zA-Z_]/.test(expr[i])) {
+            let s = '';
+            while (i < expr.length && /[\w]/.test(expr[i])) s += expr[i++];
+            const upper = s.toUpperCase();
+            tokens.push(SQL_KEYWORDS.has(upper)
+                ? { type: 'kw',    val: upper }
+                : { type: 'ident', val: s });
+            continue;
+        }
+
+        i++; // carácter desconocido — saltar
+    }
+    return tokens;
+}
+
+class SQLParser {
+    private pos = 0;
+    constructor(private readonly tokens: SQLToken[], private readonly props: Record<string, unknown>) {}
+
+    private peek()   { return this.tokens[this.pos]; }
+    private consume() { return this.tokens[this.pos++]; }
+
+    private match(type: string, val?: string): boolean {
+        const t = this.peek();
+        if (!t || t.type !== type) return false;
+        if (val !== undefined && (t as { val?: string }).val !== val) return false;
+        return true;
+    }
+
+    private expect(type: string, val?: string): SQLToken {
+        if (!this.match(type, val)) throw new Error(`Se esperaba ${type} ${val ?? ''}`);
+        return this.consume();
+    }
+
+    /** OR */
+    parseOr(): boolean {
+        let left = this.parseAnd();
+        while (this.match('kw', 'OR')) {
+            this.consume();
+            const right = this.parseAnd();
+            left = left || right;
+        }
+        return left;
+    }
+
+    /** AND */
+    private parseAnd(): boolean {
+        let left = this.parseNot();
+        while (this.match('kw', 'AND')) {
+            this.consume();
+            const right = this.parseNot();
+            left = left && right;
+        }
+        return left;
+    }
+
+    /** NOT */
+    private parseNot(): boolean {
+        if (this.match('kw', 'NOT')) { this.consume(); return !this.parsePrimary(); }
+        return this.parsePrimary();
+    }
+
+    /** Expresión primaria */
+    private parsePrimary(): boolean {
+        // Agrupación
+        if (this.match('lparen')) {
+            this.consume();
+            const val = this.parseOr();
+            this.expect('rparen');
+            return val;
+        }
+        if (this.match('kw', 'TRUE'))  { this.consume(); return true;  }
+        if (this.match('kw', 'FALSE')) { this.consume(); return false; }
+
+        const left = this.parseScalar();
+
+        // IS NULL / IS NOT NULL
+        if (this.match('kw', 'IS')) {
+            this.consume();
+            const neg = this.match('kw', 'NOT') ? (this.consume(), true) : false;
+            this.expect('kw', 'NULL');
+            const isNull = left === null || left === undefined || left === '';
+            return neg ? !isNull : isNull;
+        }
+
+        // IN (...)
+        if (this.match('kw', 'IN')) {
+            this.consume();
+            this.expect('lparen');
+            const values: unknown[] = [];
+            while (!this.match('rparen')) {
+                values.push(this.parseScalar());
+                if (this.match('comma')) this.consume();
+            }
+            this.expect('rparen');
+            return values.some(v => String(v).toLowerCase() === String(left ?? '').toLowerCase());
+        }
+
+        // BETWEEN lo AND hi
+        if (this.match('kw', 'BETWEEN')) {
+            this.consume();
+            const lo = this.parseScalar();
+            this.expect('kw', 'AND');
+            const hi = this.parseScalar();
+            return Number(left) >= Number(lo) && Number(left) <= Number(hi);
+        }
+
+        // LIKE
+        if (this.match('kw', 'LIKE')) {
+            this.consume();
+            const pattern = this.parseScalar();
+            return this.evalLike(String(left ?? ''), String(pattern ?? ''));
+        }
+
+        // Comparadores
+        if (this.match('op')) {
+            const op = (this.consume() as { val: string }).val;
+            const right = this.parseScalar();
+            return this.compare(left, op, right);
+        }
+
+        return Boolean(left);
+    }
+
+    /** Valor escalar: campo, literal de cadena, número o NULL */
+    private parseScalar(): unknown {
+        const t = this.peek();
+        if (!t) return null;
+        if (t.type === 'number') { this.consume(); return (t as { val: number }).val; }
+        if (t.type === 'string') { this.consume(); return (t as { val: string }).val; }
+        if (t.type === 'kw' && (t as { val: string }).val === 'NULL')  { this.consume(); return null; }
+        if (t.type === 'kw' && (t as { val: string }).val === 'TRUE')  { this.consume(); return true; }
+        if (t.type === 'kw' && (t as { val: string }).val === 'FALSE') { this.consume(); return false; }
+        if (t.type === 'ident') {
+            this.consume();
+            const v = this.props[(t as { val: string }).val];
+            return v !== undefined ? v : null;
+        }
+        return null;
+    }
+
+    private compare(left: unknown, op: string, right: unknown): boolean {
+        const ln = Number(left);
+        const rn = Number(right);
+        if (!isNaN(ln) && !isNaN(rn)) {
+            if (op === '=')  return ln === rn;
+            if (op === '!=') return ln !== rn;
+            if (op === '>')  return ln >   rn;
+            if (op === '<')  return ln <   rn;
+            if (op === '>=') return ln >=  rn;
+            if (op === '<=') return ln <=  rn;
+        }
+        const ls = String(left  ?? '').toLowerCase();
+        const rs = String(right ?? '').toLowerCase();
+        if (op === '=')  return ls === rs;
+        if (op === '!=') return ls !== rs;
+        if (op === '>')  return ls >   rs;
+        if (op === '<')  return ls <   rs;
+        if (op === '>=') return ls >=  rs;
+        if (op === '<=') return ls <=  rs;
+        return false;
+    }
+
+    private evalLike(value: string, pattern: string): boolean {
+        const regex = '^' +
+            pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                   .replace(/%/g, '.*')
+                   .replace(/_/g, '.') +
+            '$';
+        return new RegExp(regex, 'i').test(value);
+    }
+}
+
+/**
+ * Evalúa una cláusula WHERE de SQL sobre las propiedades de un feature.
+ *
+ * Soporta: =, <>, !=, >, <, >=, <=, AND, OR, NOT, IN, BETWEEN, LIKE,
+ * IS NULL, IS NOT NULL, literales de cadena y numéricos, paréntesis.
+ *
+ * @example
+ *   evaluateSQLWhere("tipo = 'residencial' AND area > 100", feature.properties)
+ *   evaluateSQLWhere("nombre LIKE '%norte%'", feature.properties)
+ *   evaluateSQLWhere("clase IN ('A','B') AND valor BETWEEN 1 AND 10", props)
+ *
+ * @returns true | false según si el feature cumple la condición,
+ *          o null si la expresión está vacía o es inválida.
+ */
+export function evaluateSQLWhere(
+    expression: string,
+    properties: Record<string, unknown>
+): boolean | null {
+    try {
+        const tokens = tokenizeSQL(expression.trim());
+        if (tokens.length === 0) return null;
+        const parser = new SQLParser(tokens, properties);
+        return parser.parseOr();
+    } catch {
+        return null;
+    }
 }
 
 // ─── Evaluador de expresiones (seguro) ───────────────────────────────────────
@@ -303,6 +567,21 @@ export function featureStyle(
                 return val >= c.min && (isLast ? val <= c.max : val < c.max);
             }) ?? last;
             const fill = cls?.color ?? '#aaa';
+            return { ...base, fillColor: fill, color: fill };
+        }
+    }
+
+    if (symbology.mode === 'expression' && symbology.expression?.trim()) {
+        // Soporta `fillColor` (campo canónico) y `color` (alias usado por AddDataTool)
+        const sym = symbology as SymbologyStyle & { color?: string };
+        const trueColor  = sym.fillColor || sym.color  || '#2ecc71';
+        const falseColor = sym.otherColor               || '#e74c3c';
+        const matches = evaluateSQLWhere(
+            symbology.expression,
+            (feature?.properties ?? {}) as Record<string, unknown>
+        );
+        if (matches !== null) {
+            const fill = matches ? trueColor : falseColor;
             return { ...base, fillColor: fill, color: fill };
         }
     }

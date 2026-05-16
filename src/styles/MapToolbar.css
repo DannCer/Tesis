@@ -7,7 +7,7 @@
 
 .map-toolbar {
     position: fixed;
-    bottom: 1.75rem;
+    bottom: 5rem;
     left: 50%;
     transform: translateX(-50%);
     z-index: 1500;
@@ -204,4 +204,53 @@
         opacity: 1;
         transform: translateX(-50%) translateY(0);
     }
+}
+/* ==========================================================================
+   DraggablePanel — Estilos del host arrastrable y overrides de posición
+   ========================================================================== */
+
+/**
+ * El host tiene position:fixed con left/top controlados por JS.
+ * Los paneles interiores deben ser position:static para que el host
+ * sea quien controle la posición en pantalla.
+ */
+.draggable-panel-host .at-panel,
+.draggable-panel-host .ep-panel,
+.draggable-panel-host .adt-panel,
+.draggable-panel-host .dt-panel,
+.draggable-panel-host .ct-panel {
+    position:   static !important;
+    transform:  none   !important;
+    bottom:     auto   !important;
+    left:       auto   !important;
+    right:      auto   !important;
+    top:        auto   !important;
+    width:      100%   !important;
+    max-width:  100%   !important;
+    /* Animación de entrada simplificada (la original usaba translateX(-50%)) */
+    animation: dp-fadein 0.18s ease both !important;
+}
+
+/* Los wrappers auxiliares de AnalysisTool / ElevationProfile */
+.draggable-panel-host .at-wrapper,
+.draggable-panel-host .ep-wrapper {
+    display:  block;
+    position: static !important;
+}
+
+@keyframes dp-fadein {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0);   }
+}
+
+/* Cursor de arrastre sobre el asa */
+[data-drag-handle] {
+    cursor:      grab;
+    user-select: none;
+}
+
+/* Cursor durante el arrastre activo */
+.draggable-panel-host--dragging,
+.draggable-panel-host--dragging * {
+    cursor: grabbing !important;
 }

@@ -733,7 +733,7 @@ const ElevationProfile: React.FC<ElevationProfileProps> = ({ mapInstance, isOpen
             {isVisible && (
                 <div className="ep-panel">
                     {/* Encabezado */}
-                    <div className="ep-header">
+                    <div className="ep-header" data-drag-handle>
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M3 18l5-8 4 5 3-4 6 7H3z" />
                         </svg>

@@ -316,7 +316,7 @@ const CoordinatesTool: React.FC<CoordinatesToolProps> = ({
         <div className="ct-panel" role="dialog" aria-label="Coordenadas" aria-modal="false">
 
             {/* ── Header ── */}
-            <div className="ct-header">
+            <div className="ct-header" data-drag-handle>
                 <span className="ct-header-icon">📍</span>
                 <span className="ct-header-title">Coordenadas</span>
                 <button className="ct-close-btn" onClick={onClose} title="Cerrar" aria-label="Cerrar panel">
