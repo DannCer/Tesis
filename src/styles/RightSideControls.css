@@ -123,10 +123,111 @@
     }
 }
 
+/* ── Botón con ícono SVG inline ─────────────────────────────────────────── */
+
+/* Los botones SVG comparten la anatomía base de .rsc-btn pero
+   usan un SVG en lugar de <img>. */
+.rsc-btn--svg {
+    color: #555;
+}
+
+.rsc-svg {
+    width:  var(--rsc-icon-size);
+    height: var(--rsc-icon-size);
+    display: block;
+    flex-shrink: 0;
+    transition: color 0.15s ease, transform 0.15s ease;
+}
+
+/* ── Home: sin estado especial, solo hover heredado ─────────────────────── */
+
+.rsc-btn--svg:hover:not(:disabled) .rsc-svg {
+    color: #1a1a1a;
+}
+
+/* ── Ubicación: estado "encontrado" ────────────────────────────────────── */
+
+.rsc-btn--location-active {
+    background: #E3F2FD;
+}
+
+.rsc-btn--location-active:hover {
+    background: color-mix(in srgb, #E3F2FD 80%, #000);
+}
+
+.rsc-svg--location-found {
+    color: #1565C0;
+}
+
+/* ── Ubicación: estado "error" ──────────────────────────────────────────── */
+
+.rsc-btn--location-error {
+    background: #FFF5F5;
+}
+
+.rsc-svg--error {
+    color: #888;
+}
+
+/* ── Ubicación: estado "cargando" ───────────────────────────────────────── */
+
+.rsc-btn--loading {
+    cursor: wait;
+    pointer-events: none;
+    opacity: 0.75;
+}
+
+.rsc-svg--spinning {
+    color: #1565C0;
+    animation: rsc-spin 0.9s linear infinite;
+    transform-origin: center;
+}
+
+@keyframes rsc-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ── Popup de ubicación ─────────────────────────────────────────────────── */
+
+.rsc-location-popup {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 140px;
+}
+
+.rsc-location-popup strong {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #1565C0;
+}
+
+.rsc-location-popup span {
+    font-size: 0.72rem;
+    font-family: monospace;
+    color: #555;
+    letter-spacing: 0.02em;
+}
+
+.rsc-location-popup__acc {
+    color: #888 !important;
+    font-size: 0.68rem !important;
+    margin-top: 2px;
+}
+
 /* ── Alta densidad de píxeles ───────────────────────────────────────────── */
 
 @media (min-resolution: 2dppx) {
     .rsc-img {
-        image-rendering: auto;    /* deja que el navegador interpole con calidad */
+        image-rendering: auto;
+    }
+}
+
+/* ── Responsive: móvil ──────────────────────────────────────────────────── */
+
+@media (max-width: 600px) {
+    :root {
+        --rsc-btn-size:  44px;  /* WCAG 2.5.5: mínimo 44×44 táctil */
+        --rsc-icon-size: 20px;
     }
 }

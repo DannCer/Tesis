@@ -12,6 +12,7 @@ export type SymbologyMode = 'single' | 'categorical' | 'classified' | 'expressio
 export interface CategoryEntry {
     value: string;
     color: string;
+    count?: number;
 }
 
 export interface ClassifiedEntry {
@@ -535,7 +536,11 @@ export function extractUniqueValues(features: GeoJSON.Feature[], field: string):
 export function autoCategorize(features: GeoJSON.Feature[], field: string): CategoryEntry[] {
     const vals   = extractUniqueValues(features, field);
     const colors = generateDistinctColors(vals.length);
-    return vals.map((v, i) => ({ value: v, color: colors[i] }));
+    return vals.map((v, i) => ({
+        value: v,
+        color: colors[i],
+        count: features.filter(f => String(f.properties?.[field] ?? '') === v).length,
+    }));
 }
 
 // ─── Función de estilo Leaflet ────────────────────────────────────────────────
@@ -572,10 +577,8 @@ export function featureStyle(
     }
 
     if (symbology.mode === 'expression' && symbology.expression?.trim()) {
-        // Soporta `fillColor` (campo canónico) y `color` (alias usado por AddDataTool)
-        const sym = symbology as SymbologyStyle & { color?: string };
-        const trueColor  = sym.fillColor || sym.color  || '#2ecc71';
-        const falseColor = sym.otherColor               || '#e74c3c';
+        const trueColor  = symbology.fillColor  || '#2ecc71';
+        const falseColor = symbology.otherColor  || '#e74c3c';
         const matches = evaluateSQLWhere(
             symbology.expression,
             (feature?.properties ?? {}) as Record<string, unknown>

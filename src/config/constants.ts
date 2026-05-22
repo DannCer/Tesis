@@ -11,7 +11,7 @@
 
 export const MAP_DEFAULT_CENTER: [number, number] = [19.4326, -99.1332]; // CDMX
 export const MAP_DEFAULT_ZOOM   = 11;
-export const MAP_MIN_ZOOM       = 8;
+export const MAP_MIN_ZOOM       = 4;   // Permite ver toda la República Mexicana
 export const MAP_MAX_ZOOM       = 19;
 
 // ─── Bounds de descarga WMS (cobertura México completo) ───────────────────────
@@ -19,11 +19,12 @@ export const MAP_MAX_ZOOM       = 19;
 // Formato: minLat, minLng, maxLat, maxLng (EPSG:4326)
 export const MEXICO_BBOX_WMS = '14.532,-118.454,32.718,-86.710' as const;
 
-// ─── Límites del visor (CDMX) ─────────────────────────────────────────────────
-export const MAP_MAX_BOUNDS: [[number, number], [number, number]] = [
-    [19.75, -98.75],  // Noreste CDMX
-    [19.05, -99.55],  // Suroeste CDMX
-];
+// ─── Límites del visor (México completo — sin restricción de bounds) ──────────
+// Comentado para no restringir la navegación; descomentar si se requiere
+// export const MAP_MAX_BOUNDS: [[number, number], [number, number]] = [
+//     [32.72, -86.71],  // Noreste México
+//     [14.53, -118.45], // Suroeste México
+// ];
 
 // ============================================================================
 // WFS / CAPAS

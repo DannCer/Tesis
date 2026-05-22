@@ -130,7 +130,7 @@ export const config: Config = {
             getEnvNumber('MAP_CENTER_LNG', -99.1332),
         ],
         zoom:    getEnvNumber('MAP_ZOOM', 11),
-        minZoom: getEnvNumber('MAP_MIN_ZOOM', 8),
+        minZoom: getEnvNumber('MAP_MIN_ZOOM', 4),
         maxZoom: getEnvNumber('MAP_MAX_ZOOM', 19),
         zoomDelta: 0.5,
         zoomSnap:  0.5,

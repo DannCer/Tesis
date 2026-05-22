@@ -7,14 +7,14 @@
  * @module components/map/tools/AddDataTool
  */
 
-import React, { useState, useCallback, useRef, useMemo, memo } from 'react';
+import React, { useState, useCallback, useRef, useMemo } from 'react';
 import { config, logger } from '@config/env';
 import { fileToGeoJSON, VECTOR_ACCEPT } from '@utils/geo/fileToGeoJSON';
 import { loadGeoTIFF } from '@utils/geo/georasterLoader';
 import {
     SymbologyStyle, SymbologyMode, GeomType, DEFAULT_SYMBOLOGY,
     detectGeomType, extractFields, autoCategorize,
-    classifyFeatures, getRampGradientCSS, RAMP_NAMES,
+    getRampGradientCSS, RAMP_NAMES,
     evaluateSQLWhere,
 } from '@utils/geo/symbologyUtils';
 import type { ExternalLayer } from '@types/geo';
@@ -83,12 +83,12 @@ const SymbologyEditor: React.FC<SymbologyEditorProps> = ({ features, geomType, s
         onChange({ ...symbology, ...patch }), [symbology, onChange]);
 
     const handleModeChange = useCallback((mode: SymbologyMode) => {
-        if (mode === 'categorized' && fields.length > 0) {
+        if (mode === 'categorical' && fields.length > 0) {
             const field      = symbology.field ?? fields[0];
             const categories = autoCategorize(features, field);
             updateSym({ mode, field, categories, expression: undefined });
         } else if (mode === 'expression') {
-            updateSym({ mode, expression: '', otherColor: '#e74c3c' });
+            updateSym({ mode, expression: '', fillColor: '#2ecc71', otherColor: '#e74c3c' });
         } else {
             updateSym({ mode, categories: undefined, expression: undefined });
         }
@@ -107,6 +107,8 @@ const SymbologyEditor: React.FC<SymbologyEditorProps> = ({ features, geomType, s
         updateSym({ categories: cats });
     }, [features, symbology.field, updateSym]);
 
+    const [expressionResult, setExpressionResult] = useState<string | null>(null);
+
     const handleExpressionTest = useCallback(() => {
         if (!symbology.expression?.trim()) return;
         try {
@@ -119,130 +121,135 @@ const SymbologyEditor: React.FC<SymbologyEditorProps> = ({ features, geomType, s
             }
             const total = features.length;
             if (invalid === total) {
-                logger.error('La expresión SQL no produjo resultados válidos.');
+                setExpressionResult('⚠ La expresión no produjo resultados válidos.');
+                logger.error('Expresión SQL: sin resultados válidos');
             } else {
-                logger.info(`Expresión SQL: ${matched} de ${total} elementos coinciden.`);
+                setExpressionResult(`✓ ${matched} de ${total} elementos coinciden`);
+                logger.log(`Expresión SQL: ${matched}/${total} coinciden`);
             }
         } catch (e) {
+            setExpressionResult('⚠ Error al evaluar la expresión.');
             logger.error('Error en expresión SQL de simbología:', e);
         }
     }, [features, symbology.expression]);
 
     return (
         <div className="sym-editor">
-            <div className="sym-field">
-                <label className="sym-label">Modo</label>
-                <div className="sym-mode-btns">
-                    {(['simple', 'categorized', 'expression'] as SymbologyMode[]).map(m => (
-                        <button key={m} className={`sym-mode-btn ${symbology.mode === m ? 'active' : ''}`} onClick={() => handleModeChange(m)}>
-                            {m === 'simple' ? 'Simple' : m === 'categorized' ? 'Categorizado' : 'Expresión'}
-                        </button>
-                    ))}
-                </div>
+
+            {/* ── Selector de modo ────────────────────────────────────── */}
+            <div className="sym-modes sym-modes-3">
+                {(['single', 'categorical', 'expression'] as SymbologyMode[]).map(m => (
+                    <button
+                        key={m}
+                        className={`sym-mode-btn${symbology.mode === m ? ' selected' : ''}`}
+                        onClick={() => handleModeChange(m)}
+                    >
+                        {m === 'single' ? 'Simple' : m === 'categorical' ? 'Categorizado' : 'Expresión'}
+                    </button>
+                ))}
             </div>
 
-            {symbology.mode === 'simple' && (
-                <>
-                    <div className="sym-field">
-                        <label className="sym-label">Color de relleno</label>
-                        <input type="color" value={symbology.color} onChange={e => updateSym({ color: e.target.value })} className="sym-color-input" />
+            {/* ── Modo Simple ─────────────────────────────────────────── */}
+            {symbology.mode === 'single' && (
+                <div className="sym-single">
+                    <div className="sym-row">
+                        <span className="sym-label">Relleno</span>
+                        <div className="sym-color-row">
+                            <input type="color" className="sym-color-input" value={symbology.fillColor}
+                                onChange={e => updateSym({ fillColor: e.target.value })} title="Color de relleno" />
+                            {(geomType === 'polygon' || geomType === 'mixed') && (
+                                <>
+                                    <span className="sym-label" style={{ marginLeft: 8 }}>Borde</span>
+                                    <input type="color" className="sym-color-input" value={symbology.strokeColor ?? '#333333'}
+                                        onChange={e => updateSym({ strokeColor: e.target.value })} title="Color de borde" />
+                                </>
+                            )}
+                        </div>
                     </div>
                     {(geomType === 'polygon' || geomType === 'mixed') && (
-                        <>
-                            <div className="sym-field">
-                                <label className="sym-label">Color de borde</label>
-                                <input type="color" value={symbology.outlineColor ?? '#333333'} onChange={e => updateSym({ outlineColor: e.target.value })} className="sym-color-input" />
-                            </div>
-                            <div className="sym-field">
-                                <label className="sym-label">Opacidad de relleno ({Math.round(symbology.fillOpacity * 100)}%)</label>
-                                <input type="range" min="0" max="1" step="0.05" value={symbology.fillOpacity} onChange={e => updateSym({ fillOpacity: +e.target.value })} className="sym-slider" />
-                            </div>
-                        </>
+                        <div className="sym-row">
+                            <span className="sym-label">Opacidad</span>
+                            <input type="range" className="sym-opacity" min="0" max="1" step="0.05"
+                                value={symbology.fillOpacity} onChange={e => updateSym({ fillOpacity: +e.target.value })} />
+                            <span className="sym-pct">{Math.round(symbology.fillOpacity * 100)}%</span>
+                        </div>
                     )}
-                    <div className="sym-field">
-                        <label className="sym-label">Grosor de línea ({symbology.weight}px)</label>
-                        <input type="range" min="0.5" max="8" step="0.5" value={symbology.weight} onChange={e => updateSym({ weight: +e.target.value })} className="sym-slider" />
+                    <div className="sym-row">
+                        <span className="sym-label">Grosor</span>
+                        <input type="range" className="sym-opacity" min="0.5" max="8" step="0.5"
+                            value={symbology.strokeWeight} onChange={e => updateSym({ strokeWeight: +e.target.value })} />
+                        <span className="sym-pct">{symbology.strokeWeight}px</span>
                     </div>
-                    <div className="sym-field">
-                        <label className="sym-label">Rampa de color</label>
+                    <div className="sym-row" style={{ alignItems: 'flex-start' }}>
+                        <span className="sym-label" style={{ paddingTop: 4 }}>Rampa</span>
                         <div className="sym-ramp-grid">
                             {RAMP_NAMES.map(ramp => (
-                                <button key={ramp} className={`sym-ramp-btn ${symbology.ramp === ramp ? 'active' : ''}`} onClick={() => updateSym({ ramp })} title={ramp}>
-                                    <span className="sym-ramp-preview" style={{ background: getRampGradientCSS(ramp) }} />
+                                <button key={ramp} className={`sym-ramp-item${symbology.colorRamp === ramp ? ' selected' : ''}`}
+                                    onClick={() => updateSym({ colorRamp: ramp })} title={ramp}>
+                                    <span className="sym-ramp-bar" style={{ background: getRampGradientCSS(ramp) }} />
                                     <span className="sym-ramp-name">{ramp}</span>
                                 </button>
                             ))}
                         </div>
                     </div>
-                </>
+                </div>
             )}
 
-            {symbology.mode === 'categorized' && (
-                <>
-                    <div className="sym-field">
-                        <label className="sym-label">Campo</label>
-                        <div className="sym-field-row">
-                            <select className="sym-select" value={symbology.field ?? ''} onChange={e => {
-                                const field = e.target.value;
-                                const cats  = autoCategorize(features, field);
-                                updateSym({ field, categories: cats });
-                            }}>
-                                {fields.map(f => <option key={f} value={f}>{f}</option>)}
-                            </select>
-                            <button className="sym-reclassify-btn" onClick={handleReclassify}>↺ Reclasificar</button>
-                        </div>
+            {/* ── Modo Categorizado ────────────────────────────────────── */}
+            {symbology.mode === 'categorical' && (
+                <div className="sym-categorical">
+                    <div className="sym-row">
+                        <span className="sym-label">Campo</span>
+                        <select className="sym-select" value={symbology.field ?? ''}
+                            onChange={e => { const f = e.target.value; updateSym({ field: f, categories: autoCategorize(features, f) }); }}>
+                            {fields.map(f => <option key={f} value={f}>{f}</option>)}
+                        </select>
+                        <button className="sym-generate-btn" style={{ width: 'auto', padding: '4px 10px', marginLeft: 4 }} onClick={handleReclassify}>
+                            ↺ Reclasificar
+                        </button>
                     </div>
                     {symbology.categories && symbology.categories.length > 0 && (
-                        <div className="sym-categories">
+                        <div className="sym-categories sym-cat-list">
                             {symbology.categories.map(cat => (
-                                <div key={String(cat.value)} className="sym-category-row">
-                                    <input type="color" value={cat.color} onChange={e => handleCategoryColorChange(String(cat.value), e.target.value)} className="sym-cat-color" />
+                                <div key={String(cat.value)} className="sym-cat-row">
+                                    <input type="color" className="sym-color-input sym-color-sm" value={cat.color}
+                                        onChange={e => handleCategoryColorChange(String(cat.value), e.target.value)} />
                                     <span className="sym-cat-label">{String(cat.value)}</span>
-                                    <span className="sym-cat-count">({cat.count})</span>
+                                    {cat.count !== undefined && <span className="sym-pct">({cat.count})</span>}
                                 </div>
                             ))}
                         </div>
                     )}
-                </>
+                </div>
             )}
 
+            {/* ── Modo Expresión SQL ───────────────────────────────────── */}
             {symbology.mode === 'expression' && (
-                <div className="sym-field">
-                    <label className="sym-label">Expresión SQL (WHERE)</label>
-                    <textarea
-                        className="sym-expression-input"
-                        value={symbology.expression ?? ''}
-                        onChange={e => updateSym({ expression: e.target.value })}
-                        placeholder={[
-                            "-- Ejemplos:",
-                            "tipo = 'residencial'",
-                            "poblacion > 5000",
-                            "area BETWEEN 100 AND 500",
-                            "nombre LIKE '%norte%'",
-                            "clase IN ('A', 'B') AND valor >= 10",
-                        ].join('\n')}
-                        rows={5}
-                        spellCheck={false}
-                    />
-                    <div className="sym-field-row" style={{ marginTop: '6px', gap: '8px', alignItems: 'center' }}>
-                        <span className="sym-label" style={{ margin: 0 }}>✓ Coincide</span>
-                        <input
-                            type="color"
-                            value={symbology.color ?? '#2ecc71'}
-                            onChange={e => updateSym({ color: e.target.value })}
-                            className="sym-color-input"
-                            title="Color cuando la condición se cumple"
-                        />
-                        <span className="sym-label" style={{ margin: 0, marginLeft: '8px' }}>✗ No coincide</span>
-                        <input
-                            type="color"
-                            value={symbology.otherColor ?? '#e74c3c'}
-                            onChange={e => updateSym({ otherColor: e.target.value })}
-                            className="sym-color-input"
-                            title="Color cuando la condición no se cumple"
-                        />
+                <div className="sym-classified">
+                    <div className="sym-row">
+                        <span className="sym-label">Colores</span>
+                        <div className="sym-color-row">
+                            <input type="color" className="sym-color-input" value={symbology.fillColor ?? '#2ecc71'}
+                                onChange={e => updateSym({ fillColor: e.target.value })} title="✓ Cuando se cumple" />
+                            <span style={{ fontSize: '0.68rem', color: '#888' }}>✓ Sí</span>
+                            <input type="color" className="sym-color-input" value={symbology.otherColor ?? '#e74c3c'}
+                                onChange={e => updateSym({ otherColor: e.target.value })} title="✗ Cuando no se cumple"
+                                style={{ marginLeft: 8 }} />
+                            <span style={{ fontSize: '0.68rem', color: '#888' }}>✗ No</span>
+                        </div>
                     </div>
-                    <button className="sym-test-btn" onClick={handleExpressionTest}>▶ Probar expresión</button>
+                    <textarea className="sym-expr-textarea"
+                        value={symbology.expression ?? ''}
+                        onChange={e => { updateSym({ expression: e.target.value }); setExpressionResult(null); }}
+                        placeholder={"-- Ejemplos SQL WHERE:\ntipo = 'residencial'\npoblacion > 5000\nclase IN ('A', 'B') AND valor >= 10\nnombre LIKE '%norte%'\narea BETWEEN 100 AND 500"}
+                        rows={5} spellCheck={false}
+                    />
+                    <button className="sym-generate-btn" onClick={handleExpressionTest}>▶ Probar expresión</button>
+                    {expressionResult && (
+                        <span className={`sym-class-error${expressionResult.startsWith('✓') ? ' sym-class-ok' : ''}`}>
+                            {expressionResult}
+                        </span>
+                    )}
                 </div>
             )}
         </div>
@@ -294,7 +301,7 @@ const AddDataTool: React.FC<AddDataToolProps> = ({ isOpen, onClose, onAddLayer }
         else setError('No se pudo detectar WMS ni WFS en la URL proporcionada.');
     }, [url]);
 
-    const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const f = e.target.files?.[0];
         if (!f) return;
         setFile(f);
@@ -349,8 +356,16 @@ const AddDataTool: React.FC<AddDataToolProps> = ({ isOpen, onClose, onAddLayer }
     }, [type, name, url, layerName, file, detectedOGC, onAddLayer, reset, onClose]);
 
     const handleAddWithSymbology = useCallback(() => {
-        const fc: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: pendingFeatures };
-        onAddLayer({ id: `ext_${Date.now()}`, name, type: 'vector', url: '', file: file ?? undefined, geojsonData: fc, symbology });
+        const fc = { type: 'FeatureCollection' as const, features: pendingFeatures };
+        onAddLayer({
+            id:          `ext_${Date.now()}`,
+            name,
+            type:        'vector',
+            url:         '',
+            file:        file ?? undefined,
+            geojsonData: fc as unknown as import('@types/geo').GeoJSONFeatureCollection,
+            symbology,
+        });
         reset(); onClose();
     }, [pendingFeatures, name, file, symbology, onAddLayer, reset, onClose]);
 
@@ -408,7 +423,11 @@ const AddDataTool: React.FC<AddDataToolProps> = ({ isOpen, onClose, onAddLayer }
                                 </label>
                                 <div
                                     className={`add-layer-dropzone ${file ? 'has-file' : ''}`}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label={type === 'vector' ? 'Seleccionar archivo vectorial' : 'Seleccionar archivo GeoTIFF'}
                                     onClick={() => fileRef.current?.click()}
+                                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileRef.current?.click(); } }}
                                     onDragOver={e => e.preventDefault()}
                                     onDrop={e => {
                                         e.preventDefault();
