@@ -70,6 +70,7 @@ import type { ExternalLayer, GeoJSONFeature } from '@types/geo';
 import SwipeControl from '@components/map/controls/SwipeControl';
 import SwipePanel            from '@components/map/tools/SwipePanel';
 import RightSideControls     from '@components/map/controls/RightSideControls';
+import CursorCoordinates     from '@components/map/controls/CursorCoordinates';
 import DynamicAttributeTable from '@components/map/panels/DynamicAttributeTable';
 import type { DynamicVectorLayer } from '@components/map/panels/DynamicAttributeTable';
 import MapToolbar from '@components/map/tools/MapToolbar';
@@ -742,6 +743,9 @@ const MapView: React.FC = () => {
                     onToggleDynamicTable={() => setDynamicTableOpen(o => !o)}
                     hasVectorLayers={hasVectorLayersForTable}
                 />
+
+                {/* Recuadro de coordenadas del cursor — control Leaflet bottomleft */}
+                <CursorCoordinates />
 
                 <MapClickHandler onMapClick={handleMapClick} swipeActive={swipeActive} />
 

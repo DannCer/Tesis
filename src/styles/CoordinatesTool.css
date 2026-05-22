@@ -198,6 +198,35 @@
     text-align: center;
 }
 
+/* Selector de dirección N/S/E/O — reemplaza el span estático */
+.ct-dms-dir-select {
+    padding: 4px 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    font-family: var(--font-body, sans-serif);
+    background: var(--color-gray-100, #f1f3f5);
+    border: 1px solid var(--color-border, #e2e8f0);
+    border-radius: var(--radius-xs, 3px);
+    color: var(--color-text, #2d3748);
+    min-width: 44px;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    text-align: center;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.ct-dms-dir-select:hover {
+    border-color: var(--color-primary, #691B31);
+    background: var(--color-white, #fff);
+}
+
+.ct-dms-dir-select:focus {
+    outline: none;
+    border-color: var(--color-primary, #691B31);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary, #691B31) 20%, transparent);
+}
+
 /* ── Input simple (Decimales / E-N UTM) ──────────────────────────────────── */
 
 .ct-input {

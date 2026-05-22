@@ -15,6 +15,7 @@ import AnalysisTool      from '@components/map/tools/AnalysisTool';
 import AddDataTool       from '@components/map/tools/AddDataTool';
 import DrawTool          from '@components/map/tools/DrawTool';
 import CoordinatesTool   from '@components/map/tools/CoordinatesTool';
+import GeocoderTool      from '@components/map/tools/GeocoderTool';
 import DraggablePanel    from '@components/common/DraggablePanel';
 import type { ExternalLayer } from '@types/geo';
 import type L from 'leaflet';
@@ -32,7 +33,7 @@ import '@styles/MapToolbar.css';
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 /** Solo los paneles flotantes; lista-de-capas y leyenda se manejan aparte */
-type PanelToolId = 'analisis' | 'elevacion' | 'adddata' | 'dibujar' | 'coordenadas';
+type PanelToolId = 'analisis' | 'elevacion' | 'adddata' | 'dibujar' | 'coordenadas' | 'geocoder';
 
 interface ToolDef {
     id: string;
@@ -68,6 +69,7 @@ const TOOLS: ToolDef[] = [
     { id: 'dibujar',    label: 'Dibujar',             color: '#90A4AE', icon: dibujarIcon,  enabled: true  },
     { id: 'elevacion',  label: 'Perfil de Elevación', color: '#80DEEA', icon: perfilIcon,   enabled: true  },
     { id: 'coordenadas',label: 'Coordenadas',         color: '#A5D6A7', icon: coordsIcon,   enabled: true  },
+    { id: 'geocoder',   label: 'Buscar lugar',        color: '#CE93D8', icon: '',           enabled: true  },
 ];
 
 // ─── Componente ───────────────────────────────────────────────────────────────
@@ -92,13 +94,14 @@ const MapToolbar: React.FC<MapToolbarProps> = ({
 
     /** Determina si un botón debe verse "activo" (naranja) */
     const isActive = (id: string): boolean => {
-        if (id === 'capas')    return !layerMenuCollapsed;
-        if (id === 'leyenda')  return legendOpen && hasActiveLayers;
-        if (id === 'analisis') return activePanel === 'analisis';
-        if (id === 'elevacion')return activePanel === 'elevacion';
-        if (id === 'datos')    return activePanel === 'adddata';
-        if (id === 'dibujar')  return activePanel === 'dibujar';
-        if (id === 'coordenadas') return activePanel === 'coordenadas';
+        if (id === 'capas')      return !layerMenuCollapsed;
+        if (id === 'leyenda')    return legendOpen && hasActiveLayers;
+        if (id === 'analisis')   return activePanel === 'analisis';
+        if (id === 'elevacion')  return activePanel === 'elevacion';
+        if (id === 'datos')      return activePanel === 'adddata';
+        if (id === 'dibujar')    return activePanel === 'dibujar';
+        if (id === 'coordenadas')return activePanel === 'coordenadas';
+        if (id === 'geocoder')   return activePanel === 'geocoder';
         return false;
     };
 
@@ -112,11 +115,12 @@ const MapToolbar: React.FC<MapToolbarProps> = ({
     /** Acción al hacer clic según el id */
     const handleClick = useCallback((tool: ToolDef) => {
         if (!isEnabled(tool)) return;
-        if (tool.id === 'capas')   { onToggleLayerMenu();       return; }
-        if (tool.id === 'leyenda') { onToggleLegend();           return; }
-        if (tool.id === 'datos')   { togglePanel('adddata');     return; }
-        if (tool.id === 'dibujar') { togglePanel('dibujar');     return; }
-        if (tool.id === 'coordenadas') { togglePanel('coordenadas'); return; }
+        if (tool.id === 'capas')      { onToggleLayerMenu();           return; }
+        if (tool.id === 'leyenda')    { onToggleLegend();               return; }
+        if (tool.id === 'datos')      { togglePanel('adddata');         return; }
+        if (tool.id === 'dibujar')    { togglePanel('dibujar');         return; }
+        if (tool.id === 'coordenadas'){ togglePanel('coordenadas');     return; }
+        if (tool.id === 'geocoder')   { togglePanel('geocoder');        return; }
         togglePanel(tool.id);
     }, [onToggleLayerMenu, onToggleLegend, togglePanel, hasActiveLayers]);
 
@@ -145,12 +149,32 @@ const MapToolbar: React.FC<MapToolbarProps> = ({
                             tabIndex={disabled ? -1 : 0}
                         >
                             <span className="map-tb-icon">
-                                <img
-                                    src={tool.icon}
-                                    alt=""
-                                    aria-hidden="true"
-                                    className="map-tb-img"
-                                />
+                                {tool.id === 'geocoder'
+                                    ? (
+                                        // Ícono SVG inline para la herramienta de búsqueda
+                                        <svg
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth="2.2"
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            aria-hidden="true"
+                                            style={{ width: '58%', height: '58%', color: '#fff' }}
+                                        >
+                                            <circle cx="11" cy="11" r="7" />
+                                            <path d="M16.5 16.5 22 22" />
+                                        </svg>
+                                    )
+                                    : (
+                                        <img
+                                            src={tool.icon}
+                                            alt=""
+                                            aria-hidden="true"
+                                            className="map-tb-img"
+                                        />
+                                    )
+                                }
                             </span>
                             <span className="map-tb-label">{tool.label}</span>
                             {active && <span className="map-tb-dot" aria-hidden="true" />}
@@ -192,6 +216,13 @@ const MapToolbar: React.FC<MapToolbarProps> = ({
                 <CoordinatesTool
                     mapInstance={mapInstance}
                     isOpen={activePanel === 'coordenadas'}
+                    onClose={closePanel}
+                />
+            </DraggablePanel>
+            <DraggablePanel isOpen={activePanel === 'geocoder'}    defaultWidth={420} zIndex={1400}>
+                <GeocoderTool
+                    mapInstance={mapInstance}
+                    isOpen={activePanel === 'geocoder'}
                     onClose={closePanel}
                 />
             </DraggablePanel>

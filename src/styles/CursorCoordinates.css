@@ -1,0 +1,113 @@
+/* ==========================================================================
+   CursorCoordinates.css — Recuadro de coordenadas del cursor
+   src/styles/CursorCoordinates.css
+   ========================================================================== */
+
+.cc-box {
+    display:     inline-flex;
+    align-items: center;
+    gap:         5px;
+
+    padding:     4px 9px 4px 7px;
+    margin:      0 0 8px 8px;   /* respeta el margen del bottomleft de Leaflet */
+
+    background:  rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(4px);
+    border:      1px solid rgba(0, 0, 0, 0.14);
+    border-radius: 4px;
+    box-shadow:  0 1px 5px rgba(0, 0, 0, 0.18);
+
+    font-family: var(--font-code, 'Courier New', monospace);
+    font-size:   0.72rem;
+    line-height: 1;
+    white-space: nowrap;
+    pointer-events: auto;
+
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+/* ── Visibilidad ──────────────────────────────────────────────────────────── */
+
+.cc-box--visible {
+    opacity:   1;
+    transform: translateY(0);
+}
+
+.cc-box--hidden {
+    opacity:   0;
+    transform: translateY(4px);
+    pointer-events: none;
+}
+
+/* ── Ícono de retícula ───────────────────────────────────────────────────── */
+
+.cc-icon {
+    font-size:  0.9rem;
+    color:      var(--color-primary-dark, #691B31);
+    line-height: 1;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+/* ── Coordenadas (botón clicable para cambiar formato) ───────────────────── */
+
+.cc-coords {
+    display:        inline-flex;
+    align-items:    center;
+    gap:            3px;
+    background:     none;
+    border:         none;
+    padding:        0;
+    cursor:         pointer;
+    font-family:    inherit;
+    font-size:      inherit;
+    color:          #1a1a1a;
+    letter-spacing: 0.02em;
+}
+
+.cc-coords:hover .cc-val {
+    color: var(--color-primary-dark, #691B31);
+}
+
+.cc-val {
+    color:      #333;
+    transition: color 0.15s;
+}
+
+.cc-val--dms {
+    font-size: 0.68rem;   /* DMS es más largo, reducir un poco */
+}
+
+.cc-sep {
+    color:      #aaa;
+    font-size:  0.65rem;
+    user-select: none;
+}
+
+/* ── Indicador del formato activo ───────────────────────────────────────── */
+
+.cc-format-hint {
+    font-size:       0.6rem;
+    font-family:     var(--font-body, sans-serif);
+    color:           #999;
+    letter-spacing:  0.04em;
+    text-transform:  uppercase;
+    margin-left:     1px;
+    user-select:     none;
+}
+
+/* ── Alta densidad de píxeles ────────────────────────────────────────────── */
+
+@media (min-resolution: 2dppx) {
+    .cc-box {
+        border-width: 0.5px;
+    }
+}
+
+/* ── Móvil: ocultar en pantallas táctiles (no hay cursor) ────────────────── */
+
+@media (max-width: 768px) {
+    .cc-box {
+        display: none;
+    }
+}
