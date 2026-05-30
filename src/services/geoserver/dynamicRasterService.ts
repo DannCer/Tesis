@@ -9,6 +9,7 @@
 
 import { config, logger } from '@config/env';
 import type { GrupoResponse } from '@types/api';
+import type { PixelInfo } from '@types/map';
 
 export interface PixelQueryParams {
     bbox: number[];
@@ -20,15 +21,7 @@ export interface PixelQueryParams {
     signal?: AbortSignal;
 }
 
-export interface PixelInfo {
-    layerName: string;
-    time: string | null;
-    value: any;
-    message?: string;
-    rawProperties?: Record<string, any>;
-    coordinates?: any;
-    error?: string;
-}
+// PixelInfo importado desde @types/map — no se duplica aquí.
 
 /**
  * Construye una URL de QGIS Server con el parámetro MAP incluido
@@ -134,19 +127,19 @@ class DynamicRasterService {
             const data = await response.json();
             return this.parseRasterResponse(data, layerName, time);
 
-        } catch (error: any) {
+        } catch (error: unknown) {
             logger.error('[Raster] Error en getPixelValue:', error);
             throw error;
         }
     }
 
-    private parseRasterResponse(data: any, layerName: string, time: string | null = null): PixelInfo {
+    private parseRasterResponse(data: GeoJSON.FeatureCollection, layerName: string, time: string | null = null): PixelInfo {
         if (!data.features || data.features.length === 0) {
             return { layerName, time, value: null, message: 'No hay datos en esta ubicación' };
         }
 
         const feature    = data.features[0];
-        const properties = feature.properties;
+        const properties = feature.properties ?? {};
 
         let rasterValue = properties[layerName];
 
@@ -175,9 +168,9 @@ class DynamicRasterService {
         return {
             layerName,
             time,
-            value:         formattedValue,
-            rawProperties: properties,
-            coordinates:   feature.geometry?.coordinates ?? null,
+            value:         formattedValue as number | string | null,
+            rawProperties: properties as Record<string, string | number | boolean | null>,
+            coordinates:   (feature.geometry as GeoJSON.Point | null)?.coordinates?.slice(0, 2) as [number, number] | undefined,
         };
     }
 

@@ -94,10 +94,14 @@ describe('WFSService', () => {
     });
 
     it('debería manejar timeout de petición', async () => {
-      const mockFetch = vi.fn().mockRejectedValue(new DOMException('The operation was aborted', 'AbortError'));
+      const abortError = new Error('The operation was aborted');
+      abortError.name = 'AbortError';
+      const mockFetch = vi.fn().mockRejectedValue(abortError);
       global.fetch = mockFetch;
 
-      await expect(wfsService.getFeatures('TestLayer'))
+      // Nombre de capa único para evitar que el caché del servicio devuelva
+      // un resultado de un test anterior sin llegar a hacer fetch.
+      await expect(wfsService.getFeatures('LayerTimeoutTest_unique'))
         .rejects
         .toThrow('La petición tardó demasiado tiempo');
     });
@@ -151,21 +155,27 @@ describe('WFSService', () => {
     });
 
     it('debería manejar campos con valores null', async () => {
+      // getUniqueValues llama internamente a getFeatures, que hace fetch.
+      // El mock debe devolver la estructura completa de respuesta GeoJSON.
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         headers: { get: vi.fn().mockReturnValue('application/json') },
         json: async () => ({
+          type: 'FeatureCollection',
           features: [
-            { properties: { tipo: 'urbano' } },
-            { properties: { tipo: null } },
-            { properties: { tipo: undefined } },
+            { type: 'Feature', properties: { tipo: 'urbano' },     geometry: null },
+            { type: 'Feature', properties: { tipo: null },          geometry: null },
+            { type: 'Feature', properties: { tipo: undefined },     geometry: null },
           ],
         }),
       });
       global.fetch = mockFetch;
 
-      const values = await wfsService.getUniqueValues('TestLayer', 'tipo');
+      // Limpiar caché para que no use resultado de test anterior
+      // @ts-expect-error accediendo a propiedad privada para test
+      wfsService.featureCache?.clear?.();
 
+      const values = await wfsService.getUniqueValues('TestLayerNulls', 'tipo');
       expect(values).toEqual(['urbano']);
     });
   });

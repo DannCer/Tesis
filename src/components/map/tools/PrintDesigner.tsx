@@ -16,10 +16,10 @@ import {
     getPageMm, getPagePx, fmtScale,
     type PrintJob, type PrintOrient, type PrintDPI,
 } from '../../../services/print/printService';
-import { useLayersContext } from '@contexts/LayersContext';
+import { useLayersData } from '@contexts/LayersContext';
 import type { LayerData } from '@hooks/map';
 import '@styles/PrintDesigner.css';
-import { captureLeafletMap } from '@utils/mapCapture';
+import { captureLeafletMap } from '@utils/map/mapCapture';
 import { COPY_FEEDBACK_MS, PRINT_PREVIEW_DEBOUNCE_MS, BASE_LAYER_URLS } from '@config/constants';
 
 // ─── Mapas base disponibles ───────────────────────────────────────────────────
@@ -199,7 +199,7 @@ const LiveMapPreview: React.FC<{
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 const PrintDesigner: React.FC<PrintDesignerProps> = ({ mapInstance, allLayers, onClose }) => {
-    const { availableLayers: AVAILABLE_LAYERS } = useLayersContext();
+    const { availableLayers: AVAILABLE_LAYERS } = useLayersData();
 
     const [paperId,    setPaperId]    = useState('a4');
     const [orient,     setOrient]     = useState<PrintOrient>('landscape');

@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { apiService, ItemResponse, ItemCreate, GrupoResponse } from '@services/api';
+import type { SubgrupoResponse } from '@types/api';
 import { config, logger } from '@config/env';
 import ConfirmModal from '@components/common/ConfirmModal';
 import AlertModal from '@components/common/AlertModal';
@@ -83,13 +84,16 @@ async function validateWmsLayer(wmsLayer: string, serverUrl: string, projectPath
 const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
     const [capas, setCapas] = useState<ItemResponse[]>([]);
     const [grupos, setGrupos] = useState<GrupoResponse[]>([]);
+    const [subgrupos, setSubgrupos] = useState<SubgrupoResponse[]>([]);
+    // Subgrupos filtrados según el grupo seleccionado en el formulario
+    const subgruposFiltrados = (grupoId: number) => subgrupos.filter(s => s.grupo_id === grupoId);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     // Nuevo
     const [isAddingNew, setIsAddingNew] = useState(false);
     const [newCapa, setNewCapa] = useState<ItemCreate>({
-        name: '', description: '', group_id: 0, tipo: 'vector', wfsName: '', wmsLayer: '',
+        name: '', description: '', group_id: 0, subgroup_id: null, tipo: 'vector', wfsName: '', wmsLayer: '',
     });
 
     // Edición inline
@@ -122,9 +126,10 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
         setLoading(true);
         setError(null);
         try {
-            const [capasData, gruposData] = await Promise.all([apiService.getCapas(), apiService.getGrupos()]);
+            const [capasData, gruposData, subgruposData] = await Promise.all([apiService.getCapas(), apiService.getGrupos(), apiService.getSubgrupos()]);
             setCapas(capasData);
             setGrupos(gruposData);
+            setSubgrupos(subgruposData);
         } catch (err: unknown) {
             setError(err.message);
         } finally {
@@ -182,7 +187,7 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
         }
         try {
             await apiService.createCapa(newCapa);
-            setNewCapa({ name: '', description: '', group_id: 0, tipo: 'vector', wfsName: '', wmsLayer: '' });
+            setNewCapa({ name: '', description: '', group_id: 0, subgroup_id: null, tipo: 'vector', wfsName: '', wmsLayer: '' });
             setIsAddingNew(false);
             await loadData();
             onCapasChange?.();
@@ -199,6 +204,7 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
             name: capa.name,
             description: capa.description ?? '',
             group_id: grupo?.id ?? 0,
+            subgroup_id: capa.subgroup_id ?? null,
             tipo: (capa.type as 'vector' | 'raster'),
             wfsName: capa.wfsName,
             wmsLayer: capa.wmsLayer,
@@ -325,10 +331,21 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
                         <div className="form-field">
                             <label>Grupo <span className="required">*</span></label>
                             <select className="input" value={newCapa.group_id}
-                                onChange={e => setNewCapa({ ...newCapa, group_id: parseInt(e.target.value) })}>
+                                onChange={e => setNewCapa({ ...newCapa, group_id: parseInt(e.target.value), subgroup_id: null })}>
                                 <option value={0}>Selecciona un grupo</option>
                                 {grupos.map(grupo => (
                                     <option key={grupo.id} value={grupo.id}>{grupo.nombre}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="form-field">
+                            <label>Subgrupo</label>
+                            <select className="input" value={newCapa.subgroup_id ?? 0}
+                                onChange={e => setNewCapa({ ...newCapa, subgroup_id: parseInt(e.target.value) || null })}
+                                disabled={!newCapa.group_id}>
+                                <option value={0}>Sin subgrupo</option>
+                                {subgruposFiltrados(newCapa.group_id).map(s => (
+                                    <option key={s.id} value={s.id}>{s.nombre}</option>
                                 ))}
                             </select>
                         </div>
@@ -408,6 +425,7 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
                                     <th className="th-sortable" onClick={() => handleSort('id')}>ID {sortIcon('id')}</th>
                                     <th className="th-sortable" onClick={() => handleSort('name')}>Nombre {sortIcon('name')}</th>
                                     <th className="th-sortable" onClick={() => handleSort('group')}>Grupo {sortIcon('group')}</th>
+                                    <th>Subgrupo</th>
                                     <th className="th-sortable" onClick={() => handleSort('type')}>Tipo {sortIcon('type')}</th>
                                     <th className="th-sortable" onClick={() => handleSort('wfsName')}>WFS Name {sortIcon('wfsName')}</th>
                                     <th className="th-sortable" onClick={() => handleSort('wmsLayer')}>WMS Layer {sortIcon('wmsLayer')}</th>
@@ -444,11 +462,24 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
                                                     <select
                                                         className="input input--inline"
                                                         value={editForm.group_id}
-                                                        onChange={e => setEditForm({ ...editForm, group_id: parseInt(e.target.value) })}
+                                                        onChange={e => setEditForm({ ...editForm, group_id: parseInt(e.target.value), subgroup_id: null })}
                                                     >
                                                         <option value={0}>Seleccionar…</option>
                                                         {grupos.map(g => (
                                                             <option key={g.id} value={g.id}>{g.nombre}</option>
+                                                        ))}
+                                                    </select>
+                                                </td>
+                                                <td>
+                                                    <select
+                                                        className="input input--inline"
+                                                        value={editForm.subgroup_id ?? 0}
+                                                        onChange={e => setEditForm({ ...editForm, subgroup_id: parseInt(e.target.value) || null })}
+                                                        disabled={!editForm.group_id}
+                                                    >
+                                                        <option value={0}>Sin subgrupo</option>
+                                                        {subgruposFiltrados(editForm.group_id).map(s => (
+                                                            <option key={s.id} value={s.id}>{s.nombre}</option>
                                                         ))}
                                                     </select>
                                                 </td>
@@ -514,6 +545,7 @@ const CapasManager: React.FC<CapasManagerProps> = ({ onCapasChange }) => {
                                                 </div>
                                             </td>
                                             <td><span className="badge badge-group">{capa.group}</span></td>
+                                            <td>{capa.subgroup ? <span className="badge badge-subgroup">{capa.subgroup}</span> : <span className="text-muted">—</span>}</td>
                                             <td><span className={`badge badge-${capa.type}`}>{capa.type}</span></td>
                                             <td><code>{capa.wfsName}</code></td>
                                             <td>

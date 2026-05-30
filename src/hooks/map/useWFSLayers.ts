@@ -10,7 +10,8 @@ import { logger } from '@config/env';
 import { ErrorType, createError } from '@types';
 
 export interface LayerData {
-    data: any;
+    /** Colección de features GeoJSON devuelta por QGIS Server WFS. */
+    data: GeoJSON.FeatureCollection;
     visible: boolean;
     timestamp: number;
     opacity: number;
@@ -68,13 +69,13 @@ export const useWFSLayers = () => {
             );
             return true;
 
-        } catch (error: any) {
-            if (error.name === 'AbortError') {
+        } catch (error: unknown) {
+            if (error instanceof Error && error.name === 'AbortError') {
                 logger.debug(`Carga cancelada para ${layerName}`);
                 return false;
             }
 
-            const errorMessage = error.message || 'Error desconocido al cargar la capa';
+            const errorMessage = error instanceof Error ? error.message : 'Error desconocido al cargar la capa';
             logger.error(`Error cargando ${layerName}:`, error);
             setErrors(prev => ({ ...prev, [key]: errorMessage }));
             logger.error('Error estructurado:', createError(

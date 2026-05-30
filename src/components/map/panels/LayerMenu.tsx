@@ -29,10 +29,12 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import ReactDOM from 'react-dom';
+import { geoJSONToKML, wfsXmlToGeoJSON, isWfsXml } from '@utils/geo/fileToGeoJSON';
+import * as shpwrite from '@mapbox/shp-write';
 import '@styles/LayerMenu.css';
 import type { LayerData } from '@hooks/map';
 import type { LayerConfig } from '@config/layers';
-import { useLayersContext } from '@contexts/LayersContext';
+import { useLayersData, useLayersMeta } from '@contexts/LayersContext';
 import { config, logger } from '@config/env';
 import AttributeTable from './AttributeTable';
 import {
@@ -109,24 +111,111 @@ const getVectorDownloadUrl = (
     return url.toString();
 };
 
-const getRasterDownloadUrl = (layer: LayerConfig, grupos: GrupoLike[] = []): string => {
-    const baseUrl = layer.group
-        ? getProjectUrlForLayer(layer, grupos)
-        : config.qgisServer.wmsRasterUrl;
+// ─── WCS helpers ──────────────────────────────────────────────────────────────
+//
+// resolveWcsCoverage consulta WCS GetCapabilities, detecta si WCS está
+// habilitado y extrae tanto el nombre real de la cobertura como su BBOX,
+// para que GetCoverage no tenga ningún valor hardcodeado.
 
-    const url = new URL(baseUrl);
-    url.searchParams.set('SERVICE', 'WMS');
-    url.searchParams.set('VERSION', '1.3.0');
-    url.searchParams.set('REQUEST', 'GetMap');
-    url.searchParams.set('LAYERS',  layer.wmsLayer ?? layer.id);
-    url.searchParams.set('CRS',     'EPSG:4326');
-    url.searchParams.set('BBOX',    MEXICO_BBOX_WMS);    // ← antes hardcodeado
-    url.searchParams.set('WIDTH',   '4096');
-    url.searchParams.set('HEIGHT',  '3072');
-    url.searchParams.set('FORMAT',  'image/tiff');
-    if (layer.timeValue) url.searchParams.set('TIME', layer.timeValue);
-    return url.toString();
-};
+interface WcsCoverageInfo {
+    name: string;
+    /** BBOX en CRS84: [minLon, minLat, maxLon, maxLat] */
+    bbox: [number, number, number, number];
+}
+
+// Cache: baseUrl → lista de coberturas con su bbox
+const wcsCapabilitiesCache = new Map<string, WcsCoverageInfo[]>();
+
+async function resolveWcsCoverage(
+    baseUrl: string,
+    wmsLayerName: string
+): Promise<WcsCoverageInfo> {
+    let coverages = wcsCapabilitiesCache.get(baseUrl);
+
+    if (!coverages) {
+        const capUrl = new URL(baseUrl);
+        capUrl.searchParams.set('SERVICE', 'WCS');
+        capUrl.searchParams.set('VERSION', '1.0.0');
+        capUrl.searchParams.set('REQUEST', 'GetCapabilities');
+
+        const res = await fetch(capUrl.toString());
+        if (!res.ok) throw new Error(`WCS GetCapabilities falló: HTTP ${res.status}`);
+
+        const xml = await res.text();
+
+        if (xml.includes('WMS_Capabilities') || xml.includes('WMT_MS_Capabilities')) {
+            throw new Error(
+                'WCS no está habilitado en este proyecto de QGIS Server.\n\n' +
+                'Para habilitarlo: abre el proyecto en QGIS Desktop → ' +
+                'Proyecto → Propiedades → QGIS Server → pestaña WCS → ' +
+                'activa "Habilitar servicio WCS" y marca las capas ráster que quieres publicar.'
+            );
+        }
+
+        // Parsear cada <CoverageOfferingBrief> extrayendo <name> y <lonLatEnvelope>
+        const briefRegex = /<CoverageOfferingBrief[\s\S]*?<\/CoverageOfferingBrief>/g;
+        const nameRegex  = /<(?:wcs:)?name>([\s\S]*?)<\/(?:wcs:)?name>/;
+        const posRegex   = /<(?:gml:)?pos>([\s\S]*?)<\/(?:gml:)?pos>/g;
+
+        coverages = [];
+        for (const brief of xml.matchAll(briefRegex)) {
+            const nameMatch = brief[0].match(nameRegex);
+            if (!nameMatch) continue;
+            const name = nameMatch[1].trim();
+
+            const positions = [...brief[0].matchAll(posRegex)].map(m =>
+                m[1].trim().split(/\s+/).map(Number)
+            );
+            // lonLatEnvelope tiene dos <gml:pos>: SW y NE (lon lat)
+            if (positions.length >= 2) {
+                const [sw, ne] = positions;
+                coverages.push({
+                    name,
+                    bbox: [sw[0], sw[1], ne[0], ne[1]],
+                });
+            } else {
+                // Sin bbox en capabilities → se resolverá con DescribeCoverage
+                coverages.push({ name, bbox: [-180, -90, 180, 90] });
+            }
+        }
+
+        if (coverages.length === 0) {
+            throw new Error(
+                'WCS está habilitado pero no tiene coberturas publicadas.\n\n' +
+                'En QGIS Desktop → Proyecto → Propiedades → QGIS Server → WCS, ' +
+                'asegúrate de marcar las capas ráster en la lista de coberturas publicadas.'
+            );
+        }
+        wcsCapabilitiesCache.set(baseUrl, coverages);
+    }
+
+    const lower = wmsLayerName.toLowerCase();
+
+    // 1) Coincidencia exacta
+    const exact = coverages.find(c => c.name === wmsLayerName);
+    if (exact) return exact;
+
+    // 2) Case-insensitive
+    const ci = coverages.find(c => c.name.toLowerCase() === lower);
+    if (ci) return ci;
+
+    // 3) Parcial
+    const partial = coverages.find(c =>
+        c.name.toLowerCase().includes(lower) || lower.includes(c.name.toLowerCase())
+    );
+    if (partial) return partial;
+
+    // 4) Fallback con aviso
+    logger.warn(
+        `WCS: cobertura "${wmsLayerName}" no encontrada. ` +
+        `Disponibles: [${coverages.map(c => c.name).join(', ')}]. ` +
+        `Usando "${coverages[0].name}".`
+    );
+    return coverages[0];
+}
+
+const getRasterBaseUrl = (layer: LayerConfig, grupos: GrupoLike[] = []): string =>
+    layer.group ? getProjectUrlForLayer(layer, grupos) : config.qgisServer.wmsRasterUrl;
 
 const getServiceInfo = (layer: LayerConfig, type: 'wfs' | 'wms', grupos: GrupoLike[] = []) => {
     const wfsName  = (layer as LayerConfig & { wfsName?: string }).wfsName ?? layer.id;
@@ -134,22 +223,22 @@ const getServiceInfo = (layer: LayerConfig, type: 'wfs' | 'wms', grupos: GrupoLi
 
     if (type === 'wfs') {
         const baseUrl = getProjectUrlForLayer(layer, grupos);
-        const caps    = new URL(baseUrl);
-        caps.searchParams.set('SERVICE', 'WFS');
-        caps.searchParams.set('VERSION', '2.0.0');
-        caps.searchParams.set('REQUEST', 'GetCapabilities');
 
+        // La URL de conexión para el diálogo WFS de QGIS debe ser SOLO la base
+        // (MAP=...) sin parámetros SERVICE/VERSION.
+        // El diálogo "WFS / OGC API – Funcionalidades" de QGIS los agrega solo.
+        // Si se incluye SERVICE=WFS en la URL, QGIS la abre en modo "OGC API"
+        // en el diálogo Vectorial genérico y falla.
         const feat = new URL(baseUrl);
         feat.searchParams.set('SERVICE',  'WFS');
-        feat.searchParams.set('VERSION',  '2.0.0');
+        feat.searchParams.set('VERSION',  '1.1.0');
         feat.searchParams.set('REQUEST',  'GetFeature');
         feat.searchParams.set('TYPENAME', wfsName);
 
         return {
             type:            'WFS' as const,
-            connectionUrl:   baseUrl,
-            capabilitiesUrl: caps.toString(),
-            getFeatureUrl:   feat.toString(),
+            connectionUrl:   baseUrl,        // ← URL limpia para el diálogo WFS de QGIS
+            getFeatureUrl:   feat.toString(), // ← URL completa para uso directo/ArcGIS
             layerName:       wfsName,
         };
     }
@@ -158,6 +247,10 @@ const getServiceInfo = (layer: LayerConfig, type: 'wfs' | 'wms', grupos: GrupoLi
         ? getProjectUrlForLayer(layer, grupos)
         : config.qgisServer.wmsUrl;
 
+    // URL de conexión para QGIS/ArcGIS: solo la base (MAP=...).
+    // QGIS agrega SERVICE/VERSION/REQUEST por su cuenta.
+    const conn = new URL(baseUrl);
+
     const caps = new URL(baseUrl);
     caps.searchParams.set('SERVICE', 'WMS');
     caps.searchParams.set('VERSION', '1.3.0');
@@ -165,49 +258,231 @@ const getServiceInfo = (layer: LayerConfig, type: 'wfs' | 'wms', grupos: GrupoLi
 
     return {
         type:            'WMS' as const,
-        connectionUrl:   baseUrl,
+        connectionUrl:   conn.toString(),   // ← solo base, sin SERVICE ni VERSION
         capabilitiesUrl: caps.toString(),
         getFeatureUrl:   '',
         layerName:       wmsLayer,
     };
 };
 
+const getCombinedServiceInfo = (layer: LayerConfig, grupos: GrupoLike[] = []) => {
+    const wfs = layer.type === 'vector' ? getServiceInfo(layer, 'wfs', grupos) : null;
+    const wms = getServiceInfo(layer, 'wms', grupos);
+    return { wfs, wms };
+};
+
 // ─── Descarga programática ────────────────────────────────────────────────────
+
+// ─── Descarga programática ────────────────────────────────────────────────────
+//
+// QGIS Server WFS 1.1.0 con frecuencia ignora outputFormat y devuelve
+// wfs:FeatureCollection XML sin importar lo que se pida (SHAPE-ZIP, KML, etc.).
+// Estrategia defensiva:
+//   1. Pedir GeoJSON (el más confiable en QGIS Server)
+//   2. Si la respuesta es WFS XML: convertir con wfsXmlToGeoJSON()
+//   3. Convertir el GeoJSON al formato final en cliente (KML, Shapefile…)
 
 async function downloadVectorFormat(
     layer: LayerConfig,
     fmt: DownloadFormat,
     grupos: GrupoLike[] = []
 ): Promise<void> {
-    const url = getVectorDownloadUrl(layer, fmt.outputFormat, grupos);
+    const safeName = (layer.name ?? layer.id).replace(/[/\\:*?"<>|]/g, '_');
+
+    // Paso 1: Obtener GeoJSON (siempre pedir application/json primero)
+    const geojsonUrl = getVectorDownloadUrl(layer, 'application/json', grupos);
+    let fc: GeoJSON.FeatureCollection;
+
     try {
-        const res = await fetch(url);
+        const res  = await fetch(geojsonUrl);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const blob    = await res.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        const a       = Object.assign(document.createElement('a'), {
-            href:     blobUrl,
-            download: `${(layer.name ?? layer.id).replace(/[/\\:*?"<>|]/g, '_')}.${fmt.ext}`,
-        });
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(blobUrl);
+        const text = await res.text();
+
+        if (isWfsXml(text)) {
+            // QGIS Server ignoró outputFormat y devolvió WFS XML → convertir
+            logger.warn(`QGIS Server devolvió WFS XML en vez de GeoJSON para "${layer.name}". Convirtiendo en cliente.`);
+            fc = wfsXmlToGeoJSON(text);
+        } else {
+            fc = JSON.parse(text) as GeoJSON.FeatureCollection;
+        }
     } catch (e) {
-        logger.error(`Error descargando ${fmt.label}:`, e);
+        logger.error(`Error obteniendo datos de "${layer.name}":`, e);
+        return;
     }
+
+    if (!fc.features.length) {
+        logger.warn(`La capa "${layer.name}" no tiene features para descargar.`);
+        return;
+    }
+
+    // Paso 2: Generar el archivo en el formato solicitado
+    let blob: Blob = new Blob();
+    let filename: string = safeName;
+
+    if (fmt.ext === 'kml') {
+        const kmlStr = geoJSONToKML(fc, layer.name ?? layer.id);
+        blob         = new Blob([kmlStr], { type: 'application/vnd.google-earth.kml+xml' });
+        filename     = `${safeName}.kml`;
+
+    } else if (fmt.ext === 'zip') {
+        // Shapefile: intentar descarga directa del servidor primero.
+        // Si el servidor devuelve WFS XML o falla, generar el Shapefile en cliente
+        // usando @mapbox/shp-write + jszip en lugar de caer a GeoJSON.
+        const shpUrl = getVectorDownloadUrl(layer, 'SHAPE-ZIP', grupos);
+        let serverShpOk = false;
+        try {
+            const res = await fetch(shpUrl);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const arrayBuf = await res.arrayBuffer();
+            const header   = new TextDecoder().decode(arrayBuf.slice(0, 100));
+
+            if (isWfsXml(header)) {
+                // Servidor ignoró SHAPE-ZIP → generar en cliente
+                logger.warn(`QGIS Server no soporta SHAPE-ZIP para "${layer.name}". Generando Shapefile en cliente.`);
+            } else {
+                blob         = new Blob([arrayBuf], { type: 'application/zip' });
+                filename     = `${safeName}.zip`;
+                serverShpOk  = true;
+            }
+        } catch {
+            logger.warn(`Error al pedir SHAPE-ZIP para "${layer.name}". Generando Shapefile en cliente.`);
+        }
+
+        if (!serverShpOk) {
+            // Generar Shapefile comprimido en ZIP directamente en el cliente
+            try {
+                const zipBuffer = await shpwrite.zip(fc as GeoJSON.FeatureCollection, {
+                    outputType: 'arraybuffer',
+                    compression: 'DEFLATE',
+                    types: {
+                        point:        safeName,
+                        polygon:      safeName,
+                        polyline:     safeName,
+                        multipoint:   safeName,
+                        multipolygon: safeName,
+                        multiline:    safeName,
+                    },
+                });
+                blob     = new Blob([zipBuffer as ArrayBuffer], { type: 'application/zip' });
+                filename = `${safeName}.zip`;
+            } catch (shpErr) {
+                // Fallback final solo si shp-write también falla
+                logger.error(`Error generando Shapefile en cliente para "${layer.name}":`, shpErr);
+                blob     = new Blob([JSON.stringify(fc, null, 2)], { type: 'application/geo+json' });
+                filename = `${safeName}.geojson`;
+            }
+        }
+
+    } else {
+        // GeoJSON y otros formatos de texto
+        blob     = new Blob([JSON.stringify(fc, null, 2)], { type: 'application/geo+json;charset=utf-8;' });
+        filename = `${safeName}.${fmt.ext}`;
+    }
+
+    // Paso 3: Disparar descarga
+    const url  = URL.createObjectURL(blob);
+    const a    = Object.assign(document.createElement('a'), { href: url, download: filename });
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+// ─── Descarga de ráster ───────────────────────────────────────────────────────
+//
+// El atributo `download` en un <a> solo funciona para URLs del mismo origen.
+// Como el servidor QGIS está en un dominio distinto, el navegador ignora el
+// atributo y navega/abre la URL en lugar de descargar el archivo.
+// Solución: obtener el binario con fetch() y disparar la descarga desde un
+// Blob object URL (mismo origen → atributo download siempre funciona).
+
+async function downloadRasterFormat(
+    layer: LayerConfig,
+    fmt: DownloadFormat,
+    grupos: GrupoLike[] = []
+): Promise<void> {
+    const safeName = (layer.name ?? layer.id).replace(/[/\\:*?"<>|]/g, '_');
+    const baseUrl  = getRasterBaseUrl(layer, grupos);
+
+    // Descubrir nombre real y BBOX de la cobertura desde WCS GetCapabilities
+    let coverage: WcsCoverageInfo;
+    try {
+        coverage = await resolveWcsCoverage(baseUrl, layer.wmsLayer ?? layer.id);
+    } catch (e) {
+        logger.error(`WCS GetCapabilities falló para "${layer.name}":`, e);
+        alert(`No se pudo conectar con el servidor WCS para "${layer.name}".\n${e instanceof Error ? e.message : String(e)}`);
+        return;
+    }
+
+    // Calcular WIDTH/HEIGHT proporcionales al extent real (máx 4096 px en el eje mayor)
+    const [minLon, minLat, maxLon, maxLat] = coverage.bbox;
+    const lonSpan = maxLon - minLon;
+    const latSpan = maxLat - minLat;
+    const MAX_PX  = 4096;
+    const [width, height] = lonSpan >= latSpan
+        ? [MAX_PX, Math.max(1, Math.round(MAX_PX * latSpan / lonSpan))]
+        : [Math.max(1, Math.round(MAX_PX * lonSpan / latSpan)), MAX_PX];
+
+    // Construir GetCoverage sin ningún valor hardcodeado
+    const fetchUrl = new URL(baseUrl);
+    fetchUrl.searchParams.set('SERVICE',  'WCS');
+    fetchUrl.searchParams.set('VERSION',  '1.0.0');
+    fetchUrl.searchParams.set('REQUEST',  'GetCoverage');
+    fetchUrl.searchParams.set('COVERAGE', coverage.name);
+    fetchUrl.searchParams.set('CRS',      'EPSG:4326');
+    fetchUrl.searchParams.set('BBOX',     `${minLon},${minLat},${maxLon},${maxLat}`);
+    fetchUrl.searchParams.set('WIDTH',    String(width));
+    fetchUrl.searchParams.set('HEIGHT',   String(height));
+    fetchUrl.searchParams.set('FORMAT',   'GTiff');
+    if (layer.timeValue) fetchUrl.searchParams.set('TIME', layer.timeValue);
+
+    logger.debug(`WCS GetCoverage → ${fetchUrl.toString()}`);
+
+    let res: Response;
+    try {
+        res = await fetch(fetchUrl.toString());
+    } catch (e) {
+        logger.error(`Error de red descargando GeoTIFF "${layer.name}":`, e);
+        alert(`Error de red al descargar "${layer.name}".\n${e instanceof Error ? e.message : String(e)}`);
+        return;
+    }
+
+    const arrayBuf    = await res.arrayBuffer();
+    const contentType = res.headers.get('Content-Type') ?? '';
+
+    // Detectar ServiceExceptionReport (el servidor responde 4xx + XML)
+    if (!res.ok || contentType.includes('xml') || contentType.includes('text')) {
+        const text = new TextDecoder().decode(arrayBuf.slice(0, 1024));
+        if (!res.ok || text.includes('ServiceException') || text.includes('ExceptionReport')) {
+            const match = text.match(/<ServiceException[^>]*>([\s\S]*?)<\/ServiceException>/);
+            const msg   = match?.[1]?.trim() ?? `HTTP ${res.status} — ${text.slice(0, 300)}`;
+            logger.error(`WCS GetCoverage error para "${layer.name}" (cobertura: "${coverage.name}") [${res.status}]:`, msg);
+            alert(`El servidor rechazó la descarga de "${layer.name}":\n${msg}`);
+            return;
+        }
+    }
+
+    const blob     = new Blob([arrayBuf], { type: 'image/tiff' });
+    const filename = `${safeName}.${fmt.ext}`;
+
+    const url = URL.createObjectURL(blob);
+    const a   = Object.assign(document.createElement('a'), { href: url, download: filename });
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 
 
-// ─── ServiceModal ─────────────────────────────────────────────────────────────
+// ─── ServiceModal (combinado WFS + WMS) ───────────────────────────────────────
 
 interface ServiceModalProps {
-    info:      ReturnType<typeof getServiceInfo>;
+    combined:  ReturnType<typeof getCombinedServiceInfo>;
     layerName: string;
     onClose:   () => void;
 }
 
-const ServiceModal: React.FC<ServiceModalProps> = ({ info, layerName, onClose }) => {
+const ServiceModal: React.FC<ServiceModalProps> = ({ combined, layerName, onClose }) => {
     const [copied, setCopied] = useState<string | null>(null);
 
     const copy = useCallback(async (text: string, key: string) => {
@@ -223,18 +498,8 @@ const ServiceModal: React.FC<ServiceModalProps> = ({ info, layerName, onClose })
             document.body.removeChild(ta);
         }
         setCopied(key);
-        setTimeout(() => setCopied(null), COPY_FEEDBACK_MS);  // ← antes 2000
+        setTimeout(() => setCopied(null), COPY_FEEDBACK_MS);
     }, []);
-
-    const rows: Array<{ label: string; value: string; id: string; mono?: boolean }> = [
-        { label: 'URL de conexión (pegar en QGIS / ArcGIS)', value: info.connectionUrl, id: 'conn' },
-        { label: `Nombre de capa / ${info.type === 'WFS' ? 'TypeName' : 'LAYER'}`, value: info.layerName, id: 'lyr', mono: true },
-        { label: 'URL GetCapabilities', value: info.capabilitiesUrl, id: 'caps' },
-        ...(info.type === 'WFS' && info.getFeatureUrl
-            ? [{ label: 'URL GetFeature completa', value: info.getFeatureUrl, id: 'feat' }]
-            : []
-        ),
-    ];
 
     const CopyBtn: React.FC<{ text: string; id: string }> = memo(({ text, id }) => (
         <button
@@ -247,51 +512,80 @@ const ServiceModal: React.FC<ServiceModalProps> = ({ info, layerName, onClose })
     ));
     CopyBtn.displayName = 'CopyBtn';
 
+    const { wfs, wms } = combined;
+
     const modal = (
-        <div className="svc-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label={`Servicio ${info.type} — ${layerName}`}>
+        <div className="svc-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label={`Servicios OGC — ${layerName}`}>
             <div className="svc-modal" onClick={e => e.stopPropagation()}>
                 <div className="svc-header">
                     <div className="svc-header-left">
-                        <span className={`svc-badge svc-badge-${info.type.toLowerCase()}`}>{info.type}</span>
+                        <span className="svc-badge svc-badge-ogc">OGC</span>
                         <div>
-                            <div className="svc-title">Consumir como servicio {info.type}</div>
+                            <div className="svc-title">Consumir como servicio</div>
                             <div className="svc-subtitle">{layerName}</div>
                         </div>
                     </div>
                     <button className="svc-close" onClick={onClose} title="Cerrar" aria-label="Cerrar modal">×</button>
                 </div>
 
-                <div className="svc-instructions">
-                    {info.type === 'WFS'
-                        ? 'En QGIS: Capa → Agregar capa → WFS. En ArcGIS Pro: Insert → Connections → New WFS Server.'
-                        : 'En QGIS: Capa → Agregar capa → WMS/WMTS. En ArcGIS Pro: Insert → Connections → New WMS Server.'
-                    }
-                </div>
-
-                <div className="svc-rows">
-                    {rows.map(row => (
-                        <div key={row.id} className="svc-row">
-                            <span className="svc-row-label">{row.label}</span>
-                            <div className="svc-row-value">
-                                <input
-                                    readOnly
-                                    className={`svc-url-input${row.mono ? ' svc-url-mono' : ''}`}
-                                    value={row.value}
-                                    onFocus={e => e.target.select()}
-                                />
-                                <CopyBtn text={row.value} id={row.id} />
+                {/* ── Sección WFS ── */}
+                {wfs && (
+                    <div className="svc-section">
+                        <div className="svc-section-header">
+                            <span className="svc-badge svc-badge-wfs">WFS</span>
+                            <span className="svc-section-title">Web Feature Service · QGIS, ArcGIS</span>
+                        </div>
+                        <div className="svc-instructions">
+                            <strong>En QGIS:</strong> panel izquierdo → <em>WFS / OGC API – Funcionalidades</em> →
+                            clic derecho → Nueva conexión → pegar URL → versión <strong>1.1</strong> → Aceptar →
+                            doble clic en <code>{wfs.layerName}</code> para añadirla al mapa.
+                        </div>
+                        <div className="svc-rows">
+                            <div className="svc-row">
+                                <span className="svc-row-label">URL de conexión WFS (pegar en QGIS)</span>
+                                <div className="svc-row-value">
+                                    <input readOnly className="svc-url-input" value={wfs.getFeatureUrl} onFocus={e => e.target.select()} />
+                                    <CopyBtn text={wfs.getFeatureUrl} id="wfs-conn" />
+                                </div>
+                            </div>
+                            <div className="svc-row">
+                                <span className="svc-row-label">Nombre de la capa</span>
+                                <div className="svc-row-value">
+                                    <input readOnly className="svc-url-input svc-url-mono" value={wfs.layerName} onFocus={e => e.target.select()} />
+                                    <CopyBtn text={wfs.layerName} id="wfs-lyr" />
+                                </div>
                             </div>
                         </div>
-                    ))}
-                </div>
+                    </div>
+                )}
 
-                <div className="svc-footer">
-                    <button
-                        className="svc-copy-all-btn"
-                        onClick={() => copy(rows.map(r => `${r.label}:\n${r.value}`).join('\n\n'), 'all')}
-                    >
-                        {copied === 'all' ? '✓ Todo copiado' : '⎘ Copiar todo'}
-                    </button>
+                {/* ── Sección WMS ── */}
+                <div className="svc-section">
+                    <div className="svc-section-header">
+                        <span className="svc-badge svc-badge-wms">WMS</span>
+                        <span className="svc-section-title">Web Map Service · visor web, SIG</span>
+                    </div>
+                    <div className="svc-instructions">
+                        <strong>En QGIS:</strong> Capa → Agregar capa → WMS/WMTS →
+                        Nueva conexión → pegar URL → Conectar →
+                        seleccionar <code>{wms.layerName}</code> → Añadir.
+                    </div>
+                    <div className="svc-rows">
+                        <div className="svc-row">
+                            <span className="svc-row-label">① URL de conexión</span>
+                            <div className="svc-row-value">
+                                <input readOnly className="svc-url-input" value={wms.connectionUrl} onFocus={e => e.target.select()} />
+                                <CopyBtn text={wms.connectionUrl} id="wms-conn" />
+                            </div>
+                        </div>
+                        <div className="svc-row">
+                            <span className="svc-row-label">② Nombre de capa (seleccionar en lista)</span>
+                            <div className="svc-row-value">
+                                <input readOnly className="svc-url-input svc-url-mono" value={wms.layerName} onFocus={e => e.target.select()} />
+                                <CopyBtn text={wms.layerName} id="wms-lyr" />
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -306,7 +600,7 @@ const DownloadDropdown: React.FC<{ layer: LayerConfig; grupos?: GrupoLike[] }> =
     ({ layer, grupos = [] }) => {
         const [open,         setOpen]         = useState(false);
         const [menuStyle,    setMenuStyle]    = useState<React.CSSProperties>({});
-        const [serviceModal, setServiceModal] = useState<ReturnType<typeof getServiceInfo> | null>(null);
+        const [serviceModal, setServiceModal] = useState<ReturnType<typeof getCombinedServiceInfo> | null>(null);
         const [downloading,  setDownloading]  = useState<string | null>(null);
         const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -345,15 +639,19 @@ const DownloadDropdown: React.FC<{ layer: LayerConfig; grupos?: GrupoLike[] }> =
             };
         }, [open]);
 
-        const openService = useCallback((type: 'wfs' | 'wms') => {
+        const openServices = useCallback(() => {
             setOpen(false);
-            setServiceModal(getServiceInfo(layer, type, grupos));
+            setServiceModal(getCombinedServiceInfo(layer, grupos));
         }, [layer, grupos]);
 
         const handleDownload = useCallback(async (fmt: DownloadFormat) => {
             setOpen(false);
             setDownloading(fmt.ext);
-            await downloadVectorFormat(layer, fmt, grupos);
+            if (layer.type === 'raster') {
+                await downloadRasterFormat(layer, fmt, grupos);
+            } else {
+                await downloadVectorFormat(layer, fmt, grupos);
+            }
             setDownloading(null);
         }, [layer, grupos]);
 
@@ -369,42 +667,28 @@ const DownloadDropdown: React.FC<{ layer: LayerConfig; grupos?: GrupoLike[] }> =
                                 <span className="dl-item-label">{fmt.label}</span>
                                 <span className="dl-item-desc">{fmt.description}</span>
                             </span>
-                            <span className="dl-item-ext">.{fmt.ext.replace('.zip', '')}</span>
+                            <span className="dl-item-ext">.{fmt.ext}</span>
                         </button>
                     ))
                     : RASTER_DOWNLOAD_FORMATS.map(fmt => (
-                        <a key={fmt.ext} href={getRasterDownloadUrl(layer, grupos)}
-                            className="dl-item" target="_blank" rel="noopener noreferrer"
-                            download={`${layer.id}.${fmt.ext}`} onClick={() => setOpen(false)}>
+                        <button key={fmt.ext} className="dl-item dl-item-btn" onClick={() => handleDownload(fmt)}>
                             <span className="dl-item-icon" style={{ background: `${fmt.color}18`, color: fmt.color }}>{fmt.icon}</span>
                             <span className="dl-item-info">
                                 <span className="dl-item-label">{fmt.label}</span>
                                 <span className="dl-item-desc">{fmt.description}</span>
                             </span>
                             <span className="dl-item-ext">.{fmt.ext}</span>
-                        </a>
+                        </button>
                     ))
                 }
 
                 <div className="dl-menu-section">Consumir como servicio</div>
 
-                {/* Los colores de svc-badge se definen en LayerMenu.css — sin style inline */}
-                {layer.type === 'vector' && (
-                    <button className="dl-item dl-item-btn dl-item-service" onClick={() => openService('wfs')}>
-                        <span className="dl-item-icon dl-item-icon-svc dl-item-icon-wfs">⊞</span>
-                        <span className="dl-item-info">
-                            <span className="dl-item-label">WFS</span>
-                            <span className="dl-item-desc">Web Feature Service · QGIS, ArcGIS</span>
-                        </span>
-                        <span className="dl-item-ext svc-arrow">›</span>
-                    </button>
-                )}
-
-                <button className="dl-item dl-item-btn dl-item-service" onClick={() => openService('wms')}>
-                    <span className="dl-item-icon dl-item-icon-svc dl-item-icon-wms">⊙</span>
+                <button className="dl-item dl-item-btn dl-item-service" onClick={openServices}>
+                    <span className="dl-item-icon dl-item-icon-svc dl-item-icon-wfs">⊞</span>
                     <span className="dl-item-info">
-                        <span className="dl-item-label">WMS</span>
-                        <span className="dl-item-desc">Web Map Service · visor web, SIG</span>
+                        <span className="dl-item-label">WFS / WMS</span>
+                        <span className="dl-item-desc">QGIS, ArcGIS, visor web</span>
                     </span>
                     <span className="dl-item-ext svc-arrow">›</span>
                 </button>
@@ -428,7 +712,7 @@ const DownloadDropdown: React.FC<{ layer: LayerConfig; grupos?: GrupoLike[] }> =
                 {open && ReactDOM.createPortal(menu, document.body)}
                 {serviceModal && (
                     <ServiceModal
-                        info={serviceModal}
+                        combined={serviceModal}
                         layerName={layer.name}
                         onClose={() => setServiceModal(null)}
                     />
@@ -469,7 +753,8 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({
     isCollapsed,
     onCollapseToggle,
 }) => {
-    const { availableLayers: AVAILABLE_LAYERS, grupos, loading: apiLoading, error: apiError } = useLayersContext();
+    const { availableLayers: AVAILABLE_LAYERS, grupos } = useLayersData();
+    const { loading: apiLoading, error: apiError } = useLayersMeta();
 
     const [menuOpen,             setMenuOpen]             = useState(false);
     const [collapsed,            setCollapsed]            = useState(false);
@@ -478,9 +763,16 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({
     const handleCollapseToggle = onCollapseToggle ?? (() => setCollapsed(c => !c));
     const [searchTerm,           setSearchTerm]           = useState('');
     const [attributeTableLayerId,setAttributeTableLayerId]= useState<string | null>(null);
-    const [collapsedGroups,      setCollapsedGroups]      = useState<Set<string>>(
-        () => new Set([...Object.keys(layersByGroup), '__imported__'])
-    );
+    const [collapsedGroups,      setCollapsedGroups]      = useState<Set<string>>(() => {
+        const keys = new Set<string>([...Object.keys(layersByGroup), '__imported__']);
+        // Añadir claves de subgrupos para que arranquen colapsados
+        Object.entries(layersByGroup).forEach(([group, layers]) => {
+            layers.forEach(l => {
+                if (l.subgroup) keys.add(`${group}::${l.subgroup}`);
+            });
+        });
+        return keys;
+    });
 
     const toggleGroup = useCallback((group: string) =>
         setCollapsedGroups(prev => {
@@ -488,6 +780,22 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({
             next.has(group) ? next.delete(group) : next.add(group);
             return next;
         }), []);
+
+    // Cuando llegan datos de la API (asíncrono), registrar los subgrupos
+    // nuevos como colapsados sin tocar los que el usuario ya haya abierto.
+    useEffect(() => {
+        setCollapsedGroups(prev => {
+            const next = new Set(prev);
+            Object.entries(layersByGroup).forEach(([group, layerList]) => {
+                next.add(group); // grupos también colapsados por defecto
+                layerList.forEach(l => {
+                    if (l.subgroup) next.add(`${group}::${l.subgroup}`);
+                });
+            });
+            next.add('__imported__');
+            return next;
+        });
+    }, [layersByGroup]);
 
     const isLayerActive  = useCallback((id: string) => layers[id]?.visible  ?? false, [layers]);
     const isLayerLoading = useCallback((id: string) => loading[id]          ?? false, [loading]);
@@ -629,6 +937,17 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({
                         const isGroupCollapsed = collapsedGroups.has(group);
                         const activeInGroup    = groupLayers.filter(l => isLayerActive(l.id)).length;
 
+                        // Separar capas con subgrupo de capas sin subgrupo
+                        const sinSubgrupo = groupLayers.filter(l => !l.subgroup);
+                        // Ordenar subgrupos por subgroup_id (orden de creación)
+                        const subgruposUnicos = [...new Map(
+                            groupLayers
+                                .filter(l => l.subgroup)
+                                .map(l => [l.subgroup!, l.subgroup_id ?? Infinity])
+                        ).entries()]
+                            .sort(([, idA], [, idB]) => idA - idB)
+                            .map(([nombre]) => nombre);
+
                         return (
                             <div key={group} className="layer-group">
                                 <button
@@ -645,7 +964,38 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({
                                 </button>
                                 {!isGroupCollapsed && (
                                     <div className="layer-group-body">
-                                        {groupLayers.map(renderLayerItem)}
+                                        {/* Subgrupos como secciones colapsables */}
+                                        {subgruposUnicos.map(subgrupo => {
+                                            const subKey = `${group}::${subgrupo}`;
+                                            const isSubCollapsed = collapsedGroups.has(subKey);
+                                            const subLayers = groupLayers.filter(l => l.subgroup === subgrupo);
+                                            const activeInSub = subLayers.filter(l => isLayerActive(l.id)).length;
+
+                                            return (
+                                                <div key={subKey} className="layer-subgroup">
+                                                    <button
+                                                        className={`layer-subgroup-header ${isSubCollapsed ? 'collapsed' : ''}`}
+                                                        onClick={() => toggleGroup(subKey)}
+                                                        aria-expanded={!isSubCollapsed}
+                                                    >
+                                                        <span className="subgroup-title-text">{subgrupo}</span>
+                                                        <span className="group-meta">
+                                                            {activeInSub > 0 && <span className="group-active-badge">{activeInSub}</span>}
+                                                            <span className="group-count">{subLayers.length}</span>
+                                                            <span className={`group-chevron ${isSubCollapsed ? 'closed' : ''}`} aria-hidden="true">▾</span>
+                                                        </span>
+                                                    </button>
+                                                    {!isSubCollapsed && (
+                                                        <div className="layer-subgroup-body">
+                                                            {subLayers.map(renderLayerItem)}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+
+                                        {/* Capas sin subgrupo directamente */}
+                                        {sinSubgrupo.map(renderLayerItem)}
                                     </div>
                                 )}
                             </div>

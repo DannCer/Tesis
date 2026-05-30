@@ -80,18 +80,18 @@ import GeoRasterLayerComponent from '@components/map/layers/GeoRasterLayerCompon
 import PixelInfoPanel from '@components/map/panels/PixelInfoPanel';
 import Legend from '@components/map/panels/Legend';
 import VectorLayer from '@components/map/layers/VectorLayer';
-import { useWFSLayers, useRasterLayers } from '@hooks/map';   // ← una sola línea (era dos)
+import { useWFSLayers, useRasterLayers, useExternalLayers, useSwipeState, useMapPanelsState, useLayerIndex, useZoomToLayer, useFeatureSelection } from '@hooks/map';   // ← una sola línea (era dos)
 import { wfsService } from '@services/geoserver/wfsService';
 import { dynamicWfsService } from '@services/geoserver/dynamicWfsService';
 import { dynamicRasterService } from '@services/geoserver/dynamicRasterService';
-import { config, logger } from '@config/env';
+import { config } from '@config/env';
 import { Z_INDEX } from '@config/constants';
 import type { LayerConfig } from '@config/layers';
 import type { WFSOptions } from '@types/map';
 import '@styles/mapView.css';
 import '@styles/PrintDesigner.css';
 import { useApiLayersLoader } from '@hooks/api';
-import { useLayersContext } from '@contexts/LayersContext';
+import { useLayersData } from '@contexts/LayersContext';
 import { useSelectedProjectLayers } from '@hooks/map/useSelectedProjectLayers';
 
 const PrintDesigner = lazy(() => import('@components/map/tools/PrintDesigner'));
@@ -186,34 +186,13 @@ const MemoizedVectorLayer = memo(
 );
 MemoizedVectorLayer.displayName = 'MemoizedVectorLayer';
 
-// ─── Utilidad: escapar HTML para prevenir XSS en popups ──────────────────────
-
-const escapeHtml = (value: unknown): string => {
-    const str = String(value ?? '—');
-    return str
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-};
-
-// ─── Propiedades geométricas a omitir en popups ───────────────────────────────
-
-const POPUP_SKIP_KEYS = new Set(['bbox', 'geometry', 'the_geom', 'geom']);
-
-/** Colores institucionales leídos de las CSS vars (con fallback) */
-const HL_COLOR      = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim()      || '#cd171e';
-const HL_COLOR_DARK = getComputedStyle(document.documentElement).getPropertyValue('--color-primary-dark').trim() || '#691B31';
-const HIGHLIGHT_PANE = 'map-highlight-pane';
-
 // ─── MapView ──────────────────────────────────────────────────────────────────
 
 const MapView: React.FC = () => {
     const mapConfig = config.map;
 
     const { layersByGroup }     = useApiLayersLoader();
-    const { grupos, availableLayers: contextLayers } = useLayersContext();
+    const { grupos, availableLayers: contextLayers } = useLayersData();
     const {
         layers:      projectLayers,
         selectedProjectId,    // eslint-disable-line @typescript-eslint/no-unused-vars
@@ -230,116 +209,59 @@ const MapView: React.FC = () => {
     const [mapInstance, setMapInstance] = useState<L.Map | null>(null);
     const handleMapReady = useCallback((map: L.Map) => setMapInstance(map), []);
 
-    // Estado de UI
-    const [printOpen,       setPrintOpen]       = useState(false);
-    const [wmsError,        setWmsError]        = useState<string | null>(null);
-    const [selectedFeature, setSelectedFeature] = useState<string | number | null>(null);
-    const [externalLayers,  setExternalLayers]  = useState<ExternalLayer[]>([]);
-    const [externalVisible, setExternalVisible] = useState<Record<string, boolean>>({});
-    const [externalOpacity, setExternalOpacity] = useState<Record<string, number>>({});
+    // ─── UI panels ────────────────────────────────────────────────────────────
+    const {
+        printOpen,       setPrintOpen,
+        legendOpen,      handleToggleLegend,
+        layerMenuCollapsed, handleCollapseToggle,
+        swipePanelOpen,  handleToggleSwipePanel, setSwipePanelOpen,
+        dynamicTableOpen, setDynamicTableOpen,
+    } = useMapPanelsState();
 
-    // Estado del comparador de capas (swipe)
-    const [swipeActive, setSwipeActive] = useState(false);
-    const [swipeLeft,   setSwipeLeft]   = useState<SwipeLayerConfig | null>(null);
-    const [swipeRight,  setSwipeRight]  = useState<SwipeLayerConfig | null>(null);
+    // ─── Capas externas (archivos locales añadidos por el usuario) ────────────
+    const {
+        externalLayers,
+        externalVisible,
+        externalOpacity,
+        handleAddExternalLayer:     _handleAddExternal,
+        handleRemoveExternalLayer,
+        handleToggleExternalLayer,
+        handleExternalOpacityChange,
+    } = useExternalLayers();
 
-    // Estado del panel de capas (controlado desde MapToolbar)
-    const [layerMenuCollapsed, setLayerMenuCollapsed] = useState(false);
-    const handleCollapseToggle = useCallback(() => setLayerMenuCollapsed(c => !c), []);
+    // mapInstance se pasa al handler de zoom automático
+    const handleAddExternalLayer = (layer: ExternalLayer) => _handleAddExternal(layer, mapInstance);
 
-    // Estado de la leyenda (controlado desde MapToolbar)
-    const [legendOpen, setLegendOpen] = useState(false);
-    const handleToggleLegend = useCallback(() => setLegendOpen(o => !o), []);
+    // ─── Swipe comparador ────────────────────────────────────────────────────
+    const {
+        swipeActive,
+        swipeLeft,
+        swipeRight,
+        handleSwipeActivate,
+        handleSwipeDeactivate,
+    } = useSwipeState();
 
-    // Registro de capas ya centradas automáticamente
-    const autoZoomedVectorLayersRef = useRef<Set<string>>(new Set());
+    const [wmsError, setWmsError] = useState<string | null>(null);
 
-    /** Capa Leaflet de resaltado compartida entre popup y tabla de atributos */
-    const mapHighlightLayerRef = useRef<L.GeoJSON | null>(null);
-
-    // ─── Handlers swipe ───────────────────────────────────────────────────────
-
-    const handleSwipeActivate = useCallback((left: SwipeLayerConfig, right: SwipeLayerConfig) => {
-        setSwipeLeft(left);
-        setSwipeRight(right);
-        setSwipeActive(true);
-    }, []);
-
-    const handleSwipeDeactivate = useCallback(() => {
-        setSwipeActive(false);
-        setSwipeLeft(null);
-        setSwipeRight(null);
-    }, []);
-
-    // Estado del panel de swipe (RightSideControls)
-    const [swipePanelOpen,   setSwipePanelOpen]   = useState(false);
-    const handleToggleSwipePanel = useCallback(() => setSwipePanelOpen(o => !o), []);
-    const [dynamicTableOpen, setDynamicTableOpen] = useState(false);
-
-    // Feature seleccionada desde el mapa → se comunica a DynamicAttributeTable
-    const [mapSelectedFeature, setMapSelectedFeature] = useState<{
-        layerId: string;
-        feature: GeoJSON.Feature;
-    } | null>(null);
-
-
-    // ─── Handlers capas externas ──────────────────────────────────────────────
-
-    const handleAddExternalLayer = useCallback((layer: ExternalLayer) => {
-        setExternalLayers(prev => [...prev, layer]);
-        setExternalVisible(prev => ({ ...prev, [layer.id]: true }));
-        setExternalOpacity(prev => ({ ...prev, [layer.id]: 0.8 }));
-        if (layer.geojsonData && mapInstance) {
-            try {
-                const gl     = L.geoJSON(layer.geojsonData);
-                const bounds = gl.getBounds();
-                if (bounds.isValid()) mapInstance.fitBounds(bounds, { padding: [30, 30] });
-            } catch { /* bounds inválidos — ignorar */ }
-        }
-    }, [mapInstance]);
-
-    const handleRemoveExternalLayer = useCallback((id: string) => {
-        setExternalLayers(prev => prev.filter(l => l.id !== id));
-        setExternalVisible(prev => { const n = { ...prev }; delete n[id]; return n; });
-        setExternalOpacity(prev => { const n = { ...prev }; delete n[id]; return n; });
-    }, []);
-
-    const handleToggleExternalLayer = useCallback((id: string, visible: boolean) => {
-        setExternalVisible(prev => ({ ...prev, [id]: visible }));
-    }, []);
-
-    const handleExternalOpacityChange = useCallback((id: string, opacity: number) => {
-        setExternalOpacity(prev => ({ ...prev, [id]: opacity }));
-    }, []);
+    // ─── Handlers swipe ── movidos a useSwipeState() ──────────────────────────
 
     // ─── Capas combinadas ─────────────────────────────────────────────────────
 
-    const availableLayers = useMemo((): LayerConfig[] => {
-        const projectFlat = projectLayers ?? [];
-        return [...contextLayers, ...projectFlat];
-    }, [contextLayers, projectLayers]);
+    // ─── Índices de capas ─────────────────────────────────────────────────────
+    // availableLayers, combinedLayersByGroup e índices O(1) en Refs
 
-    // Índices O(1) almacenados en Refs para no causar re-renders
-    const layerIndexRef = useRef<Map<string, LayerConfig>>(new Map());
-    const grupoIndexRef = useRef<Map<string, { nombre: string; url_proyecto?: string }>>(new Map());
-
-    useEffect(() => {
-        const layerIdx = new Map<string, LayerConfig>();
-        availableLayers.forEach(l => layerIdx.set(l.id, l));
-        layerIndexRef.current = layerIdx;
-
-        const grupoIdx = new Map<string, { nombre: string; url_proyecto?: string }>();
-        (grupos ?? []).forEach(g => grupoIdx.set(g.nombre, g));
-        grupoIndexRef.current = grupoIdx;
-    }, [availableLayers, grupos]);
-
-    const combinedLayersByGroup = useMemo(() => {
-        const combined = { ...layersByGroup };
-        if (projectLayers && projectLayers.length > 0 && selectedProjectName) {
-            combined[selectedProjectName] = projectLayers;
-        }
-        return combined;
-    }, [layersByGroup, projectLayers, selectedProjectName]);
+    const {
+        availableLayers,
+        combinedLayersByGroup,
+        layerIndexRef,
+        grupoIndexRef,
+    } = useLayerIndex({
+        contextLayers,
+        projectLayers,
+        grupos,
+        layersByGroup,
+        selectedProjectName,
+    });
 
     // ─── Hooks de capas ───────────────────────────────────────────────────────
 
@@ -352,19 +274,19 @@ const MapView: React.FC = () => {
         setLayerOpacity,
     } = useWFSLayers();
 
-    /**
-     * WeakMap feature → layerId: permite que onEachVectorFeature (callback
-     * compartido sin parámetro layerId) identifique la capa de cada feature.
-     * Se reconstruye cada vez que cambia vectorLayers.
-     */
-    const featureToLayerIdRef = useRef<WeakMap<object, string>>(new WeakMap());
-    useEffect(() => {
-        const wm = new WeakMap<object, string>();
-        Object.entries(vectorLayers).forEach(([id, layer]) => {
-            (layer.data?.features ?? []).forEach(f => wm.set(f, id));
-        });
-        featureToLayerIdRef.current = wm;
-    }, [vectorLayers]);
+    // ─── Selección y resaltado de features ───────────────────────────────────
+
+    const {
+        selectedFeature,
+        mapSelectedFeature,
+        mapHighlightLayerRef,
+        onEachVectorFeature,
+        clearMapSelectedFeature,
+    } = useFeatureSelection({ mapInstance, vectorLayers });
+
+    // ─── Zoom automático a capas ──────────────────────────────────────────────
+
+    const { zoomToLayer, autoZoomedVectorLayersRef } = useZoomToLayer({ mapInstance, layerIndexRef });
 
     const {
         activeLayers,
@@ -377,152 +299,9 @@ const MapView: React.FC = () => {
         clearPixelInfo,
     } = useRasterLayers(availableLayers);
 
-    // ─── Zoom a capa ──────────────────────────────────────────────────────────
+    // ─── Zoom a capa — ver useZoomToLayer ────────────────────────────────────
 
-    const zoomToLayer = useCallback(async (
-        layerId: string,
-        type: 'vector' | 'raster',
-        data?: unknown
-    ) => {
-        if (!mapInstance) return;
-        const layerCfg = layerIndexRef.current.get(layerId);
-        if (!layerCfg) return;
-
-        const fitOpts: L.FitBoundsOptions = { padding: [20, 20] };
-
-        if (type === 'vector') {
-            const wfsName   = layerCfg.wfsName ?? layerCfg.id;
-            const groupName = layerCfg.group;
-            const bounds    = groupName
-                ? await dynamicWfsService.getLayerExtent(wfsName, groupName).catch(() => null)
-                : await wfsService.getLayerExtent(wfsName).catch(() => null);
-
-            if (bounds) {
-                mapInstance.fitBounds(bounds as L.LatLngBoundsExpression, fitOpts);
-            } else if (data) {
-                try {
-                    const gl     = L.geoJSON(data as GeoJSON.GeoJsonObject);
-                    const b      = gl.getBounds();
-                    if (b.isValid()) mapInstance.fitBounds(b, fitOpts);
-                } catch (err) {
-                    logger.error('Error al calcular bounds para zoom:', err);
-                }
-            } else if (layerCfg.bounds) {
-                mapInstance.fitBounds(layerCfg.bounds as L.LatLngBoundsExpression, fitOpts);
-            }
-        } else {
-            const wmsLayer  = layerCfg.wmsLayer ?? 'usv_mosaico';
-            const groupName = layerCfg.group;
-            const bounds    = groupName
-                ? await dynamicRasterService.getLayerExtent(wmsLayer, groupName).catch(() => null)
-                : null;
-
-            if (bounds) {
-                mapInstance.fitBounds(bounds as L.LatLngBoundsExpression, fitOpts);
-            } else if (layerCfg.bounds) {
-                mapInstance.fitBounds(layerCfg.bounds as L.LatLngBoundsExpression, fitOpts);
-            }
-        }
-    }, [mapInstance]);
-
-    // ─── Capa de resaltado — se crea una vez cuando mapInstance está listo ────
-
-    useEffect(() => {
-        if (!mapInstance) return;
-
-        // Crear pane propio (encima de overlayPane:400, debajo de popupPane:700)
-        if (!mapInstance.getPane(HIGHLIGHT_PANE)) {
-            const pane = mapInstance.createPane(HIGHLIGHT_PANE);
-            pane.style.zIndex = '450';
-            pane.style.pointerEvents = 'none';
-        }
-
-        const hl = L.geoJSON(undefined, {
-            pane: HIGHLIGHT_PANE,
-            style: () => ({
-                color:       HL_COLOR_DARK,
-                fillColor:   HL_COLOR,
-                fillOpacity: 0.30,
-                weight:      3,
-                opacity:     1,
-            }),
-            pointToLayer: (_f, latlng) =>
-                L.circleMarker(latlng, {
-                    pane:        HIGHLIGHT_PANE,
-                    radius:      10,
-                    color:       HL_COLOR_DARK,
-                    fillColor:   HL_COLOR,
-                    fillOpacity: 0.50,
-                    weight:      3,
-                }),
-        }).addTo(mapInstance);
-
-        mapHighlightLayerRef.current = hl;
-        return () => {
-            hl.remove();
-            mapHighlightLayerRef.current = null;
-        };
-    }, [mapInstance]);
-
-    // ─── Popup de feature vectorial ───────────────────────────────────────────
-
-    const onEachVectorFeature = useCallback((feature: GeoJSONFeature, layer: L.Layer) => {
-        const props = feature.properties ?? {};
-
-        const nombre =
-            props.NOMBRE    ?? props.nombre    ??
-            props.Estado    ?? props.estado    ??
-            props.Municipio ?? props.municipio ??
-            props.Localidad ?? props.localidad ??
-            props.NAME      ?? props.name      ?? 'Elemento';
-
-        const rows = Object.entries(props)
-            .filter(([k]) => !POPUP_SKIP_KEYS.has(k.toLowerCase()))
-            .map(([k, v]) => `
-                <tr>
-                    <td style="padding:5px 12px 5px 0;font-weight:600;color:#555;white-space:nowrap;vertical-align:top;font-size:13px">${escapeHtml(k)}</td>
-                    <td style="padding:5px 0;color:#222;font-size:13px;word-break:break-word">${escapeHtml(v)}</td>
-                </tr>`)
-            .join('');
-
-        const content = `
-            <div style="font-family:'Roboto','Segoe UI',sans-serif;min-width:300px;max-width:440px">
-                <div style="background:#8d1c3d;color:#fff;padding:10px 14px;margin:-13px -20px 10px;border-radius:4px 4px 0 0;font-size:15px;font-weight:600">
-                    ${escapeHtml(nombre)}
-                </div>
-                <div style="max-height:260px;overflow-y:auto">
-                    <table style="border-collapse:collapse;width:100%">
-                        <tbody>${rows || '<tr><td style="color:#999;font-size:13px">Sin atributos</td>'}</tbody>
-                    </table>
-                </div>
-            </div>`;
-
-        layer.bindPopup(content, {
-            maxWidth: 460, minWidth: 300, className: 'vector-popup', offset: [0, -4],
-        });
-
-        layer.on({
-            click: (e: L.LeafletMouseEvent) => {
-                L.DomEvent.stopPropagation(e);
-                const fid = feature.id ?? props.id ?? crypto.randomUUID();
-                setSelectedFeature(fid as string | number);
-                layer.openPopup(e.latlng);
-                // Resaltar la feature en el mapa
-                const hl = mapHighlightLayerRef.current;
-                if (hl) {
-                    hl.clearLayers();
-                    hl.addData(feature as GeoJSON.Feature);
-                }
-                // Notificar a la tabla de atributos qué feature fue clicada
-                const lid = featureToLayerIdRef.current.get(feature);
-                if (lid) setMapSelectedFeature({ layerId: lid, feature: feature as GeoJSON.Feature });
-            },
-            popupclose: () => {
-                setSelectedFeature(null);
-                mapHighlightLayerRef.current?.clearLayers();
-            },
-        });
-    }, []);
+    // ─── Popup de feature vectorial — ver useFeatureSelection ─────────────────
 
     // ─── Toggle de capa ───────────────────────────────────────────────────────
 
@@ -644,7 +423,6 @@ const MapView: React.FC = () => {
     // ─── Handlers de mapa ─────────────────────────────────────────────────────
 
     const handleMapClick = useCallback((e: L.LeafletMouseEvent, map: L.Map) => {
-        setSelectedFeature(null);
         queryPixelValue(e, map);
     }, [queryPixelValue]);
 
@@ -917,7 +695,7 @@ const MapView: React.FC = () => {
                     onClose={() => setDynamicTableOpen(false)}
                     highlightLayerRef={mapHighlightLayerRef}
                     mapSelectedFeature={mapSelectedFeature}
-                    onMapFeatureConsumed={() => setMapSelectedFeature(null)}
+                    onMapFeatureConsumed={clearMapSelectedFeature}
                 />
             )}
 

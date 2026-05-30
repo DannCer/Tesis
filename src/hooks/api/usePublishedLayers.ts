@@ -5,14 +5,14 @@
  * @module hooks/usePublishedLayers
  */
 
-import { useLayersContext } from '@contexts/LayersContext';
+import { useLayersData } from '@contexts/LayersContext';
 
 /**
  * Hook para gestionar capas publicadas desde la API.
  * Consume LayersContext en lugar de hacer un fetch propio.
  */
 export const usePublishedLayers = () => {
-    const { vectorLayers, rasterLayers, grupos, loading, error, refresh } = useLayersContext();
+    const { vectorLayers, rasterLayers, grupos, loading, error, refresh } = useLayersData();
     return { vectorLayers, rasterLayers, grupos, loading, error, refresh };
 };
 
@@ -20,7 +20,7 @@ export const usePublishedLayers = () => {
  * Hook simplificado que combina todas las capas.
  */
 export const useAllPublishedLayers = () => {
-    const { vectorLayers, rasterLayers, loading, error, refresh } = useLayersContext();
+    const { vectorLayers, rasterLayers, loading, error, refresh } = useLayersData();
     return {
         allLayers: [...vectorLayers, ...rasterLayers],
         vectorLayers,

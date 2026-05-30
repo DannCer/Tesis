@@ -324,3 +324,11 @@
   width: 12px;
   height: 12px;
 }
+
+.badge-subgroup {
+    background: var(--color-accent-light, #e8f4fd);
+    color: var(--color-accent, #1a73e8);
+    font-size: 0.75rem;
+    padding: 2px 6px;
+    border-radius: 10px;
+}

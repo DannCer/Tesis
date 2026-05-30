@@ -58,9 +58,9 @@ const DraggablePanel: React.FC<DraggablePanelProps> = ({
             zIndex,
         }
         : {
-            // Posición por defecto: centrado sobre la toolbar (igual que los paneles originales)
+            // Posición por defecto: centrado en la parte superior para no tapar la toolbar
             position:  'fixed',
-            bottom:    '7rem',
+            top:       '5rem',
             left:      '50%',
             transform: 'translateX(-50%)',
             width:      defaultWidth,

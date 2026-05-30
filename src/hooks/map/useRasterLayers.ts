@@ -1,10 +1,9 @@
 import { useState, useCallback, useRef } from 'react';
 import { dynamicRasterService } from '@services/geoserver';
-import type { PixelInfo } from '@services/geoserver/dynamicRasterService';
 import { logger } from '@config/env';
 import L from 'leaflet';
 import type { LayerConfig } from '@config/layers';
-import type { EnrichedPixelInfo, MapPixelData } from '@types/map';
+import type { PixelInfo, EnrichedPixelInfo, MapPixelData } from '@types/map';
 
 export type { EnrichedPixelInfo, MapPixelData };
 
@@ -89,14 +88,14 @@ export const useRasterLayers = (availableLayers: LayerConfig[] = []) => {
                 timestamp: Date.now()
             });
 
-        } catch (error: any) {
+        } catch (error: unknown) {
             if (error?.name === 'AbortError') return;
             if (querySeq !== pixelQuerySeqRef.current) return;
             logger.error('Error consultando píxel:', error);
             setPixelInfo({ 
                 coordinates: [event.latlng.lat, event.latlng.lng], 
                 layers: [], 
-                error: error.message, 
+                error: error instanceof Error ? error.message : String(error), 
                 timestamp: Date.now() 
             });
         } finally {

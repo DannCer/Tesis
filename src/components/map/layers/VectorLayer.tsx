@@ -2,6 +2,7 @@ import React, { memo, useMemo, useCallback, useState, useEffect } from 'react';
 import { GeoJSON, ImageOverlay, WMSTileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { config } from '@config/env';
+import type { GeoJSONFeature } from '@types/geo';
 
 // Lee --color-primary de variables.css en tiempo de ejecución
 const COLOR_SELECTED: string =
@@ -10,12 +11,13 @@ const COLOR_SELECTED: string =
 interface VectorLayerProps {
     id: string;
     wmsLayer: string;
-    data: any;
+    /** FeatureCollection GeoJSON cargada desde WFS. */
+    data: GeoJSON.FeatureCollection | null;
     visible: boolean;
     timestamp: number;
     opacity: number;
     selectedFeatureId: string | number | null;
-    onEachFeature: (feature: any, layer: L.Layer) => void;
+    onEachFeature: (feature: GeoJSONFeature, layer: L.Layer) => void;
     zIndex?: number;
     wmsBaseUrl?: string;
 }
@@ -99,7 +101,7 @@ const VectorLayer: React.FC<VectorLayerProps> = memo(({
     // Busca el feature clickeado comparando con String() para evitar mismatch number/string
     const selectedFeatureData = useMemo((): GeoJSON.FeatureCollection | null => {
         if (selectedFeatureId === null || !data?.features) return null;
-        const feature = data.features.find((f: any) => {
+        const feature = data.features.find((f: GeoJSON.Feature) => {
             const fid = f.id ?? f.properties?.id;
             return fid !== undefined && String(fid) === String(selectedFeatureId);
         });

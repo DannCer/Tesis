@@ -7,7 +7,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { useLayersContext } from '@contexts/LayersContext';
+import { useLayersData } from '@contexts/LayersContext';
 import { config, logger }   from '@config/env';
 import type { SwipeLayerConfig } from '@components/map/controls/SwipeControl';
 import type { LayerDef }    from '@types/geo';
@@ -57,7 +57,7 @@ const SwipePanel: React.FC<SwipePanelProps> = ({
     // Si viene controlado externamente, el FAB interno se oculta
     const isControlled = panelOpen !== undefined;
     // ✅ Capas y grupos dinámicos desde contexto — se actualiza cuando la API responde
-    const { vectorLayers, rasterLayers, grupos, loading } = useLayersContext();
+    const { vectorLayers, rasterLayers, grupos, loading } = useLayersData();
 
     // Unión tipada de ambos arrays para el selector
     const allLayers = useMemo<LayerDef[]>(

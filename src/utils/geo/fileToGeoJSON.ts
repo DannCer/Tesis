@@ -194,7 +194,7 @@ async function parseShapefile(file: File): Promise<ParseResult> {
     console.debug('[fileToGeoJSON] parseando como Shapefile ZIP...');
     try {
         // Importación dinámica — requiere: npm install shpjs
-        let shp: any;
+        let shp: { default: (buffer: ArrayBuffer) => Promise<unknown> };
         try {
             shp = await import('shpjs');
         } catch {
@@ -272,4 +272,281 @@ export function getFormatLabel(filename: string): string {
         zip: 'Shapefile (ZIP)',
     };
     return map[ext] ?? ext.toUpperCase();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONVERSIÓN GEOJSON → KML (cliente)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// QGIS Server con WFS 1.1.0 frecuentemente ignora outputFormat=application/vnd.google-earth.kml+xml
+// y devuelve wfs:FeatureCollection (XML WFS), que Google Earth rechaza.
+// La solución es pedir siempre GeoJSON (que sí funciona) y convertir en cliente.
+
+const KML_GEOM_COLORS: Record<string, string> = {
+    Point:           'ff0000ff', // rojo — puntos
+    MultiPoint:      'ff0000ff',
+    LineString:      'ffff0000', // azul — líneas
+    MultiLineString: 'ffff0000',
+    Polygon:         '8000ff00', // verde semi-transparente — polígonos
+    MultiPolygon:    '8000ff00',
+};
+
+/**
+ * Convierte coordenadas GeoJSON [lng, lat, alt?] al formato KML "lng,lat,alt".
+ */
+function coordsToKml(coords: number[]): string {
+    return `${coords[0]},${coords[1]},${coords[2] ?? 0}`;
+}
+
+/**
+ * Serializa una geometría GeoJSON al elemento KML correspondiente.
+ */
+function geometryToKml(geom: GeoJSON.Geometry | null): string {
+    if (!geom) return '';
+    switch (geom.type) {
+        case 'Point':
+            return `<Point><coordinates>${coordsToKml(geom.coordinates)}</coordinates></Point>`;
+        case 'MultiPoint':
+            return geom.coordinates.map(c =>
+                `<Point><coordinates>${coordsToKml(c)}</coordinates></Point>`
+            ).join('\n');
+        case 'LineString':
+            return `<LineString><coordinates>${geom.coordinates.map(coordsToKml).join(' ')}</coordinates></LineString>`;
+        case 'MultiLineString':
+            return geom.coordinates.map(line =>
+                `<LineString><coordinates>${line.map(coordsToKml).join(' ')}</coordinates></LineString>`
+            ).join('\n');
+        case 'Polygon': {
+            const [outer, ...holes] = geom.coordinates;
+            const outerRing = `<outerBoundaryIs><LinearRing><coordinates>${outer.map(coordsToKml).join(' ')}</coordinates></LinearRing></outerBoundaryIs>`;
+            const innerRings = holes.map(h =>
+                `<innerBoundaryIs><LinearRing><coordinates>${h.map(coordsToKml).join(' ')}</coordinates></LinearRing></innerBoundaryIs>`
+            ).join('\n');
+            return `<Polygon>${outerRing}${innerRings}</Polygon>`;
+        }
+        case 'MultiPolygon':
+            return geom.coordinates.map(poly => {
+                const [outer, ...holes] = poly;
+                const outerRing = `<outerBoundaryIs><LinearRing><coordinates>${outer.map(coordsToKml).join(' ')}</coordinates></LinearRing></outerBoundaryIs>`;
+                const innerRings = holes.map(h =>
+                    `<innerBoundaryIs><LinearRing><coordinates>${h.map(coordsToKml).join(' ')}</coordinates></LinearRing></innerBoundaryIs>`
+                ).join('\n');
+                return `<Polygon>${outerRing}${innerRings}</Polygon>`;
+            }).join('\n');
+        case 'GeometryCollection':
+            return geom.geometries.map(geometryToKml).join('\n');
+        default:
+            return '';
+    }
+}
+
+/**
+ * Escapa caracteres especiales XML en valores de atributos.
+ */
+function escapeXml(value: unknown): string {
+    return String(value ?? '')
+        .replace(/&/g,  '&amp;')
+        .replace(/</g,  '&lt;')
+        .replace(/>/g,  '&gt;')
+        .replace(/"/g,  '&quot;')
+        .replace(/'/g,  '&apos;');
+}
+
+/**
+ * Convierte un GeoJSON FeatureCollection a texto KML.
+ * Genera un Placemark por feature con:
+ *   - <name>: primer campo de propiedades tipo string, o "Feature N"
+ *   - <description>: tabla HTML con todos los atributos
+ *   - <Style>: color según tipo de geometría
+ *   - Geometría KML correspondiente
+ *
+ * @param fc   - FeatureCollection GeoJSON de entrada
+ * @param name - Nombre de la carpeta KML (típicamente el nombre de la capa)
+ */
+export function geoJSONToKML(fc: GeoJSON.FeatureCollection, name = 'Capa'): string {
+    const geomType = fc.features[0]?.geometry?.type ?? 'Point';
+    const color    = KML_GEOM_COLORS[geomType] ?? 'ff0000ff';
+
+    const placemarks = fc.features.map((f, i) => {
+        const props = f.properties ?? {};
+        // Nombre: primer campo string no vacío, o fallback "Feature N"
+        const nameVal =
+            Object.values(props).find(v => typeof v === 'string' && v.trim().length > 0)
+            ?? `Feature ${i + 1}`;
+
+        // Descripción como tabla HTML
+        const rows = Object.entries(props)
+            .map(([k, v]) => `<tr><td><b>${escapeXml(k)}</b></td><td>${escapeXml(v)}</td></tr>`)
+            .join('');
+        const description = rows
+            ? `<![CDATA[<table border="1" cellpadding="4">${rows}</table>]]>`
+            : '';
+
+        return `    <Placemark>
+      <name>${escapeXml(nameVal)}</name>
+      <description>${description}</description>
+      <Style>
+        <LineStyle><color>${color}</color><width>2</width></LineStyle>
+        <PolyStyle><color>${color}</color></PolyStyle>
+        <IconStyle><color>${color}</color></IconStyle>
+      </Style>
+      ${geometryToKml(f.geometry)}
+    </Placemark>`;
+    });
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${escapeXml(name)}</name>
+    <Folder>
+      <name>${escapeXml(name)}</name>
+${placemarks.join('\n')}
+    </Folder>
+  </Document>
+</kml>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PARSEO DE RESPUESTA WFS XML → GEOJSON (fallback cliente)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// QGIS Server a veces ignora outputFormat y devuelve wfs:FeatureCollection
+// XML aunque se pida SHAPE-ZIP o application/json.
+// Este parser convierte esa respuesta a GeoJSON en cliente como fallback.
+
+/**
+ * Detecta si un string es una respuesta WFS XML de QGIS Server.
+ */
+export function isWfsXml(text: string): boolean {
+    const trimmed = text.trimStart();
+    return trimmed.startsWith('<wfs:FeatureCollection') ||
+           trimmed.startsWith('<FeatureCollection') ||
+           (trimmed.startsWith('<') && trimmed.includes('wfs:FeatureCollection'));
+}
+
+/**
+ * Extrae coordenadas geográficas de un feature WFS.
+ * Estrategia:
+ *   1. Busca campos lat/lon/latitude/longitude/x/y en las propiedades
+ *   2. Intenta parsear gml:coordinates como lon,lat (si parecen geográficas)
+ *   3. Devuelve null si no puede determinar la posición
+ */
+function extractLatLon(
+    props: Record<string, string>,
+    gmlCoords: string | null
+): [number, number] | null {
+
+    // 1. Campos de propiedades nombrados explícitamente
+    const latKeys = ['lat', 'latitude', 'latitud', 'y_coord', 'y'];
+    const lonKeys = ['lon', 'long', 'long_', 'lng', 'longitude', 'longitud', 'x_coord', 'x'];
+
+    const latKey = latKeys.find(k => k in props);
+    const lonKey = lonKeys.find(k => k in props);
+
+    if (latKey && lonKey) {
+        const lat = parseFloat(props[latKey]);
+        const lon = parseFloat(props[lonKey]);
+        if (!isNaN(lat) && !isNaN(lon) &&
+            lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+            return [lon, lat];
+        }
+    }
+
+    // 2. gml:coordinates en formato "lon,lat" o "x y"
+    if (gmlCoords) {
+        const parts = gmlCoords.trim().split(/[\s,]+/);
+        if (parts.length >= 2) {
+            const a = parseFloat(parts[0]);
+            const b = parseFloat(parts[1]);
+            // Verificar si parecen coordenadas geográficas (no proyectadas)
+            if (!isNaN(a) && !isNaN(b)) {
+                if (Math.abs(a) <= 180 && Math.abs(b) <= 90)  return [a, b];
+                if (Math.abs(b) <= 180 && Math.abs(a) <= 90)  return [b, a];
+            }
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Convierte una respuesta WFS XML de QGIS Server a GeoJSON FeatureCollection.
+ * Soporta Point, LineString y Polygon desde gml:coordinates.
+ * Si las coordenadas están en CRS proyectado, usa lat/lon de las propiedades.
+ */
+export function wfsXmlToGeoJSON(xmlText: string): GeoJSON.FeatureCollection {
+    const parser  = new DOMParser();
+    const xmlDoc  = parser.parseFromString(xmlText, 'application/xml');
+
+    const NS_GML = 'http://www.opengis.net/gml';
+    const features: GeoJSON.Feature[] = [];
+
+    // En QGIS Server, featureMember está bajo gml: no wfs:
+    const members = xmlDoc.getElementsByTagNameNS('http://www.opengis.net/gml', 'featureMember');
+
+    for (let i = 0; i < members.length; i++) {
+        const member = members[i];
+
+        // Recopilar propiedades (todos los elementos hoja no-GML)
+        const props: Record<string, string> = {};
+        const allEls = member.getElementsByTagName('*');
+        for (let j = 0; j < allEls.length; j++) {
+            const el = allEls[j];
+            const ns = el.namespaceURI ?? '';
+            // Solo excluir namespaces de estructura (gml/wfs), incluir propiedades qgs
+            if (ns === 'http://www.opengis.net/gml' || ns === 'http://www.opengis.net/wfs') continue;
+            const localName = el.localName;
+            const text = el.textContent?.trim() ?? '';
+            if (text && !el.children.length) {
+                props[localName] = text;
+            }
+        }
+
+        // Intentar extraer geometría GML
+        let geometry: GeoJSON.Geometry | null = null;
+
+        const pointEl    = member.getElementsByTagNameNS(NS_GML, 'Point')[0];
+        const lineEl     = member.getElementsByTagNameNS(NS_GML, 'LineString')[0];
+        const polygonEl  = member.getElementsByTagNameNS(NS_GML, 'Polygon')[0];
+
+        const getCoordsText = (el: Element | undefined): string | null => {
+            if (!el) return null;
+            const c = el.getElementsByTagNameNS(NS_GML, 'coordinates')[0]
+                   ?? el.getElementsByTagNameNS(NS_GML, 'pos')[0]
+                   ?? el.getElementsByTagNameNS(NS_GML, 'posList')[0];
+            return c?.textContent?.trim() ?? null;
+        };
+
+        const parseCoordPairs = (text: string): [number, number][] => {
+            const tuples = text.trim().split(/\s+/);
+            return tuples
+                .map(t => t.split(',').map(Number))
+                .filter(p => p.length >= 2 && !p.some(isNaN))
+                .map(p => [p[0], p[1]] as [number, number]);
+        };
+
+        const gmlCoordsText = getCoordsText(pointEl ?? lineEl ?? polygonEl);
+        const latLon = extractLatLon(props, gmlCoordsText);
+
+        if (pointEl && latLon) {
+            geometry = { type: 'Point', coordinates: latLon };
+        } else if (lineEl) {
+            const raw = getCoordsText(lineEl);
+            if (raw) geometry = { type: 'LineString', coordinates: parseCoordPairs(raw) };
+        } else if (polygonEl) {
+            const outerEl = polygonEl.getElementsByTagNameNS(NS_GML, 'outerBoundaryIs')[0]
+                          ?? polygonEl.getElementsByTagNameNS(NS_GML, 'exterior')[0];
+            const raw = getCoordsText(outerEl);
+            if (raw) geometry = { type: 'Polygon', coordinates: [parseCoordPairs(raw)] };
+        } else if (latLon) {
+            // Solo propiedades lat/lon, sin geometría GML útil
+            geometry = { type: 'Point', coordinates: latLon };
+        }
+
+        if (geometry) {
+            features.push({ type: 'Feature', geometry, properties: props });
+        }
+    }
+
+    return { type: 'FeatureCollection', features };
 }

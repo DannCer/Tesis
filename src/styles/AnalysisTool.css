@@ -105,7 +105,10 @@
   display: flex; flex-direction: column; gap: 12px;
   font-family: var(--font-body);
   overflow-y: auto;
-  max-height: calc(85vh - 100px);
+  /* flex:1 + min-height:0 → el body ocupa el espacio sobrante del panel
+     y genera scroll sin necesitar un calc() hardcodeado */
+  flex: 1;
+  min-height: 0;
 }
 
 /* ── Modos de dibujo ───────────────────────────────────────── */
@@ -707,4 +710,126 @@ button:focus-visible {
   margin: 0;
   max-width: 260px;
   line-height: 1.4;
+}
+/* ══════════════════════════════════════════════════════════════════
+   SECCIÓN DEMOGRÁFICA (resumenTab equivalente)
+══════════════════════════════════════════════════════════════════ */
+
+.at-demo-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--radius-sm);
+  /* Sin overflow:hidden — el border-radius se aplica individualmente
+     al header para no recortar filas de la tabla inferior */
+  flex-shrink: 0;
+}
+
+.at-demo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--color-primary-dark);
+  color: var(--color-white);
+  font-size: 0.78rem;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.at-demo-reserved {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  padding: 5px 12px 0;
+  margin: 0;
+  font-style: italic;
+}
+
+.at-demo-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.at-demo-table tr {
+  border-bottom: 1px solid var(--color-gray-100);
+}
+.at-demo-table tr:last-child {
+  border-bottom: none;
+}
+
+.at-demo-table td {
+  padding: 7px 12px;
+  color: var(--color-text-dark);
+  vertical-align: middle;
+}
+
+.at-demo-icon {
+  margin-right: 5px;
+}
+
+.at-demo-val {
+  font-weight: 700;
+  color: var(--color-primary-dark);
+  text-align: right;
+  white-space: nowrap;
+  width: 90px;
+}
+
+.at-demo-empty {
+  font-size: 0.76rem;
+  color: var(--color-text-muted);
+  padding: 10px 12px;
+  margin: 0;
+  font-style: italic;
+  text-align: center;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   TABLA DE RESULTADOS — filas verdes y leyenda
+══════════════════════════════════════════════════════════════════ */
+
+/* Filas de grupos Asentamientos y REUSE (verde claro, igual que original) */
+.at-row--green td {
+  background-color: #e8f5e9;
+}
+.at-row--green:hover td {
+  background-color: #d0ead2 !important;
+}
+
+/* Celda de leyenda */
+.at-legend-cell {
+  text-align: center;
+  padding: 5px 6px !important;
+  width: 30px;
+}
+
+/* Imagen de símbolo (capas puntuales) */
+.at-legend-img {
+  width: 20px;
+  height: 20px;
+  display: block;
+  margin: 0 auto;
+  object-fit: contain;
+}
+
+/* Cuadro de color para capas poligonales sin símbolo */
+.at-legend-poly {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  background-color: rgb(199, 198, 255);
+  border: 1px solid rgba(0,0,0,0.15);
+  border-radius: 2px;
+}
+
+/* Columna Total cuando categorizar muestra texto largo */
+.at-count {
+  font-size: 0.74rem;
+  word-break: break-word;
+  max-width: 160px;
+}
+
+/* Panel: cambiar bottom por top (abre arriba, no tapa toolbar) */
+.at-panel {
+  bottom: auto !important;
+  top: 5rem;
 }

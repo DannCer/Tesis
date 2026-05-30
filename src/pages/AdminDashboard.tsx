@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { apiService } from '@services/api/apiService';
+import ConfirmModal from '@components/common/Confirmmodal';
 import '@styles/admin-dashboard.css';
 
 interface Usuario {
@@ -59,10 +60,18 @@ const AdminDashboard: React.FC = () => {
         }
     };
 
-    const handleDeleteUser = async (userId: number, username: string) => {
-        if (!window.confirm(`¿Eliminar al usuario "${username}"?`)) return;
+    const [deleteTarget, setDeleteTarget] = useState<{ id: number; username: string } | null>(null);
+
+    const handleDeleteUser = (userId: number, username: string) => {
+        setDeleteTarget({ id: userId, username });
+    };
+
+    const doDeleteUser = async () => {
+        if (!deleteTarget) return;
+        const { id, username } = deleteTarget;
+        setDeleteTarget(null);
         try {
-            await apiService.admin.deleteUsuario(userId);
+            await apiService.admin.deleteUsuario(id);
             await loadUsuarios();
             showFeedback(`Usuario "${username}" eliminado.`, 'ok');
         } catch (error) {
@@ -76,6 +85,7 @@ const AdminDashboard: React.FC = () => {
     };
 
     return (
+        <>
         <div className="admin-dashboard">
             {/* Header */}
             <header className="admin-header">
@@ -247,6 +257,18 @@ const AdminDashboard: React.FC = () => {
                 </section>
             </main>
         </div>
+        <ConfirmModal
+            isOpen={!!deleteTarget}
+            title="Eliminar usuario"
+            message={`¿Eliminar al usuario "${deleteTarget?.username}"? Esta acción no se puede deshacer.`}
+            confirmText="Eliminar"
+            cancelText="Cancelar"
+            confirmVariant="danger"
+            icon="⚠️"
+            onConfirm={doDeleteUser}
+            onCancel={() => setDeleteTarget(null)}
+        />
+        </>
     );
 };
 

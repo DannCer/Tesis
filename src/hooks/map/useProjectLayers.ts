@@ -62,11 +62,11 @@ export const useProjectLayers = () => {
                     [projectId]: 'No se pudieron cargar las capacidades' 
                 }));
             }
-        } catch (error: any) {
+        } catch (error: unknown) {
             logger.error('Error cargando capacidades:', error);
             setErrors(prev => ({ 
                 ...prev, 
-                [projectId]: error.message || 'Error desconocido' 
+                [projectId]: error instanceof Error ? error.message : 'Error desconocido' 
             }));
         } finally {
             setLoading(prev => ({ ...prev, [projectId]: false }));
