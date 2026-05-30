@@ -8,6 +8,8 @@ export interface LayerConfig {
     description: string;
     type:        'vector' | 'raster';
     group:       string;
+    subgroup?:   string;        // nombre del subgrupo (opcional)
+    subgroup_id?: number;        // id del subgrupo para ordenación
     wfsName?:    string;
     wmsLayer?:   string;
     year?:       number;

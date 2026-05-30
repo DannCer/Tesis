@@ -15,7 +15,7 @@ import type { WFSOptions } from '@types/map';
 export type { WFSOptions };
 
 interface CacheEntry {
-    data: any;
+    data: GeoJSON.FeatureCollection;
     timestamp: number;
 }
 
@@ -145,8 +145,8 @@ class WFSService {
             logger.debug(`✅ Features de "${layerName}": ${data.features?.length ?? 0} registros`);
             return data;
 
-        } catch (error: any) {
-            if (error.name === 'AbortError') {
+        } catch (error: unknown) {
+            if (error instanceof Error && error.name === 'AbortError') {
                 throw new Error('La petición tardó demasiado tiempo');
             }
             logger.error('❌ Error en getFeatures:', error);
@@ -290,13 +290,13 @@ class WFSService {
         }
     }
 
-    async getUniqueValues(layerName: string, fieldName: string): Promise<any[]> {
+    async getUniqueValues(layerName: string, fieldName: string): Promise<(string | number | boolean)[]> {
         try {
             const data = await this.getFeatures(layerName, { propertyName: fieldName, maxFeatures: this.maxFeatures });
-            const unique = new Set<any>();
-            data.features.forEach((f: any) => {
-                const v = f.properties[fieldName];
-                if (v !== null && v !== undefined) unique.add(v);
+            const unique = new Set<string | number | boolean>();
+            data.features.forEach((f: GeoJSON.Feature) => {
+                const v = f.properties?.[fieldName];
+                if (v !== null && v !== undefined) unique.add(v as string | number | boolean);
             });
             return Array.from(unique).sort();
         } catch (error) {

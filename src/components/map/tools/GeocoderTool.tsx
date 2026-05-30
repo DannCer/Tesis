@@ -15,7 +15,7 @@ import React, {
 } from 'react';
 import L from 'leaflet';
 import { logger } from '@config/env';
-import { useLayersContext } from '@contexts/LayersContext';
+import { useLayersData } from '@contexts/LayersContext';
 import { dynamicWfsService } from '@services/geoserver/dynamicWfsService';
 import '@styles/GeocoderTool.css';
 
@@ -127,7 +127,7 @@ function buildBboxCql(lat: number, lng: number, radiusM: number, geomField = 'ge
     return `BBOX(${geomField},${lng - DEG_LNG},${lat - DEG_LAT},${lng + DEG_LNG},${lat + DEG_LAT})`;
 }
 
-function clientFilter(features: any[], lat: number, lng: number, radiusM: number): any[] {
+function clientFilter(features: GeoJSON.Feature[], lat: number, lng: number, radiusM: number): GeoJSON.Feature[] {
     const center = L.latLng(lat, lng);
     return features.filter(f => {
         const g = f.geometry;
@@ -257,7 +257,7 @@ const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ address, results, loading
 
 const GeocoderTool: React.FC<GeocoderToolProps> = ({ isOpen, onClose, mapInstance }) => {
     const inputId = useId();
-    const { vectorLayers } = useLayersContext();
+    const { vectorLayers } = useLayersData();
 
     const [query,       setQuery]       = useState('');
     const [results,     setResults]     = useState<NominatimResult[]>([]);

@@ -133,8 +133,8 @@ class DynamicWFSService {
             logger.debug(`Features de "${layerName}" [${groupName}]:`, data.features?.length ?? 0);
             return data;
 
-        } catch (error: any) {
-            if (error.name === 'AbortError') {
+        } catch (error: unknown) {
+            if (error instanceof Error && error.name === 'AbortError') {
                 throw new Error('La petición tardó demasiado tiempo');
             }
             logger.error('Error en getFeatures:', error);
@@ -254,10 +254,10 @@ class DynamicWFSService {
                 maxFeatures: this.maxFeatures,
             });
 
-            const unique = new Set<any>();
-            data.features.forEach((f: any) => {
-                const v = f.properties[fieldName];
-                if (v !== null && v !== undefined) unique.add(v);
+            const unique = new Set<string | number | boolean>();
+            data.features.forEach((f: GeoJSON.Feature) => {
+                const v = f.properties?.[fieldName];
+                if (v !== null && v !== undefined) unique.add(v as string | number | boolean);
             });
 
             return Array.from(unique).sort();
@@ -293,10 +293,10 @@ class DynamicWFSService {
             if (contentType.includes('json')) {
                 const json = await resp.json();
                 const props = json?.featureTypes?.[0]?.properties ?? [];
-                const geomField = props.find((p: any) =>
+                const geomField = props.find((p: { name?: string; type?: string }) =>
                     p.type?.toLowerCase().includes('geometry') ||
                     p.type?.toLowerCase().includes('gml') ||
-                    ['geometry', 'the_geom', 'geom', 'shape', 'wkb_geometry'].includes(p.name?.toLowerCase())
+                    ['geometry', 'the_geom', 'geom', 'shape', 'wkb_geometry'].includes(p.name?.toLowerCase() ?? '')
                 );
                 const name = geomField?.name ?? 'geometry';
                 this.geomFieldCache.set(cacheKey, name);

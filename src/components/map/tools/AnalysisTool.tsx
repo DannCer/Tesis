@@ -1,67 +1,135 @@
 /**
- * AnalysisTool — Herramienta de análisis espacial (VERSIÓN MEJORADA)
+ * AnalysisTool — Herramienta de análisis espacial
  *
- * Mejoras implementadas:
- * ✅ Confirmación antes de reset
- * ✅ Límite de features en consultas
- * ✅ Exportación de resultados (CSV/GeoJSON)
- * ✅ Visualización de features en el mapa
- * ✅ Estadísticas agregadas
- * ✅ Manejo de errores mejorado
- * ✅ Accesibilidad (ARIA labels)
- * ✅ Mediciones (área, longitud, buffer)
- * ✅ Atajos de teclado
- * ✅ Gráfico de barras visual
- * ✅ Filtros de capas
- * ✅ Historial de análisis
+ * v2 — Migrado a 27 capas fijas del Atlas CDMX (relación xlsx)
+ * ✅ Capas fijas: INEGI-CPV2020, Colonias, DENUE 2025, Riesgos, REUSE
+ * ✅ Consultas directas a ArcGIS REST FeatureServer/MapServer
+ * ✅ Operaciones: Suma (demografía), Total (conteo), Categorizar (valores únicos)
+ * ✅ Sección demográfica separada con íconos (igual que resumenTab original)
+ * ✅ Tabla con Nombre | Total | Leyenda | Detalles (igual que resultContainer original)
+ * ✅ Query adicional para Incendios Forestales (TAXONOMIA='INCENDIO FORESTAL')
+ * ✅ Filas verdes para Colonias y bloque REUSE (igual que original)
+ * ✅ Mantenidas: dibujo, mediciones, detalles, mapa, exportar, historial, atajos
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import L from 'leaflet';
-import { useLayersContext } from '@contexts/LayersContext';
-import type { VectorLayerDef } from '@types/geo';
-import { dynamicWfsService } from '@services/geoserver/dynamicWfsService';
-import { wfsService } from '@services/geoserver';
+import ConfirmModal from '@components/common/Confirmmodal';
+import {
+    calculateLength,
+    calculateArea,
+    formatMeasurement,
+    saveAnalysisToHistory,
+} from '@utils/analysisToolUtils';
 import '@styles/AnalysisTool.css';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-type DrawMode = 'point' | 'line' | 'polygon';
-type DistUnit = 'kilometers' | 'meters' | 'miles';
+type DrawMode    = 'point' | 'line' | 'polygon';
+type DistUnit    = 'kilometers' | 'meters' | 'miles';
+type OperationType = 'suma' | 'total' | 'categorizar';
 
-interface LayerResult {
-    layerId: string;
-    layerName: string;
-    wfsName: string;
-    group: string;
-    count: number | null;
-    features: any[] | null;
-    loadingDetails: boolean;
+interface AnalysisLayerDef {
+    id:          string;
+    name:        string;        // Texto en la columna "Nombre"
+    url:         string;        // URL ArcGIS REST (FeatureServer/N o MapServer/N)
+    attributes:  string[];      // Campos a consultar
+    operation:   OperationType;
+    group:       string;        // Grupo temático
+    symbolUrl?:   string;        // URL de símbolo (capas puntuales)
+    legendColor?: string;        // Color del cuadro de leyenda (capas poligonales/lineales)
+    where?:       string;        // Filtro adicional (ej: TAXONOMIA='INCENDIO FORESTAL')
+    wfsTypeName:  string;        // Nombre técnico de la capa
 }
 
-interface AnalysisHistory {
-    id: string;
-    timestamp: number;
-    mode: DrawMode;
-    distance: number;
-    unit: DistUnit;
-    results: LayerResult[];
-    measurements?: {
-        area?: number;
-        length?: number;
-        buffer?: number;
-    };
+interface DemoData {
+    pobtot:     number;
+    p_60ymas:   number;
+    tvivhab:    number;
+    pcon_disc:  number;
+    vph_nodren: number;
+    hasReserved: boolean;
+}
+
+interface LayerResult {
+    layerId:      string;
+    layerName:    string;
+    url:          string;
+    operation:    OperationType;
+    group:        string;
+    symbolUrl?:   string;
+    legendColor?: string;     // Color del cuadro de leyenda para capas sin símbolo PNG
+    count:        number | null;      // Total de features (todas las operaciones)
+    categorias:   string[] | null;    // Valores únicos (categorizar)
+    demoData:     DemoData | null;    // Sumas demográficas (suma)
+    features:     GeoJSON.Feature[] | null;
+    loadingDetails: boolean;
+    error?:       boolean;
 }
 
 interface AnalysisToolProps {
     mapInstance: L.Map | null;
-    /** Control externo del panel (cuando lo maneja MapToolbar) */
-    isOpen?: boolean;
-    /** Callback para cerrar desde MapToolbar */
-    onClose?: () => void;
+    isOpen?:     boolean;
+    onClose?:    () => void;
 }
 
-// ─── Constantes ───────────────────────────────────────────────────────────────
+// ─── Constantes de capas (xlsx → código) ─────────────────────────────────────
+
+const BASE_FS = 'https://serviciosatlas.sgirpc.cdmx.gob.mx/arcgis/rest/services/Analisis/Herramienta_analisis/FeatureServer';
+const SYM     = 'https://www.atlas.cdmx.gob.mx/analisisn3/widgets/Analisis/images/Simbologia';
+
+const ANALYSIS_LAYERS: AnalysisLayerDef[] = [
+    // ── Demografía ────────────────────────────────────────────────────────────
+    {
+        id: 'demo_inegi', name: 'INEGI CPV2020',
+        url: 'https://serviciosatlas.sgirpc.cdmx.gob.mx/arcgis/rest/services/AtlasCapasPublicas/Limites/MapServer/13',
+        attributes: ['pobtot', 'p_60ymas', 'tvivhab', 'pcon_disc', 'vph_nodren'],
+        operation: 'suma', group: 'Demografía', wfsTypeName: 'INEGI_CPV2020_n9',
+    },
+    // ── Asentamientos ─────────────────────────────────────────────────────────
+    {
+        id: 'colonias', name: 'Colonias (IECM 2019)',
+        url: `${BASE_FS}/0`, attributes: ['nomasen'],
+        operation: 'total', group: 'Asentamientos',
+        legendColor: '#c7c6ff',
+        wfsTypeName: 'INEGI_Asentamientos_2010',
+    },
+    // ── Servicios urbanos — DENUE 2025 ────────────────────────────────────────
+    { id: 'educativos',  name: 'Centros educativos (DENUE 2025)',        url: `${BASE_FS}/1`,  attributes: ['nombre_act'], operation: 'categorizar', group: 'Servicios urbanos', symbolUrl: `${SYM}/Escuela.png`,     wfsTypeName: 'DENUE_INEGI_2025' },
+    { id: 'salud',       name: 'Establecimientos de Salud (DENUE 2025)', url: `${BASE_FS}/2`,  attributes: ['nombre_act'], operation: 'categorizar', group: 'Servicios urbanos', symbolUrl: `${SYM}/Salud.png`,       wfsTypeName: 'DENUE_INEGI_2025' },
+    { id: 'hoteles',     name: 'Hoteles (DENUE 2025)',                   url: `${BASE_FS}/3`,  attributes: ['nombre_act'], operation: 'categorizar', group: 'Servicios urbanos', symbolUrl: `${SYM}/Hotel.png`,       wfsTypeName: 'DENUE_INEGI_2025' },
+    { id: 'bancos',      name: 'Bancos (DENUE 2025)',                    url: `${BASE_FS}/4`,  attributes: ['nombre_act'], operation: 'categorizar', group: 'Servicios urbanos', symbolUrl: `${SYM}/Banco.png`,       wfsTypeName: 'DENUE_INEGI_2025' },
+    { id: 'gasolineras', name: 'Estaciones de servicio (DENUE 2025)',    url: `${BASE_FS}/5`,  attributes: ['nombre_act'], operation: 'categorizar', group: 'Servicios urbanos', symbolUrl: `${SYM}/Combustible.png`, wfsTypeName: 'DENUE_INEGI_2025' },
+    // ── Riesgos geológicos ────────────────────────────────────────────────────
+    { id: 'minas',          name: 'Minas',                          url: `${BASE_FS}/7`,  attributes: ['TAXONOMIA'],  operation: 'categorizar', group: 'Riesgos geológicos', symbolUrl: `${SYM}/Mina.png`,          wfsTypeName: 'SPC_MINAS_ITRF' },
+    { id: 'sismos',         name: 'Sismos',                         url: `${BASE_FS}/8`,  attributes: ['MAGNITUD'],   operation: 'categorizar', group: 'Riesgos geológicos', symbolUrl: `${SYM}/Sismograma_2.png`, wfsTypeName: 'SSN_Sismos_CDMEX_2023' },
+    // ← antes 'total'; cambiado a 'categorizar' para mostrar valores de intensidad
+    { id: 'laderas',        name: 'Inestabilidad de Laderas',       url: `${BASE_FS}/9`,  attributes: ['intensidad'], operation: 'categorizar', group: 'Riesgos geológicos', legendColor: '#c8a97e', wfsTypeName: 'zona_susceptibles_Procesos_remocion_en_masa' },
+    { id: 'geotecnica',     name: 'Zonificación Geotécnica',        url: `${BASE_FS}/10`, attributes: ['intensidad'], operation: 'categorizar', group: 'Riesgos geológicos', legendColor: '#b0c4de', wfsTypeName: 'SGIRPC_Zonificacion_Geotecnica_2017' },
+    // ← antes 'total'; cambiado a 'categorizar' para mostrar valores de intensidad
+    { id: 'fracturamiento', name: 'Vulnerabilidad al Fracturamiento', url: `${BASE_FS}/11`, attributes: ['intensidad'], operation: 'categorizar', group: 'Riesgos geológicos', legendColor: '#f5c97a', wfsTypeName: 'CENAPRED_Vulnerabilidad_Social_Fracturamiento_Nivel_AGEB' },
+    // ── Infraestructura hídrica ───────────────────────────────────────────────
+    { id: 'presas',     name: 'Presas',             url: `${BASE_FS}/12`, attributes: ['NOMBRE'],    operation: 'categorizar', group: 'Infraestructura hídrica', symbolUrl: `${SYM}/Presas.png`, wfsTypeName: 'PRESAS_CENAPRED_2017' },
+    { id: 'corrientes', name: 'Corrientes de Agua', url: `${BASE_FS}/13`, attributes: ['CONDICION'], operation: 'categorizar', group: 'Infraestructura hídrica', legendColor: '#4da6ff', wfsTypeName: 'HIDROGRAFIAL_INEGI_2018' },
+    // ── Peligros ──────────────────────────────────────────────────────────────
+    { id: 'incendios_forestales', name: 'Incendios Forestales', url: `${BASE_FS}/15`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'Peligros', symbolUrl: `${SYM}/Incendios.png`, where: "TAXONOMIA='INCENDIO FORESTAL'", wfsTypeName: 'PELIGRO_AGEBS' },
+    { id: 'peligro_general',      name: 'Peligro General',      url: `${BASE_FS}/14`, attributes: ['peligro2'], operation: 'categorizar', group: 'Peligros', legendColor: '#ff7f7f', wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
+    // ── REUSE ─────────────────────────────────────────────────────────────────
+    { id: 'reuse_derrames',        name: 'REUSE - Derrames',                                                    url: `${BASE_FS}/16`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_Derrames.png`,              wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
+    { id: 'reuse_explosiones',     name: 'REUSE - Explosiones',                                                 url: `${BASE_FS}/17`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_Explosiones.png`,            wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
+    { id: 'reuse_incendios_urb',   name: 'REUSE - Incendios Urbanos',                                           url: `${BASE_FS}/18`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_IncendiosUrbanos.png`,       wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
+    { id: 'reuse_plaga',           name: 'REUSE - Plaga',                                                       url: `${BASE_FS}/20`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_Plaga.png`,                  wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
+    { id: 'reuse_accidentes',      name: 'REUSE - Accidentes',                                                  url: `${BASE_FS}/21`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_Accidentes.png`,             wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
+    { id: 'reuse_sabotaje',        name: 'REUSE - Actos de Sabotaje o Terrorismo',                              url: `${BASE_FS}/22`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_ActosSabotaje.png`,          wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
+    { id: 'reuse_interrupcion',    name: 'REUSE - Interrupción de servicios vitales y sistemas estratégicos',   url: `${BASE_FS}/23`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_InterrupcionServicios.png`, wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
+    { id: 'reuse_inundacion',      name: 'REUSE - Inundación',                                                  url: `${BASE_FS}/24`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_Inundacion.png`,             wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
+    { id: 'reuse_concentraciones', name: 'REUSE - Concentraciones Masivas de Población',                        url: `${BASE_FS}/25`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_Concentraciones.png`,        wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
+    { id: 'reuse_granizo',         name: 'REUSE - Granizo',                                                     url: `${BASE_FS}/26`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_Granizo.png`,                wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
+    { id: 'reuse_socavones',       name: 'REUSE - Socavones',                                                   url: `${BASE_FS}/27`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_Socavones.png`,              wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
+];
+
+// Grupos que van con fondo verde en la tabla (igual que en el original)
+const GREEN_GROUPS = new Set(['Asentamientos', 'REUSE']);
 
 const UNIT_LABELS: Record<DistUnit, string> = {
     kilometers: 'Kilómetros',
@@ -69,7 +137,10 @@ const UNIT_LABELS: Record<DistUnit, string> = {
     miles: 'Millas',
 };
 
-const SKIP_FIELDS = new Set(['bbox', 'geometry', 'the_geom', 'geom', 'shape', 'objectid']);
+const SKIP_FIELDS = new Set([
+    'bbox', 'geometry', 'the_geom', 'geom', 'shape',
+    'objectid', 'objectid_1', 'OBJECTID', 'FID', 'fid',
+]);
 
 const NAME_CANDIDATES = [
     'NOMBRE', 'nombre', 'name', 'NAME',
@@ -78,31 +149,16 @@ const NAME_CANDIDATES = [
     'tipo', 'TIPO', 'cve_geo',
 ];
 
-// Maximo de features a mostrar en el panel de detalles (atributos).
-// El conteo siempre usa todos los features del area sin limite.
 const MAX_FEATURES_LIMIT = 100;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function pickName(props: Record<string, any>): string {
     for (const k of NAME_CANDIDATES) {
         if (props[k] != null && props[k] !== '') return String(props[k]);
     }
-    const keys = Object.keys(props).filter(k => !SKIP_FIELDS.has(k.toLowerCase()));
+    const keys = Object.keys(props).filter(k => !SKIP_FIELDS.has(k));
     return keys.length ? String(props[keys[0]]) : 'Sin nombre';
-}
-
-// ─── WKT helpers ──────────────────────────────────────────────────────────────
-
-function pointWkt(lat: number, lng: number) {
-    return `POINT(${lng} ${lat})`;
-}
-
-function lineStringWkt(pts: L.LatLng[]) {
-    return `LINESTRING(${pts.map(p => `${p.lng} ${p.lat}`).join(', ')})`;
-}
-
-function polygonWkt(pts: L.LatLng[]) {
-    const coords = [...pts, pts[0]];
-    return `POLYGON((${coords.map(p => `${p.lng} ${p.lat}`).join(', ')}))`;
 }
 
 function toMeters(dist: number, unit: DistUnit): number {
@@ -113,136 +169,236 @@ function toMeters(dist: number, unit: DistUnit): number {
     }
 }
 
-// ─── Filtro espacial en cliente ───────────────────────────────────────────────
-//
-// QGIS Server WFS 1.1.0 no evalua DWITHIN / INTERSECTS correctamente en
-// CQL_FILTER cuando el SRS de la capa difiere de EPSG:4326. La estrategia
-// robusta es:
-//   1. Servidor: BBOX (si soportado) para traer features del area aproximada.
-//   2. Cliente:  filtrado geometrico exacto usando Leaflet distanceTo / ray-cast.
-
-function buildBboxCql(mode: DrawMode, pts: L.LatLng[], distMeters: number, geomField = 'geometry'): string {
-    const DEG_PER_METER_LAT = 1 / 111320;
-
-    if (mode === 'polygon') {
-        const lats = pts.map(p => p.lat);
-        const lngs = pts.map(p => p.lng);
-        const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-        const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-        return `BBOX(${geomField}, ${minLng}, ${minLat}, ${maxLng}, ${maxLat})`;
+/**
+ * Genera 64 vértices que aproximan un círculo en WGS84.
+ * Devuelve un anillo cerrado en formato [lng, lat][] para ArcGIS REST.
+ */
+function buildCircleRing(center: L.LatLng, radiusMeters: number, steps = 32): number[][] {
+    const latRad = center.lat * (Math.PI / 180);
+    const dLat   = radiusMeters / 111_320;
+    const dLng   = radiusMeters / (111_320 * Math.cos(latRad));
+    const ring: number[][] = [];
+    for (let i = 0; i <= steps; i++) {
+        const angle = (i / steps) * 2 * Math.PI;
+        ring.push([
+            Math.round((center.lng + dLng * Math.cos(angle)) * 1e6) / 1e6,
+            Math.round((center.lat + dLat * Math.sin(angle)) * 1e6) / 1e6,
+        ]);
     }
-
-    const padLat = distMeters * DEG_PER_METER_LAT;
-    const lats = pts.map(p => p.lat);
-    const lngs = pts.map(p => p.lng);
-    const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
-    const padLng = distMeters / (111320 * Math.cos(centerLat * Math.PI / 180));
-    const minLat = Math.min(...lats) - padLat, maxLat = Math.max(...lats) + padLat;
-    const minLng = Math.min(...lngs) - padLng, maxLng = Math.max(...lngs) + padLng;
-    return `BBOX(${geomField}, ${minLng}, ${minLat}, ${maxLng}, ${maxLat})`;
+    return ring;
 }
 
-function clientSideFilter(
-    features: any[],
-    mode: DrawMode,
-    pts: L.LatLng[],
-    distMeters: number
-): any[] {
-    if (!features?.length) return [];
+/**
+ * Devuelve la geometría ArcGIS REST y su tipo para la consulta espacial.
+ *
+ * - Punto  → círculo poligonal de 64 segmentos  (esriGeometryPolygon)
+ * - Línea  → envelope expandido por el buffer   (esriGeometryEnvelope) *
+ * - Polígono → el polígono dibujado exacto      (esriGeometryPolygon)
+ *
+ * * Para líneas se usa envelope como aproximación; un buffer real
+ *   requeriría turf.js que no está importado directamente aquí.
+ */
+function getArcGISGeometry(
+    mode:        DrawMode,
+    pts:         L.LatLng[],
+    distMeters:  number,
+): { geometry: string; geometryType: string } {
 
-    function featurePoint(f: any): L.LatLng | null {
-        const g = f.geometry;
-        if (!g) return null;
-        let coords: number[] | null = null;
-        if (g.type === 'Point') coords = g.coordinates;
-        else if (g.type === 'MultiPoint') coords = g.coordinates[0];
-        else if (g.type === 'LineString') coords = g.coordinates[0];
-        else if (g.type === 'MultiLineString') coords = g.coordinates[0][0];
-        else if (g.type === 'Polygon') coords = g.coordinates[0][0];
-        else if (g.type === 'MultiPolygon') coords = g.coordinates[0][0][0];
-        if (!coords) return null;
-        return L.latLng(coords[1], coords[0]);
+    // ── Punto: círculo exacto ──────────────────────────────────────────────
+    if (mode === 'point' && pts.length >= 1) {
+        const ring = buildCircleRing(pts[0], distMeters);
+        return {
+            geometry:     JSON.stringify({ rings: [ring], spatialReference: { wkid: 4326 } }),
+            geometryType: 'esriGeometryPolygon',
+        };
     }
 
-    function distToSegment(p: L.LatLng, a: L.LatLng, b: L.LatLng): number {
-        const R = 111320;
-        const cosLat = Math.cos(p.lat * Math.PI / 180);
-        const px = (p.lng - a.lng) * R * cosLat;
-        const py = (p.lat - a.lat) * R;
-        const dx = (b.lng - a.lng) * R * cosLat;
-        const dy = (b.lat - a.lat) * R;
-        const lenSq = dx * dx + dy * dy;
-        if (lenSq === 0) return Math.sqrt(px * px + py * py);
-        const t = Math.max(0, Math.min(1, (px * dx + py * dy) / lenSq));
-        return Math.sqrt(Math.pow(px - t * dx, 2) + Math.pow(py - t * dy, 2));
+    // ── Polígono: el polígono dibujado ─────────────────────────────────────
+    if (mode === 'polygon' && pts.length >= 3) {
+        const ring = pts.map(p => [p.lng, p.lat]);
+        ring.push(ring[0]); // cerrar anillo
+        return {
+            geometry:     JSON.stringify({ rings: [ring], spatialReference: { wkid: 4326 } }),
+            geometryType: 'esriGeometryPolygon',
+        };
     }
 
-    function pointInPolygon(p: L.LatLng, polygon: L.LatLng[]): boolean {
-        let inside = false;
-        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-            const xi = polygon[i].lng, yi = polygon[i].lat;
-            const xj = polygon[j].lng, yj = polygon[j].lat;
-            if ((yi > p.lat) !== (yj > p.lat) &&
-                p.lng < ((xj - xi) * (p.lat - yi)) / (yj - yi) + xi) {
-                inside = !inside;
-            }
-        }
-        return inside;
+    // ── Línea: envelope expandido por el buffer (aproximación) ────────────
+    const lats   = pts.map(p => p.lat);
+    const lngs   = pts.map(p => p.lng);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    const midLat = ((minLat + maxLat) / 2) * (Math.PI / 180);
+    const dLat   = distMeters / 111_320;
+    const dLng   = distMeters / (111_320 * Math.cos(midLat));
+    return {
+        geometry:     `${minLng - dLng},${minLat - dLat},${maxLng + dLng},${maxLat + dLat}`,
+        geometryType: 'esriGeometryEnvelope',
+    };
+}
+
+/**
+ * Consulta un ArcGIS FeatureServer/MapServer con la geometría real del área.
+ * Para puntos recibe un polígono circular exacto; para polígonos, el polígono
+ * dibujado; para líneas, el envelope expandido.
+ */
+async function queryArcGISLayer(
+    layer:        AnalysisLayerDef,
+    geometry:     string,
+    geometryType: string,
+    signal:       AbortSignal,
+): Promise<{ count: number; categorias: string[]; demoData: DemoData | null }> {
+    const where = layer.where ?? '1=1';
+
+    /** Hace POST al endpoint /query de ArcGIS REST con form-urlencoded.
+     *  Usar POST evita el límite de longitud de URL para geometrías grandes. */
+    const arcgisPost = async (params: Record<string, string>) => {
+        const body = new URLSearchParams({
+            geometry,
+            geometryType,
+            inSR:       '4326',
+            spatialRel: 'esriSpatialRelIntersects',
+            where,
+            ...params,
+        });
+        const res = await fetch(`${layer.url}/query`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body:    body.toString(),
+            signal,
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+    };
+
+    // ── Total: solo el conteo exacto ──────────────────────────────────────
+    if (layer.operation === 'total') {
+        const data = await arcgisPost({ f: 'json', returnCountOnly: 'true' });
+        return { count: data.count ?? 0, categorias: [], demoData: null };
     }
 
-    return features.filter(f => {
-        const fp = featurePoint(f);
-        if (!fp) return false;
-        if (mode === 'point') return fp.distanceTo(pts[0]) <= distMeters;
-        if (mode === 'line') {
-            for (let i = 0; i < pts.length - 1; i++) {
-                if (distToSegment(fp, pts[i], pts[i + 1]) <= distMeters) return true;
-            }
-            return false;
-        }
-        return pointInPolygon(fp, pts);
+    // ── Categorizar: extraer valores únicos del atributo ──────────────────
+    if (layer.operation === 'categorizar') {
+        const data = await arcgisPost({
+            f:                 'geojson',
+            outFields:         layer.attributes[0],
+            returnGeometry:    'false',
+            resultRecordCount: '2000',
+        });
+        const features = (data.features ?? []) as Array<{ properties: Record<string, any> }>;
+        const attr     = layer.attributes[0];
+        const unique   = [
+            ...new Set(
+                features
+                    .map(f => {
+                        const v = f.properties?.[attr] ?? f.properties?.[attr.toLowerCase()] ?? f.properties?.[attr.toUpperCase()];
+                        return v != null && v !== '' ? String(v) : null;
+                    })
+                    .filter((v): v is string => v !== null),
+            ),
+        ];
+        // count = número real de features devueltos (correcto aunque unique esté vacío)
+        return { count: features.length, categorias: unique, demoData: null };
+    }
+
+    // ── Suma: acumular campos numéricos (demografía INEGI) ────────────────
+    if (layer.operation === 'suma') {
+        const data = await arcgisPost({
+            f:                 'geojson',
+            outFields:         layer.attributes.join(','),
+            returnGeometry:    'false',
+            resultRecordCount: '5000',
+        });
+        const features = (data.features ?? []) as Array<{ properties: Record<string, any> }>;
+        let hasReserved = false;
+        const sums: Record<string, number> = {};
+        layer.attributes.forEach(a => (sums[a] = 0));
+        features.forEach(f => {
+            layer.attributes.forEach(attr => {
+                const val = f.properties?.[attr];
+                if (val == null) { hasReserved = true; }
+                else             { sums[attr] = (sums[attr] ?? 0) + Number(val); }
+            });
+        });
+        return {
+            count: features.length,
+            categorias: [],
+            demoData: {
+                pobtot:     sums['pobtot']     ?? 0,
+                p_60ymas:   sums['p_60ymas']   ?? 0,
+                tvivhab:    sums['tvivhab']    ?? 0,
+                pcon_disc:  sums['pcon_disc']  ?? 0,
+                vph_nodren: sums['vph_nodren'] ?? 0,
+                hasReserved,
+            },
+        };
+    }
+
+    return { count: 0, categorias: [], demoData: null };
+}
+
+/** Determina el texto y si la fila tiene datos, para la columna "Total".
+ *
+ * Regla (igual que el sistema original):
+ *  - operation = 'total'                         → conteo de features
+ *  - operation = 'categorizar' con symbolUrl     → conteo de features (capas puntuales)
+ *  - operation = 'categorizar' sin symbolUrl     → valores únicos del atributo (capas poligonales/lineales)
+ *
+ * ⚠️ IMPORTANTE: el check de symbolUrl debe ir ANTES del check de categorias.
+ *    Para capas puntuales (Sismos, DENUE, REUSE…) `hasData` depende de `count`,
+ *    NO de `categorias`. Si el campo del atributo devuelve nulos, categorias
+ *    estaría vacío aunque haya features reales → "No presenta" incorrecto.
+ */
+function getDisplayValue(lr: LayerResult): { text: string; hasData: boolean } {
+    if (lr.count === null) return { text: '…', hasData: false };
+
+    // ── operation = 'total' ───────────────────────────────────────────────
+    if (lr.operation === 'total') {
+        if (lr.count === 0) return { text: 'No presenta', hasData: false };
+        return { text: lr.count.toLocaleString(), hasData: true };
+    }
+
+    // ── operation = 'categorizar' ─────────────────────────────────────────
+    if (lr.symbolUrl) {
+        // Capa PUNTUAL: usa conteo de features, independiente de categorias
+        if (lr.count === 0) return { text: 'No presenta', hasData: false };
+        return { text: lr.count.toLocaleString(), hasData: true };
+    } else {
+        // Capa POLIGONAL / LINEAL: usa los valores únicos del atributo
+        if (!lr.categorias || lr.categorias.length === 0)
+            return { text: 'No presenta', hasData: false };
+        return { text: lr.categorias.join(', '), hasData: true };
+    }
+}
+
+/**
+ * Descarga un array de objetos como CSV con BOM UTF-8.
+ * El BOM (\uFEFF) hace que Excel detecte automáticamente el encoding
+ * UTF-8 y muestre correctamente tildes, eñes y demás caracteres especiales.
+ */
+function downloadCSVWithBOM(data: Record<string, any>[], filename: string) {
+    if (data.length === 0) return;
+    const headers = Object.keys(data[0]);
+
+    const escape = (val: any): string => {
+        const str = String(val ?? '');
+        // Si contiene coma, comilla o salto de línea, encerrar entre comillas
+        return str.includes(',') || str.includes('"') || str.includes('\n')
+            ? `"${str.replace(/"/g, '""')}"`
+            : str;
+    };
+
+    const rows = [
+        headers.map(escape).join(','),
+        ...data.map(row => headers.map(h => escape(row[h])).join(',')),
+    ];
+
+    const BOM  = '\uFEFF';                               // UTF-8 BOM para Excel
+    const blob = new Blob([BOM + rows.join('\r\n')], {   // \r\n = salto Windows
+        type: 'text/csv;charset=utf-8;',
     });
-}
-
-// ─── Utilidades de medición ───────────────────────────────────────────────────
-
-function calculateLength(pts: L.LatLng[]): number {
-    let length = 0;
-    for (let i = 0; i < pts.length - 1; i++) {
-        length += pts[i].distanceTo(pts[i + 1]);
-    }
-    return length;
-}
-
-function calculateArea(pts: L.LatLng[]): number {
-    if (pts.length < 3) return 0;
-    const coords = [...pts, pts[0]].map(p => [p.lng, p.lat]);
-    let area = 0;
-    for (let i = 0; i < coords.length - 1; i++) {
-        area += coords[i][0] * coords[i + 1][1] - coords[i + 1][0] * coords[i][1];
-    }
-    return Math.abs(area / 2) * 111000 * 111000;
-}
-
-function formatMeasurement(value: number, type: 'length' | 'area'): string {
-    if (type === 'length') {
-        if (value < 1000) return `${value.toFixed(1)} m`;
-        return `${(value / 1000).toFixed(2)} km`;
-    }
-    if (value < 10000) return `${value.toFixed(1)} m²`;
-    if (value < 1000000) return `${(value / 10000).toFixed(2)} ha`;
-    return `${(value / 1000000).toFixed(2)} km²`;
-}
-
-// ─── Utilidades de exportación ────────────────────────────────────────────────
-
-function downloadAsCSV(data: any[], filename: string) {
-    const headers = Object.keys(data[0] || {});
-    const csv = [
-        headers.join(','),
-        ...data.map(row => headers.map(h => `"${String(row[h] ?? '').replace(/"/g, '""')}"`).join(','))
-    ].join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const url  = URL.createObjectURL(blob);
     const link = Object.assign(document.createElement('a'), { href: url, download: filename });
     document.body.appendChild(link);
@@ -254,10 +410,12 @@ function downloadAsCSV(data: any[], filename: string) {
 function downloadAsGeoJSON(results: LayerResult[], filename: string) {
     const features = results
         .filter(r => r.features && r.features.length > 0)
-        .flatMap(r => r.features || [])
+        .flatMap(r => r.features ?? [])
         .filter(f => f.geometry);
-    const geojson = { type: 'FeatureCollection', features };
-    const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/geo+json;charset=utf-8;' });
+    const blob = new Blob(
+        [JSON.stringify({ type: 'FeatureCollection', features }, null, 2)],
+        { type: 'application/geo+json;charset=utf-8;' },
+    );
     const url  = URL.createObjectURL(blob);
     const link = Object.assign(document.createElement('a'), { href: url, download: filename });
     document.body.appendChild(link);
@@ -266,149 +424,111 @@ function downloadAsGeoJSON(results: LayerResult[], filename: string) {
     URL.revokeObjectURL(url);
 }
 
-// ─── Historial — usa sessionStorage en lugar de localStorage ─────────────────
-// localStorage persiste entre sesiones del navegador, lo que puede llevar a
-// datos de analisis obsoletos. sessionStorage se limpia al cerrar la pestana,
-// que es el comportamiento correcto para una herramienta de analisis.
-
-function saveAnalysisToHistory(analysis: AnalysisHistory) {
-    try {
-        const history = getAnalysisHistory();
-        history.unshift(analysis);
-        sessionStorage.setItem('analysisHistory', JSON.stringify(history.slice(0, 10)));
-    } catch (err) {
-        console.warn('No se pudo guardar en historial:', err);
-    }
-}
-
-function getAnalysisHistory(): AnalysisHistory[] {
-    try {
-        const data = sessionStorage.getItem('analysisHistory');
-        return data ? JSON.parse(data) : [];
-    } catch {
-        return [];
-    }
-}
-
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClose }) => {
-    const { vectorLayers } = useLayersContext();
+    const [open, setOpen]         = useState(false);
+    const controlled              = isOpen !== undefined;
+    const isVisible               = controlled ? isOpen! : open;
 
-    const [open, setOpen] = useState(false);
-    const controlled = isOpen !== undefined;
-    const isVisible  = controlled ? isOpen! : open;
-
-    const [tab, setTab] = useState<'dibujar' | 'resultados' | 'estadisticas'>('dibujar');
-    const [mode, setMode] = useState<DrawMode>('point');
-    const [drawing, setDrawing] = useState(false);
-    const [dist, setDist] = useState<string>('1');
-    const [unit, setUnit] = useState<DistUnit>('kilometers');
-    const [error, setError] = useState<string | null>(null);
-    const [loading, setLoading] = useState(false);
-    const [results, setResults] = useState<LayerResult[]>([]);
+    const [tab, setTab]           = useState<'dibujar' | 'resultados' | 'estadisticas'>('dibujar');
+    const [mode, setMode]         = useState<DrawMode>('point');
+    const [drawing, setDrawing]   = useState(false);
+    const [dist, setDist]         = useState<string>('1');
+    const [unit, setUnit]         = useState<DistUnit>('kilometers');
+    const [error, setError]       = useState<string | null>(null);
+    const [loading, setLoading]   = useState(false);
+    const [results, setResults]   = useState<LayerResult[]>([]);
     const [detailLayerId, setDetailLayerId] = useState<string | null>(null);
-    const [filterText, setFilterText] = useState('');
-    const [showOnlyWithData, setShowOnlyWithData] = useState(false);
-    const [measurements, setMeasurements] = useState<{ area?: number; length?: number; buffer?: number }>({});
+    const [measurements, setMeasurements]  = useState<{ area?: number; length?: number; buffer?: number }>({});
     const [featuresLayerGroup, setFeaturesLayerGroup] = useState<L.LayerGroup | null>(null);
+    const [confirmResetOpen, setConfirmResetOpen]     = useState(false);
 
-    const drawnPtsRef = useRef<L.LatLng[]>([]);
-    const polylineRef = useRef<L.Polyline | null>(null);
-    const polygonRef = useRef<L.Polygon | null>(null);
-    const circleRef = useRef<L.Circle | null>(null);
-    const markerRef = useRef<L.CircleMarker | null>(null);
-    const previewRef = useRef<L.Polyline | null>(null);
-    const markersRef = useRef<L.CircleMarker[]>([]);
-
-    // Ref para cancelar peticiones WFS en vuelo si el componente se desmonta
-    // o el usuario lanza un nuevo analisis antes de que termine el anterior.
+    const drawnPtsRef  = useRef<L.LatLng[]>([]);
+    const polylineRef  = useRef<L.Polyline | null>(null);
+    const polygonRef   = useRef<L.Polygon | null>(null);
+    const circleRef    = useRef<L.Circle | null>(null);
+    const markerRef    = useRef<L.CircleMarker | null>(null);
+    const previewRef   = useRef<L.Polyline | null>(null);
+    const markersRef   = useRef<L.CircleMarker[]>([]);
     const abortControllerRef = useRef<AbortController | null>(null);
+    const drawClickRef = useRef<((e: L.LeafletMouseEvent) => void) | null>(null);
+    const drawMoveRef  = useRef<((e: L.LeafletMouseEvent) => void) | null>(null);
 
+    // ── Limpieza del mapa ─────────────────────────────────────────────────────
     const clearMapLayers = useCallback(() => {
         if (!mapInstance) return;
         polylineRef.current?.remove(); polylineRef.current = null;
-        polygonRef.current?.remove(); polygonRef.current = null;
-        circleRef.current?.remove(); circleRef.current = null;
-        markerRef.current?.remove(); markerRef.current = null;
-        previewRef.current?.remove(); previewRef.current = null;
+        polygonRef.current?.remove();  polygonRef.current  = null;
+        circleRef.current?.remove();   circleRef.current   = null;
+        markerRef.current?.remove();   markerRef.current   = null;
+        previewRef.current?.remove();  previewRef.current  = null;
         markersRef.current.forEach(m => m.remove());
         markersRef.current = [];
         drawnPtsRef.current = [];
         featuresLayerGroup?.clearLayers();
     }, [mapInstance, featuresLayerGroup]);
 
-    // Cancelar peticiones en vuelo al desmontar el componente
-    useEffect(() => {
-        return () => {
-            abortControllerRef.current?.abort();
-        };
-    }, []);
+    useEffect(() => { return () => { abortControllerRef.current?.abort(); }; }, []);
 
-    const handleReset = useCallback(() => {
-        if (drawnPtsRef.current.length > 0) {
-            if (!confirm('¿Descartar la geometría actual y comenzar un nuevo análisis?')) return;
-        }
-        // Cancelar analisis en curso si hay uno
+    // ── Reset ─────────────────────────────────────────────────────────────────
+    const doReset = useCallback(() => {
         abortControllerRef.current?.abort();
         abortControllerRef.current = null;
-
         clearMapLayers();
         setDrawing(false);
         setResults([]);
         setTab('dibujar');
         setError(null);
         setDetailLayerId(null);
-        setFilterText('');
-        setShowOnlyWithData(false);
         setMeasurements({});
         setLoading(false);
     }, [clearMapLayers]);
 
+    const handleReset = useCallback(() => {
+        if (drawnPtsRef.current.length > 0) { setConfirmResetOpen(true); return; }
+        doReset();
+    }, [doReset]);
+
+    // ── Atajos de teclado ─────────────────────────────────────────────────────
     useEffect(() => {
         if (!isVisible) return;
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && drawing) {
-                clearMapLayers();
-                setDrawing(false);
-            }
+            if (e.key === 'Escape' && drawing) { clearMapLayers(); setDrawing(false); }
             if (e.key === 'Enter' && drawing && (mode === 'line' || mode === 'polygon')) {
-                if (drawnPtsRef.current.length >= (mode === 'line' ? 2 : 3)) {
-                    handleFinishDrawing();
-                }
+                if (drawnPtsRef.current.length >= (mode === 'line' ? 2 : 3)) handleFinishDrawing();
             }
             if (e.ctrlKey && e.key === 'z' && drawing && drawnPtsRef.current.length > 0) {
                 e.preventDefault();
                 drawnPtsRef.current.pop();
                 const lastMarker = markersRef.current.pop();
                 lastMarker?.remove();
-                if (mode === 'line' && polylineRef.current) {
+                if (mode === 'line' && polylineRef.current)
                     polylineRef.current.setLatLngs(drawnPtsRef.current);
-                } else if (mode === 'polygon' && drawnPtsRef.current.length >= 2) {
+                else if (mode === 'polygon' && drawnPtsRef.current.length >= 2)
                     polygonRef.current?.setLatLngs(drawnPtsRef.current);
-                }
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [isVisible, drawing, mode]);
 
+    // ── Mediciones ────────────────────────────────────────────────────────────
     const updateMeasurements = useCallback(() => {
         const pts = drawnPtsRef.current;
         if (pts.length === 0) { setMeasurements({}); return; }
-        const newMeasurements: typeof measurements = {};
+        const next: typeof measurements = {};
         if (mode === 'point' || mode === 'line') {
-            const distValue = parseFloat(dist) || 0;
-            const distMeters = unit === 'kilometers' ? distValue * 1000
-                             : unit === 'miles' ? distValue * 1609.34
-                             : distValue;
-            newMeasurements.buffer = distMeters;
+            const dv = parseFloat(dist) || 0;
+            next.buffer = unit === 'kilometers' ? dv * 1000
+                        : unit === 'miles' ? dv * 1609.34 : dv;
         }
-        if (mode === 'line' && pts.length >= 2) newMeasurements.length = calculateLength(pts);
-        if (mode === 'polygon' && pts.length >= 3) newMeasurements.area = calculateArea(pts);
-        setMeasurements(newMeasurements);
+        if (mode === 'line' && pts.length >= 2) next.length = calculateLength(pts);
+        if (mode === 'polygon' && pts.length >= 3) next.area = calculateArea(pts);
+        setMeasurements(next);
     }, [mode, dist, unit]);
 
+    // ── Dibujo ────────────────────────────────────────────────────────────────
     const handleStartDrawing = useCallback(() => {
         if (!mapInstance) return;
         clearMapLayers();
@@ -420,41 +540,38 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
             const pt = e.latlng;
             drawnPtsRef.current.push(pt);
             const marker = L.circleMarker(pt, {
-                radius: 5, color: '#2563eb', fillColor: '#fff', fillOpacity: 1, weight: 2
+                radius: 5, color: '#2563eb', fillColor: '#fff', fillOpacity: 1, weight: 2,
             }).addTo(mapInstance);
             markersRef.current.push(marker);
 
             if (mode === 'point') {
                 markerRef.current = marker;
-                const distVal = parseFloat(dist) || 0;
-                if (distVal > 0) {
-                    const radiusMeters = unit === 'kilometers' ? distVal * 1000
-                                       : unit === 'miles' ? distVal * 1609.34 : distVal;
+                const dv = parseFloat(dist) || 0;
+                if (dv > 0) {
+                    const rm = unit === 'kilometers' ? dv * 1000
+                             : unit === 'miles' ? dv * 1609.34 : dv;
                     circleRef.current = L.circle(pt, {
-                        radius: radiusMeters, color: '#2563eb',
-                        fillColor: '#2563eb', fillOpacity: 0.1, weight: 2
+                        radius: rm, color: '#2563eb', fillColor: '#2563eb', fillOpacity: 0.1, weight: 2,
                     }).addTo(mapInstance);
                 }
                 setDrawing(false);
-                mapInstance.off('click', onClick);
-                mapInstance.off('mousemove', onMove);
+                if (drawClickRef.current) { mapInstance.off('click', drawClickRef.current);     drawClickRef.current = null; }
+                if (drawMoveRef.current)  { mapInstance.off('mousemove', drawMoveRef.current);  drawMoveRef.current  = null; }
                 updateMeasurements();
             } else if (mode === 'line') {
-                if (drawnPtsRef.current.length === 1) {
+                if (drawnPtsRef.current.length === 1)
                     polylineRef.current = L.polyline([pt], { color: '#2563eb', weight: 3 }).addTo(mapInstance);
-                } else {
+                else
                     polylineRef.current?.setLatLngs(drawnPtsRef.current);
-                }
                 updateMeasurements();
             } else if (mode === 'polygon') {
                 if (drawnPtsRef.current.length >= 2) {
-                    if (!polygonRef.current) {
+                    if (!polygonRef.current)
                         polygonRef.current = L.polygon(drawnPtsRef.current, {
-                            color: '#2563eb', fillColor: '#2563eb', fillOpacity: 0.1, weight: 2
+                            color: '#2563eb', fillColor: '#2563eb', fillOpacity: 0.1, weight: 2,
                         }).addTo(mapInstance);
-                    } else {
+                    else
                         polygonRef.current.setLatLngs(drawnPtsRef.current);
-                    }
                     updateMeasurements();
                 }
             }
@@ -463,24 +580,24 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
         const onMove = (e: L.LeafletMouseEvent) => {
             if (drawnPtsRef.current.length === 0) return;
             const last = drawnPtsRef.current[drawnPtsRef.current.length - 1];
-            const preview = [last, e.latlng];
-            if (!previewRef.current) {
-                previewRef.current = L.polyline(preview, {
-                    color: '#94a3b8', weight: 2, dashArray: '5,5'
+            if (!previewRef.current)
+                previewRef.current = L.polyline([last, e.latlng], {
+                    color: '#94a3b8', weight: 2, dashArray: '5,5',
                 }).addTo(mapInstance);
-            } else {
-                previewRef.current.setLatLngs(preview);
-            }
+            else
+                previewRef.current.setLatLngs([last, e.latlng]);
         };
 
         mapInstance.on('click', onClick);
         if (mode !== 'point') mapInstance.on('mousemove', onMove);
+        drawClickRef.current = onClick;
+        drawMoveRef.current  = mode !== 'point' ? onMove : null;
     }, [mapInstance, mode, dist, unit, clearMapLayers, updateMeasurements]);
 
     const handleFinishDrawing = useCallback(() => {
         if (!mapInstance) return;
-        mapInstance.off('click');
-        mapInstance.off('mousemove');
+        if (drawClickRef.current) { mapInstance.off('click',     drawClickRef.current); drawClickRef.current = null; }
+        if (drawMoveRef.current)  { mapInstance.off('mousemove', drawMoveRef.current);  drawMoveRef.current  = null; }
         previewRef.current?.remove();
         previewRef.current = null;
         setDrawing(false);
@@ -490,24 +607,19 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
     // ── Ejecutar análisis ─────────────────────────────────────────────────────
     const runAnalysis = useCallback(async () => {
         if (drawnPtsRef.current.length === 0) {
-            setError('⚠️ Debes dibujar una geometría primero');
-            return;
+            setError('⚠️ Debes dibujar una geometría primero'); return;
         }
         if (mode === 'line' && drawnPtsRef.current.length < 2) {
-            setError('⚠️ Una línea requiere al menos 2 puntos');
-            return;
+            setError('⚠️ Una línea requiere al menos 2 puntos'); return;
         }
         if (mode === 'polygon' && drawnPtsRef.current.length < 3) {
-            setError('⚠️ Un polígono requiere al menos 3 puntos');
-            return;
+            setError('⚠️ Un polígono requiere al menos 3 puntos'); return;
         }
         const distVal = parseFloat(dist) || 0;
         if ((mode === 'point' || mode === 'line') && distVal <= 0) {
-            setError('⚠️ La distancia debe ser mayor a 0');
-            return;
+            setError('⚠️ La distancia debe ser mayor a 0'); return;
         }
 
-        // Cancelar analisis anterior si aun esta en curso
         abortControllerRef.current?.abort();
         const controller = new AbortController();
         abortControllerRef.current = controller;
@@ -516,82 +628,72 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
         setLoading(true);
         setTab('resultados');
 
-        const pts = drawnPtsRef.current;
+        const pts        = drawnPtsRef.current;
         const distMeters = toMeters(distVal, unit);
+        const { geometry, geometryType } = getArcGISGeometry(mode, pts, distMeters);
 
-        const allResults: LayerResult[] = vectorLayers.map(vl => ({
-            layerId: vl.id,
-            layerName: vl.name,
-            wfsName: vl.wfsName || vl.name,
-            group: vl.group || 'Sin grupo',
-            count: null,
-            features: null,
+        // Inicializar resultados con todas las capas en estado "cargando"
+        const initialResults: LayerResult[] = ANALYSIS_LAYERS.map(layer => ({
+            layerId:      layer.id,
+            layerName:    layer.name,
+            url:          layer.url,
+            operation:    layer.operation,
+            group:        layer.group,
+            symbolUrl:    layer.symbolUrl,
+            legendColor:  layer.legendColor,
+            count:        null,
+            categorias:   null,
+            demoData:     null,
+            features:     null,
             loadingDetails: false,
         }));
+        setResults(initialResults);
 
-        setResults(allResults);
-
+        // Consultar todas las capas en paralelo
         await Promise.all(
-            allResults.map(async (lr, idx) => {
-                // No continuar si el analisis fue cancelado
+            ANALYSIS_LAYERS.map(async (layer, idx) => {
                 if (controller.signal.aborted) return;
                 try {
-                    const geomField = await dynamicWfsService.getGeometryFieldName(lr.wfsName, lr.group);
-                    const bboxCql   = buildBboxCql(mode, pts, distMeters, geomField);
-                    console.debug(`[AnalysisTool] ${lr.wfsName} | geomField=${geomField} | CQL=${bboxCql}`);
-
-                    // maxFeatures: 0 = sin limite. El conteo debe ser exacto
-                    // para todas las capas independientemente de su densidad.
-                    const bboxData = await dynamicWfsService.getFeatures(
-                        lr.wfsName, lr.group, { cql_filter: bboxCql, maxFeatures: 0 }
+                    const { count, categorias, demoData } = await queryArcGISLayer(
+                        layer, geometry, geometryType, controller.signal,
                     );
-
                     if (controller.signal.aborted) return;
-
-                    const filtered = clientSideFilter(bboxData.features ?? [], mode, pts, distMeters);
-                    const count    = filtered.length;
-                    console.debug(`[AnalysisTool] ${lr.wfsName} | BBOX=${bboxData.features?.length ?? 0} | exactos=${count}`);
-
                     setResults(prev => {
                         const updated = [...prev];
-                        updated[idx] = { ...updated[idx], count };
+                        updated[idx]  = { ...updated[idx], count, categorias, demoData };
                         return updated;
                     });
                 } catch (err) {
                     if (controller.signal.aborted) return;
-                    console.error(`Error consultando ${lr.layerName}:`, err);
+                    console.error(`[AnalysisTool] Error en ${layer.name}:`, err);
                     setResults(prev => {
                         const updated = [...prev];
-                        updated[idx] = { ...updated[idx], count: -1 };
+                        updated[idx]  = { ...updated[idx], count: 0, categorias: [], demoData: null, error: true };
                         return updated;
                     });
                 }
-            })
+            }),
         );
 
         if (controller.signal.aborted) return;
         setLoading(false);
-
-        const analysisRecord: AnalysisHistory = {
+        saveAnalysisToHistory({
             id: Date.now().toString(),
             timestamp: Date.now(),
-            mode,
-            distance: distVal,
-            unit,
-            results: allResults,
+            mode, distance: distVal, unit,
+            results: initialResults,
             measurements,
-        };
-        saveAnalysisToHistory(analysisRecord);
-    }, [mode, dist, unit, vectorLayers, measurements]);
+        });
+    }, [mode, dist, unit, measurements]);
 
-    // ── Cargar detalles de una capa ──────────────────────────────────────────
+    // ── Cargar detalles de una capa ───────────────────────────────────────────
     const loadDetails = useCallback(async (lr: LayerResult, idx: number) => {
         if (lr.features) { setDetailLayerId(lr.layerId); return; }
 
         setResults(prev => {
-            const updated = [...prev];
-            updated[idx] = { ...updated[idx], loadingDetails: true };
-            return updated;
+            const u = [...prev];
+            u[idx] = { ...u[idx], loadingDetails: true };
+            return u;
         });
         setDetailLayerId(lr.layerId);
 
@@ -599,103 +701,164 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
             const pts        = drawnPtsRef.current;
             const distVal    = parseFloat(dist) || 0;
             const distMeters = toMeters(distVal, unit);
-            const geomField  = await dynamicWfsService.getGeometryFieldName(lr.wfsName, lr.group);
-            const bboxCql    = buildBboxCql(mode, pts, distMeters, geomField);
+            const { geometry, geometryType } = getArcGISGeometry(mode, pts, distMeters);
+            const layerDef   = ANALYSIS_LAYERS.find(l => l.id === lr.layerId);
+            const where      = layerDef?.where ?? '1=1';
 
-            // MAX_FEATURES_LIMIT limita solo los atributos mostrados en el panel,
-            // no el conteo. El usuario ve cuantos hay en total desde la fase de conteo.
-            const data = await dynamicWfsService.getFeatures(
-                lr.wfsName, lr.group,
-                { cql_filter: bboxCql, maxFeatures: MAX_FEATURES_LIMIT }
-            );
+            const params = new URLSearchParams({
+                f:                 'geojson',
+                geometry,
+                geometryType,
+                inSR:              '4326',
+                spatialRel:        'esriSpatialRelIntersects',
+                where,
+                outFields:         '*',
+                returnGeometry:    'true',
+                resultRecordCount: String(MAX_FEATURES_LIMIT),
+            });
 
-            const features = clientSideFilter(data?.features ?? [], mode, pts, distMeters);
+            const res = await fetch(`${lr.url}/query`, {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body:    params.toString(),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data     = await res.json();
+            const features = (data.features ?? []) as GeoJSON.Feature[];
 
             setResults(prev => {
-                const updated = [...prev];
-                updated[idx] = { ...updated[idx], features: features || [], loadingDetails: false };
-                return updated;
+                const u = [...prev];
+                u[idx] = { ...u[idx], features, loadingDetails: false };
+                return u;
             });
         } catch (err) {
-            console.error(`Error cargando detalles de ${lr.layerName}:`, err);
-            setError(`⚠️ Error al cargar detalles: ${err instanceof Error ? err.message : 'Error desconocido'}`);
+            console.error(`[AnalysisTool] Error detalles ${lr.layerName}:`, err);
             setResults(prev => {
-                const updated = [...prev];
-                updated[idx] = { ...updated[idx], loadingDetails: false };
-                return updated;
+                const u = [...prev];
+                u[idx] = { ...u[idx], loadingDetails: false };
+                return u;
             });
         }
     }, [mode, dist, unit]);
 
     // ── Visualizar features en el mapa ────────────────────────────────────────
-    const showFeaturesOnMap = useCallback((layerResult: LayerResult) => {
-        if (!mapInstance || !layerResult.features) return;
+    const showFeaturesOnMap = useCallback((lr: LayerResult) => {
+        if (!mapInstance || !lr.features) return;
         featuresLayerGroup?.clearLayers();
-        const newLayerGroup = L.layerGroup().addTo(mapInstance);
+        const group = L.layerGroup().addTo(mapInstance);
         let bounds: L.LatLngBounds | null = null;
 
-        layerResult.features.forEach(feature => {
+        // Color base de la capa (para polígonos/líneas)
+        const fillColor = lr.legendColor ?? '#2563eb';
+
+        // Ícono PNG para capas puntuales con symbolUrl
+        const pointIcon = lr.symbolUrl
+            ? L.icon({
+                iconUrl:    lr.symbolUrl,
+                iconSize:   [24, 24],
+                iconAnchor: [12, 12],
+                popupAnchor: [0, -14],
+            })
+            : null;
+
+        lr.features.forEach(feature => {
             if (!feature.geometry) return;
-            const layer = L.geoJSON(feature.geometry, {
-                style: { color: '#ff7800', weight: 2, fillOpacity: 0.3 },
-                pointToLayer: (_geoJsonPoint, latlng) =>
-                    L.circleMarker(latlng, {
-                        radius: 6, color: '#ff7800', fillColor: '#fff', fillOpacity: 1, weight: 2
-                    }),
+            const geomType = (feature.geometry as GeoJSON.Geometry).type;
+            const isPoint  = geomType === 'Point' || geomType === 'MultiPoint';
+
+            const layer = L.geoJSON(feature as any, {
+                // Estilo para polígonos y líneas — usa legendColor de la capa
+                style: {
+                    color:       fillColor,
+                    weight:      2,
+                    fillColor,
+                    fillOpacity: 0.35,
+                    opacity:     0.9,
+                },
+                // Marcador para puntos — PNG si hay symbolUrl, círculo con legendColor si no
+                pointToLayer: (_pt, latlng) =>
+                    pointIcon
+                        ? L.marker(latlng, { icon: pointIcon })
+                        : L.circleMarker(latlng, {
+                            radius:      7,
+                            color:       fillColor,
+                            fillColor,
+                            fillOpacity: 0.85,
+                            weight:      2,
+                        }),
             });
-            layer.addTo(newLayerGroup);
-            const name = pickName(feature.properties || {});
-            layer.bindPopup(`<strong>${name}</strong><br/>${layerResult.layerName}`);
-            const layerBounds = layer.getBounds();
-            if (layerBounds.isValid()) {
-                bounds = bounds ? bounds.extend(layerBounds) : layerBounds;
-            }
+
+            const name = pickName(feature.properties ?? {});
+            layer.bindPopup(
+                `<strong>${name}</strong><br/><span style="color:#666;font-size:0.8em">${lr.layerName}</span>`,
+            );
+            layer.addTo(group);
+
+            try {
+                const lb = isPoint
+                    ? (layer as L.GeoJSON).getBounds()
+                    : layer.getBounds();
+                if (lb && lb.isValid()) bounds = bounds ? bounds.extend(lb) : lb;
+            } catch { /* algunos features puntuales no tienen getBounds */ }
         });
 
-        setFeaturesLayerGroup(newLayerGroup);
-        if (bounds && (bounds as L.LatLngBounds).isValid()) {
+        setFeaturesLayerGroup(group);
+        if (bounds && (bounds as L.LatLngBounds).isValid())
             mapInstance.fitBounds(bounds as L.LatLngBounds, { padding: [50, 50] });
-        }
     }, [mapInstance, featuresLayerGroup]);
 
     // ── Exportar ──────────────────────────────────────────────────────────────
     const handleExportCSV = useCallback(() => {
-        const data = results
-            .filter(r => (r.count ?? 0) > 0)
-            .map(r => ({ Capa: r.layerName, Grupo: r.group, 'Total Features': r.count || 0 }));
+        const demoR = results.find(r => r.operation === 'suma');
+
+        // ── Filas demográficas (siempre al inicio si hay datos) ──────────
+        const demoRows = demoR?.demoData ? [
+            { Nombre: '── Fuente: INEGI-CPV2020 ──',          Grupo: 'Demografía', Total: '',    Categorías: '' },
+            { Nombre: 'Población Total',                       Grupo: 'Demografía', Total: demoR.demoData.pobtot,     Categorías: '' },
+            { Nombre: 'Población mayor a 60 años',             Grupo: 'Demografía', Total: demoR.demoData.p_60ymas,   Categorías: '' },
+            { Nombre: 'Población con discapacidad',            Grupo: 'Demografía', Total: demoR.demoData.pcon_disc,  Categorías: '' },
+            { Nombre: 'Total de viviendas habitadas',          Grupo: 'Demografía', Total: demoR.demoData.tvivhab,    Categorías: '' },
+            { Nombre: 'Viviendas habitadas sin drenaje',       Grupo: 'Demografía', Total: demoR.demoData.vph_nodren, Categorías: demoR.demoData.hasReserved ? '(*) Datos reservados descartados' : '' },
+        ] : [];
+
+        // ── Filas de capas con datos ────────────────────────────────────
+        const layerRows = results
+            .filter(r => r.operation !== 'suma' && (r.count ?? 0) > 0)
+            .map(r => ({
+                Nombre:     r.layerName,
+                Grupo:      r.group,
+                Total:      r.count ?? 0,
+                Categorías: r.categorias?.join(' | ') ?? '',
+            }));
+
+        const data = [...demoRows, ...layerRows];
         if (data.length === 0) { alert('No hay resultados para exportar'); return; }
-        downloadAsCSV(data, `analisis-espacial-${new Date().toISOString().split('T')[0]}.csv`);
+        downloadCSVWithBOM(data, `analisis-espacial-${new Date().toISOString().split('T')[0]}.csv`);
     }, [results]);
 
-    const handleExportGeoJSON = useCallback(() => {
-        if (!results.some(r => r.features && r.features.length > 0)) {
-            alert('Primero debes cargar los detalles de las capas con features');
-            return;
-        }
-        downloadAsGeoJSON(results, `analisis-espacial-${new Date().toISOString().split('T')[0]}.geojson`);
-    }, [results]);
+    // ── Derivados para el render ──────────────────────────────────────────────
+    const demoResult   = results.find(r => r.operation === 'suma') ?? null;
+    const tableResults = results.filter(r => r.operation !== 'suma');
+    const hasResults   = results.length > 0;
+    const loadedCount  = results.filter(r => r.count !== null).length;
 
-    // ── Resultados filtrados y estadísticas ──────────────────────────────────
-    const filteredResults = results.filter(r => {
-        if (showOnlyWithData && (r.count ?? 0) === 0) return false;
-        if (filterText && !r.layerName.toLowerCase().includes(filterText.toLowerCase())) return false;
-        return true;
-    });
+    const layersWithData = tableResults.filter(r => {
+        if (r.operation === 'categorizar') return (r.categorias?.length ?? 0) > 0;
+        return (r.count ?? 0) > 0;
+    }).length;
 
-    const stats = {
-        totalFeatures: results.reduce((sum, r) => sum + (r.count ?? 0), 0),
-        layersWithData: results.filter(r => (r.count ?? 0) > 0).length,
-        topLayers: results
-            .filter(r => (r.count ?? 0) > 0)
-            .sort((a, b) => (b.count ?? 0) - (a.count ?? 0))
-            .slice(0, 5),
-    };
+    const totalFeatures = tableResults.reduce((sum, r) => sum + (r.count ?? 0), 0);
 
-    const hasResults      = results.length > 0;
-    const totalWithFeatures = results.filter(r => (r.count ?? 0) > 0).length;
-    const maxCount        = Math.max(...results.map(r => r.count ?? 0), 1);
+    const topLayers = tableResults
+        .filter(r => (r.count ?? 0) > 0)
+        .sort((a, b) => (b.count ?? 0) - (a.count ?? 0))
+        .slice(0, 5);
 
+    const maxCount = Math.max(...tableResults.map(r => r.count ?? 0), 1);
+
+    // ── Render ────────────────────────────────────────────────────────────────
     return (
+        <>
         <div className="at-wrapper">
             {!controlled && (
                 <button
@@ -711,16 +874,16 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
 
             {isVisible && (
                 <div className="at-panel" role="dialog" aria-label="Panel de análisis espacial">
-                    {/* ─── Header ──────────────────────────────────────── */}
+
+                    {/* ── Header ───────────────────────────────────────────── */}
                     <div className="at-header" data-drag-handle>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <circle cx="11" cy="11" r="8" />
-                            <path d="m21 21-4.35-4.35" />
+                            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
                         </svg>
                         <div className="at-header-title">Análisis Espacial</div>
                         <div className="at-header-actions">
                             {hasResults && (
-                                <button className="at-icon-btn" onClick={handleReset} title="Resetear" aria-label="Resetear análisis">↻</button>
+                                <button className="at-icon-btn" onClick={handleReset} title="Nuevo análisis" aria-label="Resetear">↻</button>
                             )}
                             <button
                                 className="at-icon-btn at-close-btn"
@@ -730,27 +893,18 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
                         </div>
                     </div>
 
-                    {/* ─── Tabs ────────────────────────────────────────── */}
+                    {/* ── Tabs ─────────────────────────────────────────────── */}
                     <div className="at-tabs" role="tablist">
-                        <button className={`at-tab ${tab === 'dibujar' ? 'at-tab--active' : ''}`}
-                            onClick={() => setTab('dibujar')} role="tab" aria-selected={tab === 'dibujar'}>
-                            Dibujar
-                        </button>
-                        <button className={`at-tab ${tab === 'resultados' ? 'at-tab--active' : ''}`}
-                            onClick={() => setTab('resultados')} disabled={!hasResults}
-                            role="tab" aria-selected={tab === 'resultados'}>
-                            Resultados
-                        </button>
-                        <button className={`at-tab ${tab === 'estadisticas' ? 'at-tab--active' : ''}`}
-                            onClick={() => setTab('estadisticas')} disabled={!hasResults}
-                            role="tab" aria-selected={tab === 'estadisticas'}>
-                            Estadísticas
-                        </button>
+                        <button className={`at-tab ${tab === 'dibujar'     ? 'at-tab--active' : ''}`} onClick={() => setTab('dibujar')}     role="tab" aria-selected={tab === 'dibujar'}>Dibujar</button>
+                        <button className={`at-tab ${tab === 'resultados'  ? 'at-tab--active' : ''}`} onClick={() => setTab('resultados')}  role="tab" aria-selected={tab === 'resultados'}  disabled={!hasResults}>Resultados</button>
+                        <button className={`at-tab ${tab === 'estadisticas'? 'at-tab--active' : ''}`} onClick={() => setTab('estadisticas')} role="tab" aria-selected={tab === 'estadisticas'} disabled={!hasResults}>Estadísticas</button>
                     </div>
 
                     {error && <div className="at-error" role="alert">{error}</div>}
 
-                    {/* ─── Tab: Dibujar ────────────────────────────────── */}
+                    {/* ══════════════════════════════════════════════════════ */}
+                    {/* Tab: Dibujar                                          */}
+                    {/* ══════════════════════════════════════════════════════ */}
                     {tab === 'dibujar' && (
                         <div className="at-body">
                             <div>
@@ -763,8 +917,8 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
                                             disabled={drawing}
                                             aria-label={`Dibujar ${m}`}
                                         >
-                                            {m === 'point' && <><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="4"/></svg>Punto</>}
-                                            {m === 'line'  && <><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3l18 18"/></svg>Línea</>}
+                                            {m === 'point'   && <><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="4"/></svg>Punto</>}
+                                            {m === 'line'    && <><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3l18 18"/></svg>Línea</>}
                                             {m === 'polygon' && <><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l10 6-10 6L2 8z"/></svg>Polígono</>}
                                         </button>
                                     ))}
@@ -773,15 +927,14 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
 
                             {(mode === 'point' || mode === 'line') && (
                                 <div className="at-buffer-row">
-                                    <label className="at-buffer-label" htmlFor="buffer-distance">
+                                    <label className="at-buffer-label" htmlFor="at-dist">
                                         {mode === 'point' ? 'Radio' : 'Buffer'}:
                                     </label>
-                                    <input id="buffer-distance" type="number" className="at-buffer-input"
+                                    <input id="at-dist" type="number" className="at-buffer-input"
                                         value={dist} onChange={e => setDist(e.target.value)}
-                                        min="0" step="0.1" disabled={drawing} aria-label="Distancia del buffer" />
+                                        min="0" step="0.1" disabled={drawing} />
                                     <select className="at-buffer-select" value={unit}
-                                        onChange={e => setUnit(e.target.value as DistUnit)}
-                                        disabled={drawing} aria-label="Unidad de medida">
+                                        onChange={e => setUnit(e.target.value as DistUnit)} disabled={drawing}>
                                         {Object.entries(UNIT_LABELS).map(([k, v]) => (
                                             <option key={k} value={k}>{v}</option>
                                         ))}
@@ -806,14 +959,14 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
 
                             {!drawing && drawnPtsRef.current.length === 0 && (
                                 <p className="at-instructions">
-                                    {mode === 'point' && <>Haz <strong>clic</strong> en el mapa para colocar un punto y crear un área de consulta circular.</>}
-                                    {mode === 'line'  && <>Haz <strong>clic</strong> para agregar puntos. <strong>Enter</strong> para finalizar.</>}
+                                    {mode === 'point'   && <>Haz <strong>clic</strong> en el mapa para colocar un punto y crear un área de consulta circular.</>}
+                                    {mode === 'line'    && <>Haz <strong>clic</strong> para agregar puntos. <strong>Enter</strong> para finalizar.</>}
                                     {mode === 'polygon' && <>Haz <strong>clic</strong> para agregar vértices. <strong>Enter</strong> para finalizar. <strong>Ctrl+Z</strong> para deshacer.</>}
                                 </p>
                             )}
 
                             {drawing && (mode === 'line' || mode === 'polygon') && (
-                                <p className="at-hint">⌨️ <strong>ESC</strong> cancelar | <strong>Enter</strong> finalizar | <strong>Ctrl+Z</strong> deshacer</p>
+                                <p className="at-hint">⌨️ <strong>ESC</strong> cancelar · <strong>Enter</strong> finalizar · <strong>Ctrl+Z</strong> deshacer</p>
                             )}
 
                             <div>
@@ -828,174 +981,259 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
                                     </button>
                                 ) : (
                                     <button className="at-action-btn" onClick={runAnalysis} disabled={loading}>
-                                        {loading ? '⏳ Analizando...' : '🔍 Ejecutar Análisis'}
+                                        {loading ? '⏳ Analizando…' : '🔍 Ejecutar Análisis'}
                                     </button>
                                 )}
                             </div>
                         </div>
                     )}
 
-                    {/* ─── Tab: Resultados ──────────────────────────────── */}
+                    {/* ══════════════════════════════════════════════════════ */}
+                    {/* Tab: Resultados                                       */}
+                    {/* ══════════════════════════════════════════════════════ */}
                     {tab === 'resultados' && hasResults && (
                         <div className="at-body">
+
+                            {/* ── Estado de carga ─────────────────────────── */}
                             {loading && (
                                 <div className="at-loading-state">
                                     <div className="at-loading-spinner" />
                                     <p className="at-loading-title">Consultando capas…</p>
-                                    <p className="at-loading-progress">
-                                        {results.filter(r => r.count !== null).length} de {results.length} capas analizadas
-                                    </p>
+                                    <p className="at-loading-progress">{loadedCount} de {results.length} capas analizadas</p>
                                     <div className="at-progress-bar">
                                         <div className="at-progress-fill"
-                                            style={{ width: `${(results.filter(r => r.count !== null).length / results.length) * 100}%` }} />
+                                            style={{ width: `${(loadedCount / results.length) * 100}%` }} />
                                     </div>
                                 </div>
                             )}
 
-                            {!loading && totalWithFeatures === 0 && (
+                            {/* ── Sección demográfica (INEGI-CPV2020) ─────── */}
+                            {demoResult && (
+                                <div className="at-demo-section">
+                                    <div className="at-demo-header">
+                                        <strong>Fuente: INEGI-CPV2020</strong>
+                                        {demoResult.count === null && <span className="at-spinner" />}
+                                    </div>
+
+                                    {demoResult.demoData?.hasReserved && (
+                                        <p className="at-demo-reserved">
+                                            (*) Se encontraron datos reservados o confidenciales que se han descartado
+                                        </p>
+                                    )}
+
+                                    {demoResult.demoData ? (
+                                        <table className="at-demo-table">
+                                            <tbody>
+                                                <tr>
+                                                    <td><span className="at-demo-icon">👤</span> Población Total</td>
+                                                    <td className="at-demo-val">{demoResult.demoData.pobtot.toLocaleString()}</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><span className="at-demo-icon">👴</span> Población mayor a 60 años</td>
+                                                    <td className="at-demo-val">{demoResult.demoData.p_60ymas.toLocaleString()}</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><span className="at-demo-icon">♿</span> Población con discapacidad</td>
+                                                    <td className="at-demo-val">{demoResult.demoData.pcon_disc.toLocaleString()}</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><span className="at-demo-icon">🏠</span> Total de viviendas habitadas</td>
+                                                    <td className="at-demo-val">{demoResult.demoData.tvivhab.toLocaleString()}</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><span className="at-demo-icon">⚠️</span> Viviendas habitadas sin drenaje</td>
+                                                    <td className="at-demo-val">
+                                                        {demoResult.demoData.vph_nodren.toLocaleString()}
+                                                        {demoResult.demoData.hasReserved ? ' *' : ''}
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    ) : demoResult.count !== null ? (
+                                        <p className="at-demo-empty">Sin datos demográficos en el área seleccionada</p>
+                                    ) : null}
+                                </div>
+                            )}
+
+                            {/* ── Sin datos ────────────────────────────────── */}
+                            {!loading && layersWithData === 0 && (
                                 <div className="at-empty-state">
                                     <div className="at-empty-icon">🔍</div>
                                     <p className="at-empty-title">Sin resultados</p>
-                                    <p className="at-empty-desc">Ninguna capa tiene features dentro del área dibujada.</p>
+                                    <p className="at-empty-desc">Ninguna capa presenta datos dentro del área dibujada.</p>
                                     <button className="at-new-btn" onClick={handleReset}>+ Nuevo análisis</button>
                                 </div>
                             )}
 
-                            {!loading && totalWithFeatures > 0 && (
+                            {/* ── Tabla de resultados ──────────────────────── */}
+                            {tableResults.length > 0 && (
                                 <>
-                                    <div className="at-results-summary">
-                                        <strong>{stats.totalFeatures.toLocaleString()}</strong> features en{' '}
-                                        <strong>{totalWithFeatures}</strong> {totalWithFeatures === 1 ? 'capa' : 'capas'}
-                                        {' '}de <strong>{results.length}</strong> consultadas.
-                                    </div>
+                                    {!loading && layersWithData > 0 && (
+                                        <div className="at-results-summary">
+                                            <strong>{layersWithData}</strong> {layersWithData === 1 ? 'capa presenta' : 'capas presentan'} datos
+                                            {' '}de <strong>{tableResults.length}</strong> consultadas.
+                                        </div>
+                                    )}
 
-                                    <div className="at-export-buttons">
-                                        <button className="at-export-btn" onClick={handleExportCSV} aria-label="Exportar CSV">📊 Exportar CSV</button>
-                                        <button className="at-export-btn" onClick={handleExportGeoJSON} aria-label="Exportar GeoJSON">🗺️ Exportar GeoJSON</button>
-                                    </div>
+                                    {!loading && (
+                                        <div className="at-export-buttons">
+                                            <button className="at-export-btn" onClick={handleExportCSV}>📊 Exportar CSV</button>
+                                        </div>
+                                    )}
 
                                     <table className="at-results-table">
                                         <thead>
                                             <tr>
-                                                <th>Capa</th>
-                                                <th style={{ textAlign: 'center' }}>Total</th>
-                                                <th></th>
+                                                <th>Nombre</th>
+                                                <th style={{ minWidth: 90 }}>Total</th>
+                                                <th style={{ width: 30 }}>Leyenda</th>
+                                                <th style={{ width: 80 }}></th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {results
-                                                .filter(r => (r.count ?? 0) > 0)
-                                                .slice()
-                                                .sort((a, b) => (b.count ?? 0) - (a.count ?? 0))
-                                                .map(lr => {
-                                                    const realIdx = results.findIndex(r => r.layerId === lr.layerId);
-                                                    return (
-                                                        <React.Fragment key={lr.layerId}>
-                                                            <tr>
-                                                                <td className="at-layer-name">{lr.layerName}</td>
-                                                                <td className="at-count">{lr.count?.toLocaleString()}</td>
-                                                                <td>
-                                                                    <div style={{ display: 'flex', gap: '4px' }}>
-                                                                        <button className="at-details-btn"
+                                            {tableResults.map((lr, idx) => {
+                                                const { text, hasData } = getDisplayValue(lr);
+                                                const isGreen  = GREEN_GROUPS.has(lr.group);
+                                                const realIdx  = results.findIndex(r => r.layerId === lr.layerId);
+
+                                                return (
+                                                    <React.Fragment key={lr.layerId}>
+                                                        <tr className={isGreen ? 'at-row--green' : ''}>
+                                                            <td className="at-layer-name">{lr.layerName}</td>
+                                                            <td className={hasData ? 'at-count' : 'at-count--zero'}>
+                                                                {lr.count === null
+                                                                    ? <span className="at-spinner" />
+                                                                    : text
+                                                                }
+                                                            </td>
+                                                            <td className="at-legend-cell">
+                                                                {hasData && lr.symbolUrl && (
+                                                                    <img src={lr.symbolUrl} className="at-legend-img" alt="" />
+                                                                )}
+                                                                {hasData && !lr.symbolUrl && (
+                                                                    <div
+                                                                        className="at-legend-poly"
+                                                                        style={{ backgroundColor: lr.legendColor ?? '#c7c6ff' }}
+                                                                    />
+                                                                )}
+                                                            </td>
+                                                            <td>
+                                                                {hasData && (
+                                                                    <div style={{ display: 'flex', gap: 4 }}>
+                                                                        <button
+                                                                            className="at-details-btn"
                                                                             onClick={() => {
                                                                                 if (detailLayerId === lr.layerId) setDetailLayerId(null);
                                                                                 else loadDetails(lr, realIdx);
                                                                             }}
                                                                             disabled={lr.loadingDetails}
-                                                                            aria-label={`Ver detalles de ${lr.layerName}`}
-                                                                            aria-expanded={detailLayerId === lr.layerId}>
+                                                                            aria-expanded={detailLayerId === lr.layerId}
+                                                                        >
                                                                             {lr.loadingDetails ? '…' : detailLayerId === lr.layerId ? 'Ocultar' : 'Detalles'}
                                                                         </button>
                                                                         {lr.features && lr.features.length > 0 && (
                                                                             <button className="at-details-btn"
                                                                                 onClick={() => showFeaturesOnMap(lr)}
-                                                                                title="Ver en mapa"
-                                                                                aria-label={`Mostrar ${lr.layerName} en el mapa`}>
+                                                                                title="Ver en mapa">
                                                                                 🗺️
                                                                             </button>
                                                                         )}
                                                                     </div>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* Panel de detalles expandido */}
+                                                        {detailLayerId === lr.layerId && lr.features && (
+                                                            <tr>
+                                                                <td colSpan={4} style={{ padding: '0 8px 10px' }}>
+                                                                    <div className="at-detail-panel">
+                                                                        <p className="at-detail-panel-title">
+                                                                            {lr.layerName} — {lr.features.length} features
+                                                                            {(lr.count ?? 0) > lr.features.length
+                                                                                ? ` (primeros ${lr.features.length} de ${lr.count})`
+                                                                                : ''}
+                                                                        </p>
+                                                                        {lr.features.length === 0 && (
+                                                                            <p style={{ fontSize: '0.76rem', color: 'var(--color-text-muted)', margin: 0 }}>
+                                                                                Sin features para mostrar.
+                                                                            </p>
+                                                                        )}
+                                                                        {lr.features.map((f, fi) => {
+                                                                            const props   = f.properties ?? {};
+                                                                            const name    = pickName(props);
+                                                                            const entries = Object.entries(props)
+                                                                                .filter(([k]) => !SKIP_FIELDS.has(k))
+                                                                                .slice(0, 6);
+                                                                            return (
+                                                                                <div key={fi} className="at-feature-item">
+                                                                                    <div className="at-feature-item-name">{name}</div>
+                                                                                    {entries.map(([k, v]) => (
+                                                                                        <div key={k} className="at-feature-attr">
+                                                                                            {k}: <span>{String(v ?? '—')}</span>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                        <button className="at-detail-close" onClick={() => setDetailLayerId(null)}>
+                                                                            Cerrar detalles
+                                                                        </button>
+                                                                    </div>
                                                                 </td>
                                                             </tr>
-
-                                                            {detailLayerId === lr.layerId && lr.features && (
-                                                                <tr>
-                                                                    <td colSpan={3} style={{ padding: '0 8px 10px' }}>
-                                                                        <div className="at-detail-panel">
-                                                                            <p className="at-detail-panel-title">
-                                                                                {lr.layerName} — {lr.features.length} features
-                                                                                {(lr.count ?? 0) > lr.features.length
-                                                                                    ? ` (mostrando primeros ${lr.features.length} de ${lr.count})`
-                                                                                    : ''}
-                                                                            </p>
-                                                                            {lr.features.length === 0 && (
-                                                                                <p style={{ fontSize: '0.76rem', color: 'var(--color-text-muted)', margin: 0 }}>
-                                                                                    Sin features para mostrar.
-                                                                                </p>
-                                                                            )}
-                                                                            {lr.features.map((f, fi) => {
-                                                                                const props = f.properties ?? {};
-                                                                                const name = pickName(props);
-                                                                                const entries = Object.entries(props)
-                                                                                    .filter(([k]) => !SKIP_FIELDS.has(k.toLowerCase()))
-                                                                                    .slice(0, 5);
-                                                                                return (
-                                                                                    <div key={fi} className="at-feature-item">
-                                                                                        <div className="at-feature-item-name">{name}</div>
-                                                                                        {entries.map(([k, v]) => (
-                                                                                            <div key={k} className="at-feature-attr">
-                                                                                                {k}: <span>{String(v ?? '—')}</span>
-                                                                                            </div>
-                                                                                        ))}
-                                                                                    </div>
-                                                                                );
-                                                                            })}
-                                                                            <button className="at-detail-close" onClick={() => setDetailLayerId(null)}>
-                                                                                Cerrar detalles
-                                                                            </button>
-                                                                        </div>
-                                                                    </td>
-                                                                </tr>
-                                                            )}
-                                                        </React.Fragment>
-                                                    );
-                                                })}
+                                                        )}
+                                                    </React.Fragment>
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
-                                    <button className="at-new-btn" onClick={handleReset}>+ Nuevo análisis</button>
+
+                                    {!loading && <button className="at-new-btn" onClick={handleReset}>+ Nuevo análisis</button>}
                                 </>
                             )}
                         </div>
                     )}
 
-                    {/* ─── Tab: Estadísticas ────────────────────────────── */}
+                    {/* ══════════════════════════════════════════════════════ */}
+                    {/* Tab: Estadísticas                                     */}
+                    {/* ══════════════════════════════════════════════════════ */}
                     {tab === 'estadisticas' && hasResults && (
                         <div className="at-body">
                             <div className="at-stats-summary">
                                 <h3 className="at-stats-title">📊 Resumen General</h3>
                                 <div className="at-stats-grid">
                                     <div className="at-stat-card">
-                                        <div className="at-stat-value">{stats.totalFeatures.toLocaleString()}</div>
+                                        <div className="at-stat-value">{totalFeatures.toLocaleString()}</div>
                                         <div className="at-stat-label">Features Totales</div>
                                     </div>
                                     <div className="at-stat-card">
-                                        <div className="at-stat-value">{stats.layersWithData}</div>
+                                        <div className="at-stat-value">{layersWithData}</div>
                                         <div className="at-stat-label">Capas con Datos</div>
                                     </div>
                                     <div className="at-stat-card">
-                                        <div className="at-stat-value">{results.length}</div>
+                                        <div className="at-stat-value">{tableResults.length}</div>
                                         <div className="at-stat-label">Capas Totales</div>
                                     </div>
                                 </div>
+
+                                {/* Demografía en estadísticas */}
+                                {demoResult?.demoData && (
+                                    <div style={{ marginTop: 12, fontSize: '0.76rem', color: 'var(--color-text-muted)' }}>
+                                        Población total en área: <strong style={{ color: 'var(--color-primary-dark)' }}>
+                                            {demoResult.demoData.pobtot.toLocaleString()}
+                                        </strong>
+                                    </div>
+                                )}
                             </div>
 
-                            {stats.topLayers.length > 0 && (
+                            {topLayers.length > 0 && (
                                 <>
                                     <h3 className="at-stats-title">🏆 Top 5 Capas</h3>
                                     <div className="at-chart">
-                                        {stats.topLayers.map((lr, idx) => (
+                                        {topLayers.map((lr, i) => (
                                             <div key={lr.layerId} className="at-chart-row">
-                                                <span className="at-chart-rank">#{idx + 1}</span>
+                                                <span className="at-chart-rank">#{i + 1}</span>
                                                 <span className="at-chart-label">{lr.layerName}</span>
                                                 <div className="at-chart-bar-container">
                                                     <div className="at-chart-bar"
@@ -1009,22 +1247,21 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
                             )}
 
                             {(() => {
-                                const byGroup = results
+                                const byGroup = tableResults
                                     .filter(r => (r.count ?? 0) > 0)
                                     .reduce((acc, r) => {
-                                        const group = r.group || 'Sin grupo';
-                                        acc[group] = (acc[group] || 0) + (r.count ?? 0);
+                                        acc[r.group] = (acc[r.group] || 0) + (r.count ?? 0);
                                         return acc;
                                     }, {} as Record<string, number>);
-                                const groupEntries = Object.entries(byGroup).sort((a, b) => b[1] - a[1]);
-                                return groupEntries.length > 0 ? (
+                                const entries = Object.entries(byGroup).sort((a, b) => b[1] - a[1]);
+                                return entries.length > 0 ? (
                                     <>
                                         <h3 className="at-stats-title">📁 Distribución por Grupo</h3>
                                         <div className="at-group-stats">
-                                            {groupEntries.map(([group, count]) => (
-                                                <div key={group} className="at-group-stat-item">
-                                                    <span className="at-group-stat-name">{group}</span>
-                                                    <span className="at-group-stat-value">{count.toLocaleString()}</span>
+                                            {entries.map(([g, c]) => (
+                                                <div key={g} className="at-group-stat-item">
+                                                    <span className="at-group-stat-name">{g}</span>
+                                                    <span className="at-group-stat-value">{c.toLocaleString()}</span>
                                                 </div>
                                             ))}
                                         </div>
@@ -1036,6 +1273,19 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
                 </div>
             )}
         </div>
+
+        <ConfirmModal
+            isOpen={confirmResetOpen}
+            title="Descartar geometría"
+            message="¿Descartar la geometría actual y comenzar un nuevo análisis?"
+            confirmText="Descartar"
+            cancelText="Cancelar"
+            confirmVariant="warning"
+            icon="🗑️"
+            onConfirm={() => { setConfirmResetOpen(false); doReset(); }}
+            onCancel={() => setConfirmResetOpen(false)}
+        />
+        </>
     );
 };
 

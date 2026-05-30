@@ -14,6 +14,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@mapbox/shp-write": "^0.4.3",
     "bootstrap": "^5.3.8",
     "georaster": "^1.6.0",
     "georaster-layer-for-leaflet": "^4.1.2",

@@ -134,7 +134,7 @@ export function buildCql(
  * @param data Array de objetos a exportar
  * @param filename Nombre del archivo
  */
-export function downloadAsCSV(data: any[], filename: string): void {
+export function downloadAsCSV(data: Record<string, unknown>[], filename: string): void {
     if (data.length === 0) {
         console.warn('No hay datos para exportar');
         return;
@@ -172,7 +172,7 @@ export function downloadAsCSV(data: any[], filename: string): void {
  * @param features Array de features con geometría
  * @param filename Nombre del archivo
  */
-export function downloadAsGeoJSON(features: any[], filename: string): void {
+export function downloadAsGeoJSON(features: GeoJSON.Feature[], filename: string): void {
     const validFeatures = features.filter(f => f && f.geometry);
     
     if (validFeatures.length === 0) {
@@ -208,7 +208,8 @@ export interface AnalysisHistory {
     mode: 'point' | 'line' | 'polygon';
     distance: number;
     unit: 'kilometers' | 'meters' | 'miles';
-    results: any[];
+    /** Resultados por capa del análisis. */
+    results: LayerResult[];
     measurements?: {
         area?: number;
         length?: number;
@@ -426,7 +427,7 @@ export interface LayerResult {
     wfsName: string;
     group: string;
     count: number | null;
-    features?: any[] | null;
+    features?: GeoJSON.Feature[] | null;
 }
 
 /**
@@ -501,3 +502,113 @@ export default {
     // Estadísticas
     calculateStats
 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FILTRO ESPACIAL BBOX + CLIENTE
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// QGIS Server WFS 1.1.0 no evalúa DWITHIN / INTERSECTS correctamente en
+// CQL_FILTER cuando el SRS de la capa difiere de EPSG:4326.
+// Estrategia robusta:
+//   1. Servidor: BBOX aproximado para traer features del área.
+//   2. Cliente:  filtrado geométrico exacto con Leaflet distanceTo / ray-cast.
+
+/**
+ * Genera un CQL BBOX que envuelve la geometría de consulta más su buffer.
+ * Se usa como pre-filtro en QGIS Server antes del filtro exacto en cliente.
+ *
+ * @param mode   - Modo de dibujo: punto, línea o polígono
+ * @param pts    - Puntos de la geometría dibujada
+ * @param distMeters - Radio/buffer en metros (ignorado en modo polígono)
+ * @param geomField  - Nombre del campo de geometría en la capa WFS
+ */
+export function buildBboxCql(
+    mode: 'point' | 'line' | 'polygon',
+    pts: L.LatLng[],
+    distMeters: number,
+    geomField = 'geometry'
+): string {
+    const DEG_PER_METER_LAT = 1 / 111320;
+
+    if (mode === 'polygon') {
+        const lats = pts.map(p => p.lat);
+        const lngs = pts.map(p => p.lng);
+        return `BBOX(${geomField}, ${Math.min(...lngs)}, ${Math.min(...lats)}, ${Math.max(...lngs)}, ${Math.max(...lats)})`;
+    }
+
+    const padLat    = distMeters * DEG_PER_METER_LAT;
+    const lats      = pts.map(p => p.lat);
+    const lngs      = pts.map(p => p.lng);
+    const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+    const padLng    = distMeters / (111320 * Math.cos(centerLat * Math.PI / 180));
+    return `BBOX(${geomField}, ${Math.min(...lngs) - padLng}, ${Math.min(...lats) - padLat}, ${Math.max(...lngs) + padLng}, ${Math.max(...lats) + padLat})`;
+}
+
+/**
+ * Filtro espacial exacto en cliente.
+ * Recibe features pre-filtrados por BBOX del servidor y aplica la condición
+ * geométrica precisa: DWithin para punto/línea, ray-cast para polígono.
+ *
+ * @param features   - Features a filtrar (ya venidos del servidor)
+ * @param mode       - Modo de análisis
+ * @param pts        - Puntos de la geometría dibujada
+ * @param distMeters - Radio/buffer en metros
+ */
+export function clientSideFilter(
+    features: GeoJSON.Feature[],
+    mode: 'point' | 'line' | 'polygon',
+    pts: L.LatLng[],
+    distMeters: number
+): GeoJSON.Feature[] {
+    if (!features?.length) return [];
+
+    function featurePoint(f: GeoJSON.Feature): L.LatLng | null {
+        const g = f.geometry;
+        if (!g) return null;
+        let coords: number[] | null = null;
+        if      (g.type === 'Point')           coords = g.coordinates;
+        else if (g.type === 'MultiPoint')      coords = g.coordinates[0];
+        else if (g.type === 'LineString')      coords = g.coordinates[0];
+        else if (g.type === 'MultiLineString') coords = g.coordinates[0][0];
+        else if (g.type === 'Polygon')         coords = g.coordinates[0][0];
+        else if (g.type === 'MultiPolygon')    coords = g.coordinates[0][0][0];
+        return coords ? L.latLng(coords[1], coords[0]) : null;
+    }
+
+    function distToSegment(p: L.LatLng, a: L.LatLng, b: L.LatLng): number {
+        const R      = 111320;
+        const cosLat = Math.cos(p.lat * Math.PI / 180);
+        const px = (p.lng - a.lng) * R * cosLat, py = (p.lat - a.lat) * R;
+        const dx = (b.lng - a.lng) * R * cosLat, dy = (b.lat - a.lat) * R;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq === 0) return Math.sqrt(px * px + py * py);
+        const t = Math.max(0, Math.min(1, (px * dx + py * dy) / lenSq));
+        return Math.sqrt(Math.pow(px - t * dx, 2) + Math.pow(py - t * dy, 2));
+    }
+
+    function pointInPolygon(p: L.LatLng, polygon: L.LatLng[]): boolean {
+        let inside = false;
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const xi = polygon[i].lng, yi = polygon[i].lat;
+            const xj = polygon[j].lng, yj = polygon[j].lat;
+            if ((yi > p.lat) !== (yj > p.lat) &&
+                p.lng < ((xj - xi) * (p.lat - yi)) / (yj - yi) + xi) {
+                inside = !inside;
+            }
+        }
+        return inside;
+    }
+
+    return features.filter(f => {
+        const fp = featurePoint(f);
+        if (!fp) return false;
+        if (mode === 'point') return fp.distanceTo(pts[0]) <= distMeters;
+        if (mode === 'line') {
+            for (let i = 0; i < pts.length - 1; i++) {
+                if (distToSegment(fp, pts[i], pts[i + 1]) <= distMeters) return true;
+            }
+            return false;
+        }
+        return pointInPolygon(fp, pts);
+    });
+}

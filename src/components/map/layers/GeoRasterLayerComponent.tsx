@@ -5,7 +5,7 @@
  * Dependencias: npm install georaster georaster-layer-for-leaflet
  */
 
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useMap } from 'react-leaflet';
 import type L from 'leaflet';
 

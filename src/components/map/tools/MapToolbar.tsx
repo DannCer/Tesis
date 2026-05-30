@@ -9,16 +9,20 @@
  * @module components/map/tools/MapToolbar
  */
 
-import React, { useState, useCallback } from 'react';
-import ElevationProfile   from '@components/map/tools/ElevationProfile';
-import AnalysisTool      from '@components/map/tools/AnalysisTool';
-import AddDataTool       from '@components/map/tools/AddDataTool';
-import DrawTool          from '@components/map/tools/DrawTool';
-import CoordinatesTool   from '@components/map/tools/CoordinatesTool';
-import GeocoderTool      from '@components/map/tools/GeocoderTool';
-import DraggablePanel    from '@components/common/DraggablePanel';
+import React, { useState, useCallback, useRef, lazy, Suspense } from 'react';
+import DraggablePanel from '@components/common/DraggablePanel';
 import type { ExternalLayer } from '@types/geo';
 import type L from 'leaflet';
+
+// ─── Lazy imports ─────────────────────────────────────────────────────────────
+// Cada herramienta se carga solo cuando el usuario la abre por primera vez,
+// reduciendo el bundle inicial y evitando montar ~4 000 líneas de JSX innecesario.
+const AnalysisTool     = lazy(() => import('@components/map/tools/AnalysisTool'));
+const ElevationProfile = lazy(() => import('@components/map/tools/ElevationProfile'));
+const AddDataTool      = lazy(() => import('@components/map/tools/AddDataTool'));
+const DrawTool         = lazy(() => import('@components/map/tools/DrawTool'));
+const CoordinatesTool  = lazy(() => import('@components/map/tools/CoordinatesTool'));
+const GeocoderTool     = lazy(() => import('@components/map/tools/GeocoderTool'));
 
 import analisisIcon from '@assets/images/analisis.png';
 import listasIcon   from '@assets/images/lista_de_capas.png';
@@ -86,8 +90,20 @@ const MapToolbar: React.FC<MapToolbarProps> = ({
     // Estado del panel flotante activo (análisis / elevación)
     const [activePanel, setActivePanel] = useState<PanelToolId | null>(null);
 
+    /**
+     * Registro de paneles que ya han sido abiertos al menos una vez.
+     * Permite el patrón "mount on first open, stay mounted":
+     * - Antes del primer clic: el componente no existe en el DOM → sin costo de memoria
+     * - Después del primer clic: queda montado pero oculto por DraggablePanel → preserva estado
+     * - React.lazy() garantiza que el chunk JS tampoco se descarga hasta ese momento
+     */
+    const mountedPanels = useRef<Set<PanelToolId>>(new Set());
+
     const togglePanel = useCallback((id: string) => {
-        setActivePanel(prev => (prev === id ? null : id as PanelToolId));
+        const panelId = id as PanelToolId;
+        // Registrar como "ya abierto" para que no se desmonte al cerrar
+        mountedPanels.current.add(panelId);
+        setActivePanel(prev => (prev === panelId ? null : panelId));
     }, []);
 
     const closePanel = useCallback(() => setActivePanel(null), []);
@@ -183,49 +199,78 @@ const MapToolbar: React.FC<MapToolbarProps> = ({
                 })}
             </div>
 
-            {/* ── Paneles flotantes ────────────────────────────────── */}
-            <DraggablePanel isOpen={activePanel === 'analisis'}    defaultWidth={420} zIndex={1200}>
-                <AnalysisTool
-                    mapInstance={mapInstance}
-                    isOpen={activePanel === 'analisis'}
-                    onClose={closePanel}
-                />
-            </DraggablePanel>
-            <DraggablePanel isOpen={activePanel === 'elevacion'}   defaultWidth={360} zIndex={1200}>
-                <ElevationProfile
-                    mapInstance={mapInstance}
-                    isOpen={activePanel === 'elevacion'}
-                    onClose={closePanel}
-                />
-            </DraggablePanel>
-            <DraggablePanel isOpen={activePanel === 'adddata'}     defaultWidth={400} zIndex={1400}>
-                <AddDataTool
-                    isOpen={activePanel === 'adddata'}
-                    onClose={closePanel}
-                    onAddLayer={onAddLayer}
-                />
-            </DraggablePanel>
-            <DraggablePanel isOpen={activePanel === 'dibujar'}     defaultWidth={660} zIndex={1400}>
-                <DrawTool
-                    mapInstance={mapInstance}
-                    isOpen={activePanel === 'dibujar'}
-                    onClose={closePanel}
-                />
-            </DraggablePanel>
-            <DraggablePanel isOpen={activePanel === 'coordenadas'} defaultWidth={480} zIndex={1400}>
-                <CoordinatesTool
-                    mapInstance={mapInstance}
-                    isOpen={activePanel === 'coordenadas'}
-                    onClose={closePanel}
-                />
-            </DraggablePanel>
-            <DraggablePanel isOpen={activePanel === 'geocoder'}    defaultWidth={420} zIndex={1400}>
-                <GeocoderTool
-                    mapInstance={mapInstance}
-                    isOpen={activePanel === 'geocoder'}
-                    onClose={closePanel}
-                />
-            </DraggablePanel>
+            {/* ── Paneles flotantes ─────────────────────────────────────────────
+                Cada panel solo se monta la primera vez que el usuario lo abre
+                (mountedPanels.has). Después de eso queda vivo pero oculto por
+                DraggablePanel (visibility:hidden) preservando su estado interno.
+                React.lazy() evita descargar el chunk JS hasta ese momento.
+            ────────────────────────────────────────────────────────────────── */}
+            {mountedPanels.current.has('analisis') && (
+                <DraggablePanel isOpen={activePanel === 'analisis'} defaultWidth={420} zIndex={1200}>
+                    <Suspense fallback={null}>
+                        <AnalysisTool
+                            mapInstance={mapInstance}
+                            isOpen={activePanel === 'analisis'}
+                            onClose={closePanel}
+                        />
+                    </Suspense>
+                </DraggablePanel>
+            )}
+            {mountedPanels.current.has('elevacion') && (
+                <DraggablePanel isOpen={activePanel === 'elevacion'} defaultWidth={360} zIndex={1200}>
+                    <Suspense fallback={null}>
+                        <ElevationProfile
+                            mapInstance={mapInstance}
+                            isOpen={activePanel === 'elevacion'}
+                            onClose={closePanel}
+                        />
+                    </Suspense>
+                </DraggablePanel>
+            )}
+            {mountedPanels.current.has('adddata') && (
+                <DraggablePanel isOpen={activePanel === 'adddata'} defaultWidth={400} zIndex={1400}>
+                    <Suspense fallback={null}>
+                        <AddDataTool
+                            isOpen={activePanel === 'adddata'}
+                            onClose={closePanel}
+                            onAddLayer={onAddLayer}
+                        />
+                    </Suspense>
+                </DraggablePanel>
+            )}
+            {mountedPanels.current.has('dibujar') && (
+                <DraggablePanel isOpen={activePanel === 'dibujar'} defaultWidth={660} zIndex={1400}>
+                    <Suspense fallback={null}>
+                        <DrawTool
+                            mapInstance={mapInstance}
+                            isOpen={activePanel === 'dibujar'}
+                            onClose={closePanel}
+                        />
+                    </Suspense>
+                </DraggablePanel>
+            )}
+            {mountedPanels.current.has('coordenadas') && (
+                <DraggablePanel isOpen={activePanel === 'coordenadas'} defaultWidth={480} zIndex={1400}>
+                    <Suspense fallback={null}>
+                        <CoordinatesTool
+                            mapInstance={mapInstance}
+                            isOpen={activePanel === 'coordenadas'}
+                            onClose={closePanel}
+                        />
+                    </Suspense>
+                </DraggablePanel>
+            )}
+            {mountedPanels.current.has('geocoder') && (
+                <DraggablePanel isOpen={activePanel === 'geocoder'} defaultWidth={420} zIndex={1400}>
+                    <Suspense fallback={null}>
+                        <GeocoderTool
+                            mapInstance={mapInstance}
+                            isOpen={activePanel === 'geocoder'}
+                            onClose={closePanel}
+                        />
+                    </Suspense>
+                </DraggablePanel>
+            )}
         </>
     );
 };

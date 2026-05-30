@@ -130,17 +130,18 @@ export const validateFile = (
  * @param data - Datos a validar
  * @returns true si es válido
  */
-export const isValidGeoJSON = (data: any): boolean => {
+export const isValidGeoJSON = (data: unknown): data is GeoJSON.FeatureCollection => {
     if (!data || typeof data !== 'object') return false;
-    if (data.type !== 'FeatureCollection') return false;
-    if (!Array.isArray(data.features)) return false;
+    const d = data as Record<string, unknown>;
+    if (d.type !== 'FeatureCollection') return false;
+    if (!Array.isArray(d.features)) return false;
 
-    // Validar cada feature
-    return data.features.every((feature: any) => {
-        return feature &&
-            feature.type === 'Feature' &&
-            feature.geometry !== undefined &&
-            feature.properties !== undefined;
+    return (d.features as unknown[]).every((feature: unknown) => {
+        if (!feature || typeof feature !== 'object') return false;
+        const f = feature as Record<string, unknown>;
+        return f.type === 'Feature' &&
+            f.geometry !== undefined &&
+            f.properties !== undefined;
     });
 };
 
@@ -150,7 +151,7 @@ export const isValidGeoJSON = (data: any): boolean => {
  * @param maxFeatures - Número máximo de features
  * @returns Features limitados
  */
-export const limitFeatures = <T extends { properties?: any }>(
+export const limitFeatures = <T extends { properties?: Record<string, unknown> | null }>(
     features: T[],
     maxFeatures: number = 200000
 ): T[] => {
@@ -260,12 +261,8 @@ export const truncateText = (text: string, maxLength: number = 100): string => {
 // ============================================================================
 
 const logger = {
-    warn: (message: string, ...args: any[]) => {
-        console.warn(`[Validation] ${message}`, ...args);
-    },
-    error: (message: string, ...args: any[]) => {
-        console.error(`[Validation] ${message}`, ...args);
-    }
+    warn:  (message: string, ...args: unknown[]) => { console.warn(`[Validation] ${message}`, ...args); },
+    error: (message: string, ...args: unknown[]) => { console.error(`[Validation] ${message}`, ...args); },
 };
 
 export default {

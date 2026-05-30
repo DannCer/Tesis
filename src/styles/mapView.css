@@ -250,6 +250,32 @@
   margin-top: var(--spacing-xs);
 }
 
+/* Subgrupo colapsable dentro de un grupo */
+.layer-subgroup {
+    margin: 4px 0 4px 8px;
+    border-left: 2px solid var(--color-border, #dde1e7);
+}
+ 
+.layer-subgroup-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 5px 8px;
+    background: var(--color-surface-2, #f0f2f5);
+    border: none;
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--color-text-secondary, #555);
+    border-radius: 4px;
+    transition: background 0.15s;
+}
+.layer-subgroup-header:hover { background: var(--color-surface-3, #e4e8ed); }
+.layer-subgroup-header .subgroup-icon { font-size: 0.8em; }
+.layer-subgroup-header .subgroup-title-text { flex: 1; text-align: left; }
+.layer-subgroup-body { padding-left: 8px; }
+
 /* ── Pulsación del marcador de píxel ───────────────────────── */
 
 @keyframes pixelPulse {

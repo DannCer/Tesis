@@ -142,10 +142,10 @@ export const useSelectedProjectLayers = (): SelectedProjectLayersResult => {
                 `del proyecto "${selectedProject.name}"`
             );
 
-        } catch (err: any) {
+        } catch (err: unknown) {
             logger.error('Error cargando capas del proyecto:', err);
             setError(
-                err.message || 'Error desconocido al cargar las capas del proyecto'
+                err instanceof Error ? err.message : 'Error desconocido al cargar las capas del proyecto'
             );
             setLayers([]);
             setWmsCount(0);

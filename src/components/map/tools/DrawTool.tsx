@@ -352,6 +352,12 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
     const drawingRef  = useRef(false);
     const pointsRef   = useRef<L.LatLng[]>([]);
     const tempLayersRef = useRef<L.Layer[]>([]);
+    /**
+     * Guarda referencias a los handlers activos de Leaflet para que
+     * cleanupDraw pueda remover SOLO los suyos — off(event, specificFn) —
+     * evitando anular listeners de AnalysisTool u otros sistemas paralelos.
+     */
+    const eventHandlersRef = useRef<Record<string, L.LeafletEventHandlerFn>>({});
     const [, forceUpdate] = useState(0);
     const rerender = useCallback(() => forceUpdate(n => n + 1), []);
 
@@ -368,10 +374,14 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
 
     const cleanupDraw = useCallback(() => {
         if (!mapInstance) return;
-        mapInstance.off('click');
-        mapInstance.off('mousemove');
-        mapInstance.off('mousedown');
-        mapInstance.off('mouseup');
+        // Eliminar SOLO los handlers registrados por DrawTool.
+        // Nunca usar mapInstance.off('event') sin referencia — eso eliminaría
+        // listeners de AnalysisTool y otros sistemas que comparten el mismo mapa.
+        const h = eventHandlersRef.current;
+        (['click', 'mousemove', 'mousedown', 'mouseup', 'dblclick'] as const).forEach(ev => {
+            if (h[ev]) mapInstance.off(ev, h[ev]);
+        });
+        eventHandlersRef.current = {};
         mapInstance.dragging.enable();
         mapInstance.getContainer().style.cursor = '';
         // Eliminar capas temporales
@@ -507,9 +517,23 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
         mapInstance.getContainer().style.cursor = 'crosshair';
         const group = groupRef.current!;
 
+        /**
+         * Registra un handler de Leaflet y lo guarda en eventHandlersRef
+         * para que cleanupDraw pueda eliminarlo de forma quirúrgica.
+         * Si ya existe un handler para ese evento, lo reemplaza correctamente.
+         */
+        const reg = <E extends keyof L.LeafletEventHandlerFnMap>(
+            event: E,
+            fn: NonNullable<L.LeafletEventHandlerFnMap[E]>
+        ) => {
+            const h = fn as L.LeafletEventHandlerFn;
+            eventHandlersRef.current[event as string] = h;
+            mapInstance.on(event, h);
+        };
+
         // ── PUNTO ──────────────────────────────────────────────────────────────
         if (mode === 'punto') {
-            mapInstance.on('click', (e: L.LeafletMouseEvent) => {
+            reg('click', (e: L.LeafletMouseEvent) => {
                 const marker = createPointMarker(e.latlng);
                 group.addLayer(marker);
                 addToHistory(marker);
@@ -519,7 +543,7 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
 
         // ── TEXTO ──────────────────────────────────────────────────────────────
         if (mode === 'texto') {
-            mapInstance.on('click', (e: L.LeafletMouseEvent) => {
+            reg('click', (e: L.LeafletMouseEvent) => {
                 const marker = createTextMarker(e.latlng);
                 group.addLayer(marker);
                 addToHistory(marker);
@@ -531,7 +555,7 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
         if (mode === 'linea') {
             let first: L.LatLng | null = null;
             let tempLine: L.Polyline | null = null;
-            mapInstance.on('click', (e: L.LeafletMouseEvent) => {
+            reg('click', (e: L.LeafletMouseEvent) => {
                 if (!first) {
                     first = e.latlng;
                 } else {
@@ -543,7 +567,7 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
                     tempLine = null;
                 }
             });
-            mapInstance.on('mousemove', (e: L.LeafletMouseEvent) => {
+            reg('mousemove', (e: L.LeafletMouseEvent) => {
                 if (!first) return;
                 if (tempLine) tempLine.remove();
                 tempLine = L.polyline([first, e.latlng], { ...lineOptions(), opacity: 0.5 }).addTo(mapInstance);
@@ -556,7 +580,7 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
         if (mode === 'polilinea') {
             const pts: L.LatLng[] = [];
             let tempLine: L.Polyline | null = null;
-            mapInstance.on('click', (e: L.LeafletMouseEvent) => {
+            reg('click', (e: L.LeafletMouseEvent) => {
                 pts.push(e.latlng);
                 if (pts.length >= 2) {
                     if (tempLine) tempLine.remove();
@@ -564,7 +588,7 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
                     tempLayersRef.current = [tempLine];
                 }
             });
-            mapInstance.on('dblclick', (e: L.LeafletMouseEvent) => {
+            reg('dblclick', (e: L.LeafletMouseEvent) => {
                 e.originalEvent.preventDefault();
                 if (pts.length >= 2) {
                     if (tempLine) tempLine.remove();
@@ -576,7 +600,7 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
                 tempLayersRef.current = [];
                 tempLine = null;
             });
-            mapInstance.on('mousemove', (e: L.LeafletMouseEvent) => {
+            reg('mousemove', (e: L.LeafletMouseEvent) => {
                 if (pts.length === 0) return;
                 if (tempLine) tempLine.remove();
                 tempLine = L.polyline([...pts, e.latlng], { ...lineOptions(), opacity: 0.5 }).addTo(mapInstance);
@@ -589,12 +613,12 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
         if (mode === 'polilinea-alzada') {
             let pts: L.LatLng[] = [];
             let tempLine: L.Polyline | null = null;
-            mapInstance.on('mousedown', () => {
+            reg('mousedown', () => {
                 pts = [];
                 drawingRef.current = true;
                 mapInstance.dragging.disable();
             });
-            mapInstance.on('mousemove', (e: L.LeafletMouseEvent) => {
+            reg('mousemove', (e: L.LeafletMouseEvent) => {
                 if (!drawingRef.current) return;
                 pts.push(e.latlng);
                 if (tempLine) tempLine.remove();
@@ -603,7 +627,7 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
                     tempLayersRef.current = [tempLine];
                 }
             });
-            mapInstance.on('mouseup', () => {
+            reg('mouseup', () => {
                 if (!drawingRef.current) return;
                 drawingRef.current = false;
                 mapInstance.dragging.enable();
@@ -624,7 +648,7 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
         if (mode === 'triangulo') {
             const pts: L.LatLng[] = [];
             let tempPoly: L.Polygon | null = null;
-            mapInstance.on('click', (e: L.LeafletMouseEvent) => {
+            reg('click', (e: L.LeafletMouseEvent) => {
                 pts.push(e.latlng);
                 if (pts.length === 3) {
                     if (tempPoly) tempPoly.remove();
@@ -636,7 +660,7 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
                     tempPoly = null;
                 }
             });
-            mapInstance.on('mousemove', (e: L.LeafletMouseEvent) => {
+            reg('mousemove', (e: L.LeafletMouseEvent) => {
                 if (pts.length === 0) return;
                 if (tempPoly) tempPoly.remove();
                 const preview = pts.length === 1 ? [pts[0], e.latlng, e.latlng] : [pts[0], pts[1], e.latlng];
@@ -650,18 +674,18 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
         if (mode === 'extension') {
             let start: L.LatLng | null = null;
             let tempRect: L.Rectangle | null = null;
-            mapInstance.on('mousedown', (e: L.LeafletMouseEvent) => {
+            reg('mousedown', (e: L.LeafletMouseEvent) => {
                 start = e.latlng;
                 drawingRef.current = true;
                 mapInstance.dragging.disable();
             });
-            mapInstance.on('mousemove', (e: L.LeafletMouseEvent) => {
+            reg('mousemove', (e: L.LeafletMouseEvent) => {
                 if (!drawingRef.current || !start) return;
                 if (tempRect) tempRect.remove();
                 tempRect = L.rectangle([start, e.latlng], { ...polyOptions(), fillOpacity: 0.2 }).addTo(mapInstance);
                 tempLayersRef.current = [tempRect];
             });
-            mapInstance.on('mouseup', (e: L.LeafletMouseEvent) => {
+            reg('mouseup', (e: L.LeafletMouseEvent) => {
                 if (!drawingRef.current || !start) return;
                 drawingRef.current = false;
                 mapInstance.dragging.enable();
@@ -680,19 +704,19 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
         if (mode === 'circulo') {
             let center: L.LatLng | null = null;
             let tempCirc: L.Circle | null = null;
-            mapInstance.on('mousedown', (e: L.LeafletMouseEvent) => {
+            reg('mousedown', (e: L.LeafletMouseEvent) => {
                 center = e.latlng;
                 drawingRef.current = true;
                 mapInstance.dragging.disable();
             });
-            mapInstance.on('mousemove', (e: L.LeafletMouseEvent) => {
+            reg('mousemove', (e: L.LeafletMouseEvent) => {
                 if (!drawingRef.current || !center) return;
                 const r = center.distanceTo(e.latlng);
                 if (tempCirc) tempCirc.remove();
                 tempCirc = L.circle(center, { radius: r, ...polyOptions(), fillOpacity: 0.2 }).addTo(mapInstance);
                 tempLayersRef.current = [tempCirc];
             });
-            mapInstance.on('mouseup', (e: L.LeafletMouseEvent) => {
+            reg('mouseup', (e: L.LeafletMouseEvent) => {
                 if (!drawingRef.current || !center) return;
                 drawingRef.current = false;
                 mapInstance.dragging.enable();
@@ -722,12 +746,12 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
                     return L.latLng(c.lat + dlat, c.lng + dlng);
                 });
             };
-            mapInstance.on('mousedown', (e: L.LeafletMouseEvent) => {
+            reg('mousedown', (e: L.LeafletMouseEvent) => {
                 center = e.latlng;
                 drawingRef.current = true;
                 mapInstance.dragging.disable();
             });
-            mapInstance.on('mousemove', (e: L.LeafletMouseEvent) => {
+            reg('mousemove', (e: L.LeafletMouseEvent) => {
                 if (!drawingRef.current || !center) return;
                 const rx = Math.abs(center.distanceTo(L.latLng(center.lat, e.latlng.lng)));
                 const ry = Math.abs(center.distanceTo(L.latLng(e.latlng.lat, center.lng)));
@@ -736,7 +760,7 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
                 tempElipse = L.polygon(pts, { ...polyOptions(), fillOpacity: 0.2 }).addTo(mapInstance);
                 tempLayersRef.current = [tempElipse];
             });
-            mapInstance.on('mouseup', (e: L.LeafletMouseEvent) => {
+            reg('mouseup', (e: L.LeafletMouseEvent) => {
                 if (!drawingRef.current || !center) return;
                 drawingRef.current = false;
                 mapInstance.dragging.enable();
@@ -760,10 +784,10 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
         if (mode === 'poligono') {
             const pts: L.LatLng[] = [];
             let tempPoly: L.Polygon | null = null;
-            mapInstance.on('click', (e: L.LeafletMouseEvent) => {
+            reg('click', (e: L.LeafletMouseEvent) => {
                 pts.push(e.latlng);
             });
-            mapInstance.on('dblclick', (e: L.LeafletMouseEvent) => {
+            reg('dblclick', (e: L.LeafletMouseEvent) => {
                 e.originalEvent.preventDefault();
                 if (pts.length >= 3) {
                     if (tempPoly) tempPoly.remove();
@@ -775,7 +799,7 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
                 tempLayersRef.current = [];
                 tempPoly = null;
             });
-            mapInstance.on('mousemove', (e: L.LeafletMouseEvent) => {
+            reg('mousemove', (e: L.LeafletMouseEvent) => {
                 if (pts.length === 0) return;
                 if (tempPoly) tempPoly.remove();
                 tempPoly = L.polygon([...pts, e.latlng], { ...polyOptions(), fillOpacity: 0.2 }).addTo(mapInstance);
@@ -788,12 +812,12 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
         if (mode === 'poligono-alzada') {
             let pts: L.LatLng[] = [];
             let tempPoly: L.Polygon | null = null;
-            mapInstance.on('mousedown', () => {
+            reg('mousedown', () => {
                 pts = [];
                 drawingRef.current = true;
                 mapInstance.dragging.disable();
             });
-            mapInstance.on('mousemove', (e: L.LeafletMouseEvent) => {
+            reg('mousemove', (e: L.LeafletMouseEvent) => {
                 if (!drawingRef.current) return;
                 pts.push(e.latlng);
                 if (tempPoly) tempPoly.remove();
@@ -802,7 +826,7 @@ const DrawTool: React.FC<DrawToolProps> = ({ mapInstance, isOpen, onClose }) => 
                     tempLayersRef.current = [tempPoly];
                 }
             });
-            mapInstance.on('mouseup', () => {
+            reg('mouseup', () => {
                 if (!drawingRef.current) return;
                 drawingRef.current = false;
                 mapInstance.dragging.enable();

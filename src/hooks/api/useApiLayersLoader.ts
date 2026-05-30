@@ -6,11 +6,12 @@
  */
 
 import { useMemo } from 'react';
-import { useLayersContext } from '@contexts/LayersContext';
+import { useLayersData, useLayersMeta } from '@contexts/LayersContext';
 import { LayerConfig } from '@config/layers';
 
 export const useApiLayersLoader = () => {
-    const { vectorLayers, rasterLayers, loading, error } = useLayersContext();
+    const { vectorLayers, rasterLayers } = useLayersData();
+    const { loading, error } = useLayersMeta();
 
     const layersByGroup = useMemo(() => {
         const allLayers: LayerConfig[] = [
@@ -20,6 +21,8 @@ export const useApiLayersLoader = () => {
                 description: l.description,
                 type:        'vector',
                 group:       l.group,
+                subgroup:    l.subgroup,
+                subgroup_id: l.subgroup_id,
                 wfsName:     l.wfsName,
                 wmsLayer:    l.wmsLayer,
                 showLegend:  true,
@@ -30,6 +33,8 @@ export const useApiLayersLoader = () => {
                 description: l.description,
                 type:        'raster',
                 group:       l.group,
+                subgroup:    l.subgroup,
+                subgroup_id: l.subgroup_id,
                 wmsLayer:    l.wmsLayer,
                 year:        l.year,
                 timeValue:   l.timeValue,

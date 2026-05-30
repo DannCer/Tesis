@@ -13,6 +13,7 @@ import {
     formatRelativeTime,
     type AnalysisHistory as AnalysisHistoryType
 } from './analysisToolUtils';
+import ConfirmModal from '@components/common/Confirmmodal';
 import '@styles/AnalysisHistory.css';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -67,11 +68,16 @@ export const AnalysisHistory: React.FC<AnalysisHistoryProps> = ({
         setShowDeleteConfirm(null);
     };
 
+    const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+
     const handleClearAll = () => {
-        if (confirm('¿Eliminar todo el historial de análisis?')) {
-            clearAnalysisHistory();
-            setHistory([]);
-        }
+        setConfirmClearOpen(true);
+    };
+
+    const doClearAll = () => {
+        clearAnalysisHistory();
+        setHistory([]);
+        setConfirmClearOpen(false);
     };
 
     const toggleExpanded = (id: string) => {
@@ -105,6 +111,7 @@ export const AnalysisHistory: React.FC<AnalysisHistoryProps> = ({
     }
 
     return (
+        <>
         <div className="ah-container">
             <div className="ah-header">
                 <h3 className="ah-title">📜 Historial de Análisis</h3>
@@ -264,6 +271,18 @@ export const AnalysisHistory: React.FC<AnalysisHistoryProps> = ({
                 })}
             </div>
         </div>
+        <ConfirmModal
+            isOpen={confirmClearOpen}
+            title="Eliminar historial"
+            message="¿Eliminar todo el historial de análisis? Esta acción no se puede deshacer."
+            confirmText="Eliminar todo"
+            cancelText="Cancelar"
+            confirmVariant="danger"
+            icon="🗑️"
+            onConfirm={doClearAll}
+            onCancel={() => setConfirmClearOpen(false)}
+        />
+        </>
     );
 };
 

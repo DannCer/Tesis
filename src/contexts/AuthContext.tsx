@@ -27,26 +27,29 @@ export interface TokenResponse {
 
 type AuthAction =
     | { type: 'LOGIN_START' }
-    | { type: 'LOGIN_SUCCESS'; payload: { user: CurrentUser; accessToken: string; refreshToken: string } }
+    | { type: 'LOGIN_SUCCESS'; payload: { user: CurrentUser } }
     | { type: 'LOGIN_ERROR'; payload: string }
     | { type: 'LOGOUT' }
     | { type: 'SET_LOADING'; payload: boolean }
     | { type: 'SET_USER'; payload: CurrentUser };
 
-const initialState: AuthState = {
+/** @internal exportado solo para tests unitarios */
+export const authInitialState: AuthState = {
     isAuthenticated: false,
     user: null,
     loading: true,
     error: null,
 };
 
-const authReducer = (state: AuthState, action: AuthAction): AuthState => {
+/** @internal exportado solo para tests unitarios */
+export const authReducer = (state: AuthState, action: AuthAction): AuthState => {
     switch (action.type) {
         case 'LOGIN_START':
             return { ...state, loading: true, error: null };
         case 'LOGIN_SUCCESS':
-            localStorage.setItem('access_token', action.payload.accessToken);
-            localStorage.setItem('refresh_token', action.payload.refreshToken);
+            // Reducer puro: la persistencia en localStorage la maneja
+            // la función login() del provider, que ya escribió los tokens
+            // antes de despachar esta acción.
             return {
                 ...state,
                 isAuthenticated: true,
@@ -55,8 +58,8 @@ const authReducer = (state: AuthState, action: AuthAction): AuthState => {
                 error: null,
             };
         case 'LOGIN_ERROR':
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('refresh_token');
+            // El provider limpia localStorage en el catch de login() si es necesario.
+            // El reducer solo actualiza el estado de React.
             return {
                 ...state,
                 isAuthenticated: false,
@@ -65,9 +68,9 @@ const authReducer = (state: AuthState, action: AuthAction): AuthState => {
                 error: action.payload,
             };
         case 'LOGOUT':
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('refresh_token');
-            return { ...initialState, loading: false };
+            // La limpieza de localStorage ocurre en logout() del provider,
+            // que llama apiService.auth.logout() antes de despachar esta acción.
+            return { ...authInitialState, loading: false };
         case 'SET_LOADING':
             return { ...state, loading: action.payload };
         case 'SET_USER':
@@ -88,7 +91,7 @@ interface AuthContextType {
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    const [state, dispatch] = useReducer(authReducer, initialState);
+    const [state, dispatch] = useReducer(authReducer, authInitialState);
 
     useEffect(() => {
         checkAuth();
@@ -98,20 +101,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         dispatch({ type: 'LOGIN_START' });
         try {
             const tokens = await apiService.auth.login(username, password);
-            localStorage.setItem('access_token', tokens.access_token);
+            // Única escritura de tokens — el reducer no toca localStorage.
+            localStorage.setItem('access_token',  tokens.access_token);
             localStorage.setItem('refresh_token', tokens.refresh_token);
             const user = await apiService.auth.me();
-
-            dispatch({
-                type: 'LOGIN_SUCCESS',
-                payload: {
-                    user,
-                    accessToken: tokens.access_token,
-                    refreshToken: tokens.refresh_token,
-                },
-            });
-        } catch (error: any) {
-            dispatch({ type: 'LOGIN_ERROR', payload: error.message || 'Error de login' });
+            dispatch({ type: 'LOGIN_SUCCESS', payload: { user } });
+        } catch (error: unknown) {
+            // Limpiar tokens si el login falló después de recibirlos
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            const message = error instanceof Error ? error.message : 'Error de login';
+            dispatch({ type: 'LOGIN_ERROR', payload: message });
             throw error;
         }
     };
@@ -123,6 +123,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         } catch (error) {
             console.error('Error en logout:', error);
         } finally {
+            // Limpieza explícita aquí — el reducer LOGOUT es ahora puro.
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
             dispatch({ type: 'LOGOUT' });
         }
     };

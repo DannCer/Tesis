@@ -46,10 +46,13 @@ export interface PixelQueryParams {
 export interface PixelInfo {
     layerName: string;
     time: string | null;
-    value: any;
+    /** Valor del pixel. Puede ser numérico (raster band) o string (clasificado/NoData). */
+    value: number | string | null;
     message?: string;
-    rawProperties?: Record<string, any>;
-    coordinates?: any;
+    /** Propiedades crudas del GetFeatureInfo de QGIS Server. */
+    rawProperties?: Record<string, string | number | boolean | null>;
+    /** Coordenadas geográficas [lat, lng] del punto consultado. */
+    coordinates?: [number, number];
     error?: string;
 }
 

@@ -11,7 +11,7 @@ import React, { useEffect, useRef, useState, useMemo, memo } from 'react';
 import L from 'leaflet';
 import { config, logger } from '@config/env';
 import { LayerConfig } from '@config/layers';
-import { useLayersContext } from '@contexts/LayersContext';
+import { useLayersData } from '@contexts/LayersContext';
 import { LayerData } from '@hooks/map';
 import type { ExternalLayer } from '@types/geo';
 import type { GrupoResponse } from '@types/api';
@@ -214,7 +214,7 @@ const ExternalLayerSection: React.FC<{ layer: ExternalLayer; collapsed: boolean;
 // ============================================================================
 
 const Legend: React.FC<LegendProps> = memo((props) => {
-    const { availableLayers: AVAILABLE_LAYERS } = useLayersContext();
+    const { availableLayers: AVAILABLE_LAYERS } = useLayersData();
     const {
         activeLayers, vectorLayers, externalLayers = [], externalVisible = {},
         grupos = [], isOpen, onClose,

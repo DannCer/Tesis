@@ -34,6 +34,8 @@ export interface VectorLayerDef {
     name: string;
     description: string;
     group: string;
+    subgroup?: string;
+    subgroup_id?: number;
     type: 'vector';
     wfsName?: string;
     wmsLayer?: string;
@@ -49,6 +51,8 @@ export interface RasterLayerDef {
     name: string;
     description: string;
     group: string;
+    subgroup?: string;
+    subgroup_id?: number;
     type: 'raster';
     wmsLayer?: string;
     year?: number;
@@ -106,7 +110,7 @@ export interface DownloadFormat {
 export const VECTOR_DOWNLOAD_FORMATS: DownloadFormat[] = [
     {
         label: 'Shapefile',
-        ext: 'shp.zip',
+        ext: 'zip',
         icon: '🗂️',
         outputFormat: 'SHAPE-ZIP',
         description: 'Compatible con ArcGIS, QGIS',

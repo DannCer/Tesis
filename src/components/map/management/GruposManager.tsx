@@ -1,10 +1,11 @@
 /**
- * @fileoverview Componente para gestionar grupos (proyectos QGIS) desde la API
+ * @fileoverview Gestión de grupos (proyectos QGIS) + subgrupos inline por tarjeta.
  * @module components/map/GruposManager
  */
 
 import React, { useState, useEffect } from 'react';
 import { apiService, GrupoResponse, GrupoCreate } from '@services/api';
+import type { SubgrupoResponse } from '@types/api';
 import { config } from '@config/env';
 import { UPLOAD_TIMEOUT_MS } from '@config/constants';
 import ConfirmModal from '@components/common/ConfirmModal';
@@ -25,7 +26,10 @@ interface XmlValidResult {
     message?: string;
 }
 
-async function validateGroupXml(serverUrl: string, projectPath: string): Promise<Omit<XmlValidResult, 'status'>> {
+async function validateGroupXml(
+    serverUrl: string,
+    projectPath: string
+): Promise<Omit<XmlValidResult, 'status'>> {
     const url = `${serverUrl}?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities&MAP=${projectPath}`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
@@ -44,28 +48,199 @@ async function validateGroupXml(serverUrl: string, projectPath: string): Promise
         return { title: title.trim(), layerCount: layers };
     } catch (err: unknown) {
         clearTimeout(timeoutId);
-        if (err instanceof Error && err.name === 'AbortError') throw new Error('Tiempo de espera agotado (2 min). Verifica la conectividad con el servidor.');
+        if (err instanceof Error && err.name === 'AbortError')
+            throw new Error('Tiempo de espera agotado (2 min). Verifica la conectividad con el servidor.');
         throw err;
     }
 }
 
-// ── Componente ────────────────────────────────────────────────────────────────
+// ── SubgruposPanel — gestión inline de subgrupos de un grupo ──────────────────
+
+interface SubgruposPanelProps {
+    grupo: GrupoResponse;
+    onAlert: (title: string, msg: string, v?: 'error' | 'warning' | 'success' | 'info') => void;
+}
+
+const SubgruposPanel: React.FC<SubgruposPanelProps> = ({ grupo, onAlert }) => {
+    const [subgrupos, setSubgrupos]   = useState<SubgrupoResponse[]>([]);
+    const [loading, setLoading]       = useState(false);
+    const [isAdding, setIsAdding]     = useState(false);
+    const [newNombre, setNewNombre]   = useState('');
+    const [editingId, setEditingId]   = useState<number | null>(null);
+    const [editNombre, setEditNombre] = useState('');
+    const [saving, setSaving]         = useState(false);
+    const [confirmDelete, setConfirmDelete] = useState<{ id: number; nombre: string } | null>(null);
+
+    const load = async () => {
+        setLoading(true);
+        try {
+            const data = await apiService.getSubgruposPorGrupo(grupo.id);
+            setSubgrupos(data.sort((a, b) => a.nombre.localeCompare(b.nombre)));
+        } catch (err: unknown) {
+            onAlert('Error al cargar subgrupos', (err as Error).message ?? 'Error desconocido');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { load(); }, [grupo.id]);
+
+    const handleCreate = async () => {
+        if (!newNombre.trim()) {
+            onAlert('Campo requerido', 'El nombre del subgrupo es obligatorio.', 'warning');
+            return;
+        }
+        setSaving(true);
+        try {
+            await apiService.createSubgrupo({ nombre: newNombre.trim(), grupo_id: grupo.id });
+            setNewNombre('');
+            setIsAdding(false);
+            await load();
+        } catch (err: unknown) {
+            onAlert('Error al crear subgrupo', (err as Error).message ?? 'Error desconocido');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleSaveEdit = async () => {
+        if (!editNombre.trim() || editingId === null) return;
+        setSaving(true);
+        try {
+            await apiService.updateSubgrupo(editingId, { nombre: editNombre.trim(), grupo_id: grupo.id });
+            setEditingId(null);
+            await load();
+        } catch (err: unknown) {
+            onAlert('Error al actualizar subgrupo', (err as Error).message ?? 'Error desconocido');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleDelete = async (id: number) => {
+        try {
+            await apiService.deleteSubgrupo(id);
+            setConfirmDelete(null);
+            await load();
+        } catch (err: unknown) {
+            onAlert('Error al eliminar subgrupo', (err as Error).message ?? 'Error desconocido');
+        }
+    };
+
+    return (
+        <div className="subgrupos-panel">
+            <div className="subgrupos-panel-header">
+                <span className="subgrupos-panel-title">📂 Subgrupos</span>
+                <button
+                    className="btn btn-xs btn-secondary"
+                    onClick={() => { setIsAdding(v => !v); setNewNombre(''); }}
+                >
+                    {isAdding ? 'Cancelar' : '+ Subgrupo'}
+                </button>
+            </div>
+
+            {loading && <p className="subgrupos-loading">Cargando…</p>}
+
+            {isAdding && (
+                <div className="subgrupo-add-row">
+                    <input
+                        type="text"
+                        className="input input--sm"
+                        placeholder="Nombre del subgrupo"
+                        value={newNombre}
+                        onChange={e => setNewNombre(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleCreate()}
+                        autoFocus
+                    />
+                    <button className="btn btn-xs btn-primary" onClick={handleCreate} disabled={saving}>
+                        {saving ? '…' : 'Crear'}
+                    </button>
+                </div>
+            )}
+
+            {!loading && subgrupos.length === 0 && !isAdding && (
+                <p className="subgrupos-empty">Sin subgrupos</p>
+            )}
+
+            <ul className="subgrupos-list">
+                {subgrupos.map(s => (
+                    <li key={s.id} className="subgrupo-item">
+                        {editingId === s.id ? (
+                            <>
+                                <input
+                                    type="text"
+                                    className="input input--sm"
+                                    value={editNombre}
+                                    onChange={e => setEditNombre(e.target.value)}
+                                    onKeyDown={e => e.key === 'Enter' && handleSaveEdit()}
+                                    autoFocus
+                                />
+                                <button className="btn btn-xs btn-primary" onClick={handleSaveEdit} disabled={saving}>
+                                    {saving ? '…' : '💾'}
+                                </button>
+                                <button className="btn btn-xs btn-secondary" onClick={() => setEditingId(null)} disabled={saving}>
+                                    ✕
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <span className="subgrupo-nombre">{s.nombre}</span>
+                                <div className="subgrupo-actions">
+                                    <button
+                                        className="btn-edit-xs"
+                                        title="Editar subgrupo"
+                                        onClick={() => { setEditingId(s.id); setEditNombre(s.nombre); }}
+                                    >
+                                        ✏️
+                                    </button>
+                                    <button
+                                        className="btn-delete-xs"
+                                        title="Eliminar subgrupo"
+                                        onClick={() => setConfirmDelete({ id: s.id, nombre: s.nombre })}
+                                    >
+                                        🗑️
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </li>
+                ))}
+            </ul>
+
+            {confirmDelete && (
+                <ConfirmModal
+                    isOpen
+                    title="Eliminar Subgrupo"
+                    message={`¿Eliminar el subgrupo "${confirmDelete.nombre}"? Las capas que pertenecen a este subgrupo quedarán sin subgrupo asignado.`}
+                    confirmText="Eliminar"
+                    cancelText="Cancelar"
+                    confirmVariant="danger"
+                    icon="🗑️"
+                    onConfirm={() => handleDelete(confirmDelete.id)}
+                    onCancel={() => setConfirmDelete(null)}
+                />
+            )}
+        </div>
+    );
+};
+
+// ── GruposManager principal ───────────────────────────────────────────────────
 
 const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
-    const [grupos, setGrupos] = useState<GrupoResponse[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [grupos, setGrupos]         = useState<GrupoResponse[]>([]);
+    const [loading, setLoading]       = useState(true);
+    const [error, setError]           = useState<string | null>(null);
 
-    // Formulario nuevo grupo
     const [isAddingNew, setIsAddingNew] = useState(false);
-    const [newGrupo, setNewGrupo] = useState<GrupoCreate>({ nombre: '', url_proyecto: '' });
+    const [newGrupo, setNewGrupo]     = useState<GrupoCreate>({ nombre: '', url_proyecto: '' });
 
-    // Estado de edición
-    const [editingId, setEditingId] = useState<number | null>(null);
-    const [editForm, setEditForm] = useState<GrupoCreate>({ nombre: '', url_proyecto: '' });
+    const [editingId, setEditingId]   = useState<number | null>(null);
+    const [editForm, setEditForm]     = useState<GrupoCreate>({ nombre: '', url_proyecto: '' });
     const [editSaving, setEditSaving] = useState(false);
 
-    // Validaciones XML por grupo
+    // Subgrupos expandidos por tarjeta
+    const [expandedSubgrupos, setExpandedSubgrupos] = useState<Set<number>>(new Set());
+
     const [xmlValidations, setXmlValidations] = useState<Map<number, XmlValidResult>>(new Map());
 
     const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; grupoId: number | null; grupoNombre: string }>({
@@ -75,9 +250,11 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
         isOpen: false, title: '', message: '', variant: 'error',
     });
 
-    const showAlert = (title: string, message: string, variant: 'error' | 'warning' | 'success' | 'info' = 'error') => {
-        setAlertModal({ isOpen: true, title, message, variant });
-    };
+    const showAlert = (
+        title: string,
+        message: string,
+        variant: 'error' | 'warning' | 'success' | 'info' = 'error'
+    ) => setAlertModal({ isOpen: true, title, message, variant });
 
     const loadGrupos = async () => {
         setLoading(true);
@@ -86,13 +263,20 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
             const data = await apiService.getGrupos();
             setGrupos(data.sort((a, b) => a.id - b.id));
         } catch (err: unknown) {
-            setError(err.message);
+            setError((err as Error).message);
         } finally {
             setLoading(false);
         }
     };
 
     useEffect(() => { loadGrupos(); }, []);
+
+    const toggleSubgrupos = (grupoId: number) =>
+        setExpandedSubgrupos(prev => {
+            const next = new Set(prev);
+            next.has(grupoId) ? next.delete(grupoId) : next.add(grupoId);
+            return next;
+        });
 
     // ── Crear ─────────────────────────────────────────────────────────────────
     const handleCreateGrupo = async () => {
@@ -107,7 +291,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
             await loadGrupos();
             onGruposChange?.();
         } catch (err: unknown) {
-            showAlert('Error al crear el grupo', err.message, 'error');
+            showAlert('Error al crear el grupo', (err as Error).message, 'error');
         }
     };
 
@@ -116,8 +300,6 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
         setEditingId(grupo.id);
         setEditForm({ nombre: grupo.nombre, url_proyecto: grupo.url_proyecto ?? '' });
     };
-
-    const cancelEdit = () => setEditingId(null);
 
     const handleSaveEdit = async () => {
         if (!editForm.nombre.trim()) {
@@ -131,16 +313,15 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
             await loadGrupos();
             onGruposChange?.();
         } catch (err: unknown) {
-            showAlert('Error al actualizar el grupo', err.message, 'error');
+            showAlert('Error al actualizar el grupo', (err as Error).message, 'error');
         } finally {
             setEditSaving(false);
         }
     };
 
     // ── Eliminar ──────────────────────────────────────────────────────────────
-    const handleDeleteGrupo = (id: number, nombre: string) => {
+    const handleDeleteGrupo = (id: number, nombre: string) =>
         setConfirmModal({ isOpen: true, grupoId: id, grupoNombre: nombre });
-    };
 
     const confirmDeleteGrupo = async () => {
         if (!confirmModal.grupoId) return;
@@ -149,7 +330,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
             await loadGrupos();
             onGruposChange?.();
         } catch (err: unknown) {
-            showAlert('Error al eliminar el grupo', err.message, 'error');
+            showAlert('Error al eliminar el grupo', (err as Error).message, 'error');
         }
     };
 
@@ -166,7 +347,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
         } catch (err: unknown) {
             setXmlValidations(prev => new Map(prev).set(grupo.id, {
                 status: 'error',
-                message: err.message ?? 'Error desconocido al validar el proyecto',
+                message: (err as Error).message ?? 'Error desconocido al validar el proyecto',
             }));
         }
     };
@@ -174,7 +355,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
     if (loading) {
         return (
             <div className="grupos-manager">
-                <div className="loading-state"><div className="spinner"></div><p>Cargando grupos...</p></div>
+                <div className="loading-state"><div className="spinner"></div><p>Cargando grupos…</p></div>
             </div>
         );
     }
@@ -220,7 +401,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                                     onChange={e => setNewGrupo({ ...newGrupo, url_proyecto: e.target.value })}
                                     placeholder="C:/mis_proyectos/01_Geologicos.qgz"
                                 />
-                                <label className="btn btn-secondary btn-file-selector" style={{ color: 'white' }} title="Seleccionar archivo .qgz o .qgs">
+                                <label className="btn btn-secondary btn-file-selector" style={{ color: 'white' }} title="Seleccionar .qgz o .qgs">
                                     Explorar
                                     <input
                                         type="file"
@@ -233,10 +414,10 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                                                 if (!newGrupo.url_proyecto) {
                                                     setNewGrupo({ ...newGrupo, url_proyecto: `C:/mis_proyectos/${fileName}` });
                                                 } else {
-                                                    const currentPath = newGrupo.url_proyecto;
-                                                    const lastSlash = Math.max(currentPath.lastIndexOf('/'), currentPath.lastIndexOf('\\'));
-                                                    const directory = lastSlash > -1 ? currentPath.substring(0, lastSlash + 1) : 'C:/mis_proyectos/';
-                                                    setNewGrupo({ ...newGrupo, url_proyecto: directory + fileName });
+                                                    const p = newGrupo.url_proyecto;
+                                                    const lastSlash = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+                                                    const dir = lastSlash > -1 ? p.substring(0, lastSlash + 1) : 'C:/mis_proyectos/';
+                                                    setNewGrupo({ ...newGrupo, url_proyecto: dir + fileName });
                                                 }
                                                 e.target.value = '';
                                             }
@@ -265,13 +446,13 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                 ) : (
                     <div className="grupos-grid">
                         {grupos.map(grupo => {
-                            const xmlVal = xmlValidations.get(grupo.id) ?? { status: 'idle' as XmlValidStatus };
+                            const xmlVal    = xmlValidations.get(grupo.id) ?? { status: 'idle' as XmlValidStatus };
                             const isEditing = editingId === grupo.id;
+                            const subExpanded = expandedSubgrupos.has(grupo.id);
 
                             return (
                                 <div key={grupo.id} className={`grupo-card${isEditing ? ' grupo-card--editing' : ''}`}>
                                     {isEditing ? (
-                                        /* ── Modo edición ── */
                                         <div className="grupo-edit-form">
                                             <div className="form-field">
                                                 <label>Nombre <span className="required">*</span></label>
@@ -290,7 +471,7 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                                                     className="input"
                                                     value={editForm.url_proyecto ?? ''}
                                                     onChange={e => setEditForm({ ...editForm, url_proyecto: e.target.value })}
-                                                    placeholder="C:/mis_proyectos/..."
+                                                    placeholder="C:/mis_proyectos/…"
                                                 />
                                             </div>
                                             <div className="form-actions form-actions--compact">
@@ -301,14 +482,14 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                                                 >
                                                     {editSaving ? 'Guardando…' : '💾 Guardar'}
                                                 </button>
-                                                <button className="btn btn-secondary btn--sm" onClick={cancelEdit} disabled={editSaving}>
+                                                <button className="btn btn-secondary btn--sm" onClick={() => setEditingId(null)} disabled={editSaving}>
                                                     Cancelar
                                                 </button>
                                             </div>
                                         </div>
                                     ) : (
-                                        /* ── Modo visualización ── */
                                         <>
+                                            {/* ── Cabecera de la tarjeta ── */}
                                             <div className="grupo-header">
                                                 <div className="grupo-info"><h4>{grupo.nombre}</h4></div>
                                                 <div className="grupo-actions">
@@ -319,25 +500,23 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                                                         title={
                                                             !grupo.url_proyecto
                                                                 ? 'Sin ruta de proyecto configurada'
-                                                                : xmlVal.status === 'idle'
-                                                                    ? 'Validar GetCapabilities XML del proyecto'
-                                                                    : xmlVal.status === 'loading'
-                                                                        ? 'Validando…'
-                                                                        : xmlVal.status === 'ok'
-                                                                            ? `${xmlVal.layerCount} capa(s)`
-                                                                            : xmlVal.message
+                                                                : xmlVal.status === 'idle'    ? 'Validar GetCapabilities XML'
+                                                                : xmlVal.status === 'loading' ? 'Validando…'
+                                                                : xmlVal.status === 'ok'      ? `${xmlVal.layerCount} capa(s)`
+                                                                : xmlVal.message
                                                         }
                                                     >
                                                         {xmlVal.status === 'loading' && <span className="btn-validate__spinner" aria-hidden />}
-                                                        {xmlVal.status === 'idle' && '🔎 XML'}
-                                                        {xmlVal.status === 'ok' && '✅ XML'}
-                                                        {xmlVal.status === 'error' && '❌ XML'}
+                                                        {xmlVal.status === 'idle'    && '🔎 XML'}
+                                                        {xmlVal.status === 'ok'      && '✅ XML'}
+                                                        {xmlVal.status === 'error'   && '❌ XML'}
                                                     </button>
-                                                    <button className="btn-edit" onClick={() => startEdit(grupo)} title="Editar grupo">✏️</button>
+                                                    <button className="btn-edit"   onClick={() => startEdit(grupo)}                        title="Editar grupo">✏️</button>
                                                     <button className="btn-delete" onClick={() => handleDeleteGrupo(grupo.id, grupo.nombre)} title="Eliminar grupo">🗑️</button>
                                                 </div>
                                             </div>
 
+                                            {/* ── Enlace GetCapabilities ── */}
                                             {grupo.url_proyecto && (
                                                 <div className="grupo-url">
                                                     <strong>Enlace a proyecto:</strong>
@@ -352,14 +531,13 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                                                 </div>
                                             )}
 
+                                            {/* ── Resultado validación XML ── */}
                                             {(xmlVal.status === 'ok' || xmlVal.status === 'error') && (
                                                 <div className={`xml-validation-result xml-validation-result--${xmlVal.status}`}>
                                                     {xmlVal.status === 'ok' ? (
                                                         <>
                                                             <span className="xml-result-icon">✅</span>
-                                                            <div>
-                                                                <span className="xml-result-detail">{xmlVal.layerCount} capa(s) publicada(s)</span>
-                                                            </div>
+                                                            <div><span className="xml-result-detail">{xmlVal.layerCount} capa(s) publicada(s)</span></div>
                                                         </>
                                                     ) : (
                                                         <>
@@ -368,6 +546,19 @@ const GruposManager: React.FC<GruposManagerProps> = ({ onGruposChange }) => {
                                                         </>
                                                     )}
                                                 </div>
+                                            )}
+
+                                            {/* ── Toggle subgrupos ── */}
+                                            <button
+                                                className={`subgrupos-toggle ${subExpanded ? 'subgrupos-toggle--open' : ''}`}
+                                                onClick={() => toggleSubgrupos(grupo.id)}
+                                            >
+                                                <span>📂 Subgrupos</span>
+                                                <span className={`group-chevron ${subExpanded ? '' : 'closed'}`} aria-hidden="true">▾</span>
+                                            </button>
+
+                                            {subExpanded && (
+                                                <SubgruposPanel grupo={grupo} onAlert={showAlert} />
                                             )}
                                         </>
                                     )}

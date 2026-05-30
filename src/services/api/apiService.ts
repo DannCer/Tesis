@@ -16,6 +16,7 @@
 import { config, logger } from '@config/env';
 import type {
     GrupoResponse, GrupoCreate,
+    SubgrupoResponse, SubgrupoCreate,
     ItemResponse, ItemCreate,
 } from '@types/api';
 import type { VectorLayerDef, RasterLayerDef } from '@types/geo';
@@ -117,6 +118,22 @@ export const apiService = {
 
     deleteGrupo: (id: number): Promise<void> =>
         request(`/gestion/grupos/${id}`, { method: 'DELETE' }),
+
+    // ── SUBGRUPOS  —  /api/v1/gestion/subgrupos ───────────────────────────
+    getSubgrupos: (): Promise<SubgrupoResponse[]> =>
+        request('/gestion/subgrupos'),
+
+    getSubgruposPorGrupo: (grupoId: number): Promise<SubgrupoResponse[]> =>
+        request(`/gestion/grupos/${grupoId}/subgrupos`),
+
+    createSubgrupo: (s: SubgrupoCreate): Promise<SubgrupoResponse> =>
+        request('/gestion/subgrupos', { method: 'POST', body: JSON.stringify(s) }),
+
+    updateSubgrupo: (id: number, s: SubgrupoCreate): Promise<SubgrupoResponse> =>
+        request(`/gestion/subgrupos/${id}`, { method: 'PUT', body: JSON.stringify(s) }),
+
+    deleteSubgrupo: (id: number): Promise<void> =>
+        request(`/gestion/subgrupos/${id}`, { method: 'DELETE' }),
 
     getCapas: (): Promise<ItemResponse[]> =>
         request('/gestion/'),

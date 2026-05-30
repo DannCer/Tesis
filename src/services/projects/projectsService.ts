@@ -219,9 +219,9 @@ class ProjectsService {
             logger.log(`WMS: ${layers.length} capas detectadas en "${project.name}"`);
             return layers;
 
-        } catch (error: any) {
+        } catch (error: unknown) {
             logger.error('Error en getWMSCapabilities:', error);
-            throw new Error(`No se pudo obtener GetCapabilities WMS: ${error.message}`);
+            throw new Error(`No se pudo obtener GetCapabilities WMS: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -297,9 +297,9 @@ class ProjectsService {
             logger.log(`WFS: ${layers.length} capas detectadas en "${project.name}"`);
             return layers;
 
-        } catch (error: any) {
+        } catch (error: unknown) {
             logger.error('Error en getWFSCapabilities:', error);
-            throw new Error(`No se pudo obtener GetCapabilities WFS: ${error.message}`);
+            throw new Error(`No se pudo obtener GetCapabilities WFS: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
