@@ -43,7 +43,7 @@ export async function loadGeoTIFF(file: File): Promise<GeoRasterParseResult> {
         return { ok: false, error: `El archivo debe ser GeoTIFF (.tif / .tiff), se recibió .${ext}` };
     }
 
-    console.debug(`[georasterLoader] cargando: "${file.name}" (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+    if (import.meta.env.DEV) { console.debug(`[georasterLoader] cargando: "${file.name}" (${(file.size / 1024 / 1024).toFixed(2)} MB)`); }
 
     // Importación dinámica — requiere: npm install georaster
     let parseGeoraster: (input: ArrayBuffer) => Promise<unknown>;
@@ -71,7 +71,7 @@ export async function loadGeoTIFF(file: File): Promise<GeoRasterParseResult> {
             pixelWidth: number; pixelHeight: number;
         };
 
-        console.debug(`[georasterLoader] OK | bandas: ${g.numberOfRasters} | extent: [${g.xmin.toFixed(4)}, ${g.ymin.toFixed(4)}, ${g.xmax.toFixed(4)}, ${g.ymax.toFixed(4)}]`);
+        if (import.meta.env.DEV) { console.debug(`[georasterLoader] OK | bandas: ${g.numberOfRasters} | extent: [${g.xmin.toFixed(4)}, ${g.ymin.toFixed(4)}, ${g.xmax.toFixed(4)}, ${g.ymax.toFixed(4)}]`); }
 
         const bounds: [[number, number], [number, number]] = [
             [g.ymin, g.xmin],

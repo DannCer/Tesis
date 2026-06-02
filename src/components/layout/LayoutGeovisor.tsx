@@ -12,7 +12,7 @@
 import { memo, type ReactNode } from 'react';
 import Header from '@components/layout/Header';
 import '@styles/global.css';
-import { SelectedProjectProvider } from '@/contexts/SelectedProjectContext';
+import { SelectedProjectProvider } from '@contexts/SelectedProjectContext';
 
 interface LayoutGeovisorProps {
     children: ReactNode;

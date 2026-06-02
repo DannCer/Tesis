@@ -113,6 +113,14 @@
 .capa-details { display: flex; flex-direction: column; gap: var(--spacing-xs); }
 .detail-item  { display: flex; align-items: flex-start; gap: var(--spacing-xs); font-size: 0.85rem; }
 .detail-item strong { color: var(--color-primary); min-width: 50px; flex-shrink: 0; }
+.detail-item code {
+  flex: 1;
+  min-width: 0;
+  display: block;
+  word-break: break-all;   /* rompe el texto largo en cualquier carácter */
+  overflow-wrap: anywhere; /* fallback moderno */
+  white-space: normal;
+}
 
 /* Colapso global de grupos */
 .grupos-collapse-controls { display: flex; justify-content: flex-end; margin-bottom: 8px; }
