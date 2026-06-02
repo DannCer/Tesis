@@ -41,7 +41,7 @@ function readAsArrayBuffer(file: File | Blob): Promise<ArrayBuffer> {
 // ─── GeoJSON ─────────────────────────────────────────────────────────────────
 
 async function parseGeoJSON(file: File): Promise<ParseResult> {
-    console.debug('[fileToGeoJSON] parseando como GeoJSON...');
+    if (import.meta.env.DEV) { console.debug('[fileToGeoJSON] parseando como GeoJSON...'); }
     try {
         const text = await readAsText(file);
         const json = JSON.parse(text) as GeoJSON.GeoJSON;
@@ -141,7 +141,7 @@ function extractKMLGeometry(node: Element): GeoJSON.Geometry | null {
 // ─── KMZ → GeoJSON ───────────────────────────────────────────────────────────
 
 async function parseKMZ(file: File): Promise<ParseResult> {
-    console.debug('[fileToGeoJSON] parseando como KMZ...');
+    if (import.meta.env.DEV) { console.debug('[fileToGeoJSON] parseando como KMZ...'); }
     try {
         // Importación dinámica — requiere: npm install jszip
         let JSZip: typeof import('jszip');
@@ -175,7 +175,7 @@ async function parseKMZ(file: File): Promise<ParseResult> {
 // ─── KML → GeoJSON ───────────────────────────────────────────────────────────
 
 async function parseKML(file: File): Promise<ParseResult> {
-    console.debug('[fileToGeoJSON] parseando como KML...');
+    if (import.meta.env.DEV) { console.debug('[fileToGeoJSON] parseando como KML...'); }
     try {
         const text = await readAsText(file);
         const fc   = kmlToGeoJSON(text);
@@ -191,7 +191,7 @@ async function parseKML(file: File): Promise<ParseResult> {
 // ─── Shapefile → GeoJSON ─────────────────────────────────────────────────────
 
 async function parseShapefile(file: File): Promise<ParseResult> {
-    console.debug('[fileToGeoJSON] parseando como Shapefile ZIP...');
+    if (import.meta.env.DEV) { console.debug('[fileToGeoJSON] parseando como Shapefile ZIP...'); }
     try {
         // Importación dinámica — requiere: npm install shpjs
         let shp: { default: (buffer: ArrayBuffer) => Promise<unknown> };
@@ -217,7 +217,7 @@ async function parseShapefile(file: File): Promise<ParseResult> {
         if (!fc.features?.length) {
             return { ok: false, error: 'El Shapefile no contiene features' };
         }
-        console.debug(`[fileToGeoJSON] Shapefile OK: ${fc.features.length} features`);
+        if (import.meta.env.DEV) { console.debug(`[fileToGeoJSON] Shapefile OK: ${fc.features.length} features`); }
         return { ok: true, data: fc };
     } catch (e) {
         return { ok: false, error: `Error al procesar Shapefile: ${(e as Error).message}` };
@@ -232,7 +232,7 @@ async function parseShapefile(file: File): Promise<ParseResult> {
  */
 export async function fileToGeoJSON(file: File): Promise<ParseResult> {
     const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-    console.debug(`[fileToGeoJSON] archivo: "${file.name}" | tamaño: ${(file.size/1024).toFixed(1)} KB | ext: .${ext}`);
+    if (import.meta.env.DEV) { console.debug(`[fileToGeoJSON] archivo: "${file.name}" | tamaño: ${(file.size/1024).toFixed(1)} KB | ext: .${ext}`); }
 
     switch (ext) {
         case 'geojson':

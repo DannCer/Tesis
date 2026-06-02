@@ -3,13 +3,13 @@ import { useLocation, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '@hooks/useAuth';
 import LayoutPrincipal from '@components/layout/LayoutPrincipal';
 import LayoutGeovisor from '@components/layout/LayoutGeovisor';
-import { ProtectedRoute } from '@components/ProtectedRoute';  // ← AGREGAR
+import { ProtectedRoute } from '@components/ProtectedRoute';  
 import Principal from '@pages/Principal';
 import Arquitectura from '@pages/Arquitectura';
 import Geovisor from '@pages/Geovisor';
 import GestionProyectos from '@pages/GestionProyectos';
-import Login from '@pages/Login';  // ← AGREGAR
-import AdminDashboard from '@pages/AdminDashboard';  // ← AGREGAR
+import Login from '@pages/Login'; 
+import AdminDashboard from '@pages/AdminDashboard'; 
 import NotFound from '@pages/NotFound';
 
 const AppLayout = () => {

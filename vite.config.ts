@@ -1,55 +1,91 @@
-import { defineConfig, loadEnv } from 'vite';
+/**
+ * vite.config.ts — Configuración Vite optimizada para Geovisor CDMX
+ */
+
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import compression from 'vite-plugin-compression2';
 import path from 'path';
 
-// https://vitejs.dev/config/
-export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, process.cwd(), '');
+export default defineConfig({
+    plugins: [
+        react(),
 
-    return {
-        plugins: [react()],
+        // Compresión Brotli y Gzip
+        compression({ algorithm: 'brotliCompress', ext: '.br', threshold: 1024 }),
+        compression({ algorithm: 'gzip', ext: '.gz', threshold: 1024 }),
+    ],
 
-        resolve: {
-            alias: {
-                '@':           path.resolve(__dirname, './src'),
-                '@components': path.resolve(__dirname, './src/components'),
-                '@hooks':      path.resolve(__dirname, './src/hooks'),
-                '@services':   path.resolve(__dirname, './src/services'),
-                '@contexts':   path.resolve(__dirname, './src/contexts'),
-                '@types':      path.resolve(__dirname, './src/types'),
-                '@utils':      path.resolve(__dirname, './src/utils'),
-                '@config':     path.resolve(__dirname, './src/config'),
-                '@pages':      path.resolve(__dirname, './src/pages'),
-                '@styles':     path.resolve(__dirname, './src/styles'),
-                '@assets':     path.resolve(__dirname, './src/assets'),
-            },
+    resolve: {
+        alias: {
+            '@components': path.resolve(__dirname, 'src/components'),
+            '@config': path.resolve(__dirname, 'src/config'),
+            '@contexts': path.resolve(__dirname, 'src/contexts'),
+            '@hooks': path.resolve(__dirname, 'src/hooks'),
+            '@services': path.resolve(__dirname, 'src/services'),
+            '@utils': path.resolve(__dirname, 'src/utils'),
+            '@types': path.resolve(__dirname, 'src/types'),
+            '@styles': path.resolve(__dirname, 'src/styles'),
+            '@assets': path.resolve(__dirname, 'src/assets'),
+            '@pages': path.resolve(__dirname, 'src/pages'),
         },
+    },
 
-        server: {
-            port: 5173,
-            host: '0.0.0.0',
-            proxy: {
-                // Redirige /api al backend FastAPI en desarrollo.
-                // En producción Nginx maneja esto directamente.
-                '/api': {
-                    target: env.VITE_API_URL ?? 'http://localhost:8000',
-                    changeOrigin: true,
+    build: {
+        target: 'es2020',
+        sourcemap: false,
+        chunkSizeWarningLimit: 800,
+
+        rollupOptions: {
+            output: {
+                // ── Code splitting inteligente ────────────────────────────
+                manualChunks(id) {
+                    if (id.includes('node_modules/react') ||
+                        id.includes('node_modules/react-dom') ||
+                        id.includes('node_modules/react-router-dom')) {
+                        return 'vendor-react';
+                    }
+
+                    if (id.includes('node_modules/leaflet') ||
+                        id.includes('node_modules/react-leaflet')) {
+                        return 'vendor-leaflet';
+                    }
+
+                    if (id.includes('node_modules/georaster')) {
+                        return 'vendor-georaster';
+                    }
+
+                    if (id.includes('node_modules/@mapbox/shp-write') ||
+                        id.includes('node_modules/shpjs')) {
+                        return 'vendor-shapefile';
+                    }
+
+                    if (id.includes('node_modules/bootstrap')) {
+                        return 'vendor-bootstrap';
+                    }
                 },
-                // Proxy para QGIS Server: evita CORS en desarrollo
-                // cuando httpd.conf no tiene "Header always set".
-                // Solo activo si VITE_QGIS_PROXY=true en .env.local
-                ...(env.VITE_QGIS_PROXY === 'true' ? {
-                    '/ogis': {
-                        target: env.VITE_QGIS_SERVER_URL ?? 'http://192.168.100.184',
-                        changeOrigin: true,
-                    },
-                } : {}),
+
+                entryFileNames: 'assets/[name]-[hash].js',
+                chunkFileNames: 'assets/[name]-[hash].js',
+                assetFileNames: 'assets/[name]-[hash].[ext]',
             },
         },
+    },
 
-        build: {
-            sourcemap: false,
-            chunkSizeWarningLimit: 800,
+    server: {
+        host: true,
+        port: 5173,
+        proxy: {
+            '/qgis': {
+                target: 'http://192.168.100.184',
+                changeOrigin: true,
+                timeout: 120_000,
+            },
+            '/api': {
+                target: 'http://192.168.100.184:8000',
+                changeOrigin: true,
+                timeout: 30_000,
+            },
         },
-    };
+    },
 });

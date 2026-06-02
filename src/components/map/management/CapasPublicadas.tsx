@@ -10,7 +10,6 @@ import '@styles/CapasPublicadas.css';
 const CapasPublicadas: React.FC = () => {
     const { vectorLayers, rasterLayers, grupos, loading, error, refresh } = usePublishedLayers();
 
-    // Grupos colapsados: Set con los nombres de grupos que están cerrados
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
     const toggleGroup = (grupoNombre: string) => {
@@ -22,7 +21,7 @@ const CapasPublicadas: React.FC = () => {
         });
     };
 
-    const expandAll = () => setCollapsedGroups(new Set());
+    const expandAll  = () => setCollapsedGroups(new Set());
     const collapseAll = (grupoNames: string[]) => setCollapsedGroups(new Set(grupoNames));
 
     if (loading) {
@@ -51,20 +50,28 @@ const CapasPublicadas: React.FC = () => {
 
     const totalCapas = vectorLayers.length + rasterLayers.length;
 
-    // Agrupar capas por grupo
+    // ── Agrupar capas por nombre de grupo ────────────────────────────────────
     const capasPorGrupo = new Map<string, { vector: typeof vectorLayers; raster: typeof rasterLayers }>();
 
     vectorLayers.forEach(layer => {
         if (!capasPorGrupo.has(layer.group)) capasPorGrupo.set(layer.group, { vector: [], raster: [] });
         capasPorGrupo.get(layer.group)!.vector.push(layer);
     });
-
     rasterLayers.forEach(layer => {
         if (!capasPorGrupo.has(layer.group)) capasPorGrupo.set(layer.group, { vector: [], raster: [] });
         capasPorGrupo.get(layer.group)!.raster.push(layer);
     });
 
-    const grupoNames = Array.from(capasPorGrupo.keys());
+    // ── Ordenar grupos por ID (orden de creación) ─────────────────────────────
+    // Se usa el array `grupos` del contexto (que viene de GET /gestion/grupos,
+    // ordenado por id en el backend) para controlar el orden de renderizado.
+    // Así el orden visual coincide con el orden de registro en la BD.
+    const gruposSorted = grupos
+        .slice()
+        .sort((a, b) => a.id - b.id)
+        .filter(g => capasPorGrupo.has(g.nombre));
+
+    const grupoNames = gruposSorted.map(g => g.nombre);
     const allCollapsed = grupoNames.length > 0 && grupoNames.every(g => collapsedGroups.has(g));
 
     return (
@@ -103,7 +110,6 @@ const CapasPublicadas: React.FC = () => {
                 </div>
             ) : (
                 <>
-                    {/* ── Controles de colapso global ── */}
                     {grupoNames.length > 1 && (
                         <div className="grupos-collapse-controls">
                             <button
@@ -117,13 +123,15 @@ const CapasPublicadas: React.FC = () => {
                     )}
 
                     <div className="grupos-container">
-                        {Array.from(capasPorGrupo.entries()).map(([grupoNombre, capas]) => {
-                            const totalGrupo = capas.vector.length + capas.raster.length;
+                        {/* ── Iterar en orden de ID del grupo ── */}
+                        {gruposSorted.map(grupo => {
+                            const grupoNombre = grupo.nombre;
+                            const capas       = capasPorGrupo.get(grupoNombre)!;
+                            const totalGrupo  = capas.vector.length + capas.raster.length;
                             const isCollapsed = collapsedGroups.has(grupoNombre);
 
                             return (
                                 <div key={grupoNombre} className={`grupo-section${isCollapsed ? ' grupo-section--collapsed' : ''}`}>
-                                    {/* ── Cabecera clickable del grupo ── */}
                                     <div
                                         className="grupo-header grupo-header--collapsible"
                                         onClick={() => toggleGroup(grupoNombre)}
@@ -133,25 +141,16 @@ const CapasPublicadas: React.FC = () => {
                                         onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && toggleGroup(grupoNombre)}
                                     >
                                         <div className="grupo-header-left">
-                                            <span className={`grupo-chevron${isCollapsed ? ' grupo-chevron--collapsed' : ''}`}>
-                                                ▾
-                                            </span>
+                                            <span className={`grupo-chevron${isCollapsed ? ' grupo-chevron--collapsed' : ''}`}>▾</span>
                                             <h4>{grupoNombre}</h4>
                                         </div>
                                         <div className="grupo-header-right">
-                                            <span className="grupo-count">
-                                                {totalGrupo} capa{totalGrupo !== 1 ? 's' : ''}
-                                            </span>
-                                            {capas.vector.length > 0 && (
-                                                <span className="type-badge vector">{capas.vector.length} vec</span>
-                                            )}
-                                            {capas.raster.length > 0 && (
-                                                <span className="type-badge raster">{capas.raster.length} rás</span>
-                                            )}
+                                            <span className="grupo-count">{totalGrupo} capa{totalGrupo !== 1 ? 's' : ''}</span>
+                                            {capas.vector.length > 0 && <span className="type-badge vector">{capas.vector.length} vec</span>}
+                                            {capas.raster.length > 0 && <span className="type-badge raster">{capas.raster.length} rás</span>}
                                         </div>
                                     </div>
 
-                                    {/* ── Contenido colapsable ── */}
                                     {!isCollapsed && (
                                         <div className="grupo-body">
                                             {capas.vector.length > 0 && (
@@ -173,11 +172,12 @@ const CapasPublicadas: React.FC = () => {
                                                                 <div className="capa-details">
                                                                     <div className="detail-item">
                                                                         <strong>WFS:</strong>
-                                                                        <code>{layer.wfsName}</code>
+                                                                        {/* title muestra el texto completo al hacer hover */}
+                                                                        <code title={layer.wfsName}>{layer.wfsName}</code>
                                                                     </div>
                                                                     <div className="detail-item">
                                                                         <strong>WMS:</strong>
-                                                                        <code>{layer.wmsLayer}</code>
+                                                                        <code title={layer.wmsLayer}>{layer.wmsLayer}</code>
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -204,7 +204,7 @@ const CapasPublicadas: React.FC = () => {
                                                                 <div className="capa-details">
                                                                     <div className="detail-item">
                                                                         <strong>WMS:</strong>
-                                                                        <code>{layer.wmsLayer}</code>
+                                                                        <code title={layer.wmsLayer}>{layer.wmsLayer}</code>
                                                                     </div>
                                                                 </div>
                                                             </div>

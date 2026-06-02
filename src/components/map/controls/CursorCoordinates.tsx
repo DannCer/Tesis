@@ -5,6 +5,10 @@
  * Implementado como control nativo de Leaflet (posición bottomleft) para
  * integrarse correctamente con el z-index y el ciclo de vida del mapa.
  *
+ * Mejoras v2:
+ *  - Ternario vacío en formato DD eliminado; ahora muestra signo real (+/-)
+ *    solo cuando es negativo, sin prefijo en positivos (comportamiento estándar).
+ *
  * @module components/map/controls/CursorCoordinates
  */
 
@@ -97,8 +101,10 @@ const CursorCoordinates: React.FC = () => {
         if (format === 'dms') {
             return { lat: toDMS(c.lat, true), lng: toDMS(c.lng, false) };
         }
+        // Formato decimal: muestra el valor con signo propio de toFixed,
+        // sin prefijo adicional. Los valores negativos ya incluyen el "-".
         return {
-            lat: `${c.lat >= 0 ? '' : ''}${c.lat.toFixed(6)}°`,
+            lat: `${c.lat.toFixed(6)}°`,
             lng: `${c.lng.toFixed(6)}°`,
         };
     };
