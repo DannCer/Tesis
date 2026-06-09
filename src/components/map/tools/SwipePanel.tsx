@@ -98,11 +98,15 @@ const SwipePanel: React.FC<SwipePanelProps> = ({
         setOpen(false);
     };
 
-    // Grupos únicos para los <optgroup>
-    const groups = useMemo(
-        () => Array.from(new Set(allLayers.map(l => l.group))),
-        [allLayers]
-    );
+    // Grupos únicos ordenados por id (mismo criterio que LayerMenu)
+    const groups = useMemo(() => {
+        const unique = Array.from(new Set(allLayers.map(l => l.group)));
+        return unique.sort((a, b) => {
+            const idA = grupos.find(g => g.nombre === a)?.id ?? Infinity;
+            const idB = grupos.find(g => g.nombre === b)?.id ?? Infinity;
+            return idA - idB;
+        });
+    }, [allLayers, grupos]);
 
     const renderSelect = (value: string, onChange: (v: string) => void, exclude?: string) => (
         <select

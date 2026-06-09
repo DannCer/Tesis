@@ -14,6 +14,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import L from 'leaflet';
+import * as turf from '@turf/turf';
 import ConfirmModal from '@components/common/Confirmmodal';
 import {
     calculateLength,
@@ -21,51 +22,25 @@ import {
     formatMeasurement,
     saveAnalysisToHistory,
 } from '@utils/analysisToolUtils';
+import {
+    ANALYSIS_LAYERS,
+    GREEN_GROUPS,
+    buildCircleRing,
+    getArcGISGeometry,
+    queryArcGISLayer,
+    getDisplayValue,
+    buildInitialResults,
+    pickName,
+    SKIP_FIELDS,
+    type LayerResult,
+    type DemoData,
+} from '@utils/arcgisAnalysis';
 import '@styles/AnalysisTool.css';
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
+// ─── Tipos locales ────────────────────────────────────────────────────────────
 
-type DrawMode    = 'point' | 'line' | 'polygon';
-type DistUnit    = 'kilometers' | 'meters' | 'miles';
-type OperationType = 'suma' | 'total' | 'categorizar';
-
-interface AnalysisLayerDef {
-    id:          string;
-    name:        string;        // Texto en la columna "Nombre"
-    url:         string;        // URL ArcGIS REST (FeatureServer/N o MapServer/N)
-    attributes:  string[];      // Campos a consultar
-    operation:   OperationType;
-    group:       string;        // Grupo temático
-    symbolUrl?:   string;        // URL de símbolo (capas puntuales)
-    legendColor?: string;        // Color del cuadro de leyenda (capas poligonales/lineales)
-    where?:       string;        // Filtro adicional (ej: TAXONOMIA='INCENDIO FORESTAL')
-    wfsTypeName:  string;        // Nombre técnico de la capa
-}
-
-interface DemoData {
-    pobtot:     number;
-    p_60ymas:   number;
-    tvivhab:    number;
-    pcon_disc:  number;
-    vph_nodren: number;
-    hasReserved: boolean;
-}
-
-interface LayerResult {
-    layerId:      string;
-    layerName:    string;
-    url:          string;
-    operation:    OperationType;
-    group:        string;
-    symbolUrl?:   string;
-    legendColor?: string;     // Color del cuadro de leyenda para capas sin símbolo PNG
-    count:        number | null;      // Total de features (todas las operaciones)
-    categorias:   string[] | null;    // Valores únicos (categorizar)
-    demoData:     DemoData | null;    // Sumas demográficas (suma)
-    features:     GeoJSON.Feature[] | null;
-    loadingDetails: boolean;
-    error?:       boolean;
-}
+type DrawMode = 'point' | 'line' | 'polygon';
+type DistUnit = 'kilometers' | 'meters' | 'miles';
 
 interface AnalysisToolProps {
     mapInstance: L.Map | null;
@@ -73,303 +48,21 @@ interface AnalysisToolProps {
     onClose?:    () => void;
 }
 
-// ─── Constantes de capas (xlsx → código) ─────────────────────────────────────
-
-const BASE_FS = 'https://serviciosatlas.sgirpc.cdmx.gob.mx/arcgis/rest/services/Analisis/Herramienta_analisis/FeatureServer';
-const SYM     = 'https://www.atlas.cdmx.gob.mx/analisisn3/widgets/Analisis/images/Simbologia';
-
-const ANALYSIS_LAYERS: AnalysisLayerDef[] = [
-    // ── Demografía ────────────────────────────────────────────────────────────
-    {
-        id: 'demo_inegi', name: 'INEGI CPV2020',
-        url: 'https://serviciosatlas.sgirpc.cdmx.gob.mx/arcgis/rest/services/AtlasCapasPublicas/Limites/MapServer/13',
-        attributes: ['pobtot', 'p_60ymas', 'tvivhab', 'pcon_disc', 'vph_nodren'],
-        operation: 'suma', group: 'Demografía', wfsTypeName: 'INEGI_CPV2020_n9',
-    },
-    // ── Asentamientos ─────────────────────────────────────────────────────────
-    {
-        id: 'colonias', name: 'Colonias (IECM 2019)',
-        url: `${BASE_FS}/0`, attributes: ['nomasen'],
-        operation: 'total', group: 'Asentamientos',
-        legendColor: '#c7c6ff',
-        wfsTypeName: 'INEGI_Asentamientos_2010',
-    },
-    // ── Servicios urbanos — DENUE 2025 ────────────────────────────────────────
-    { id: 'educativos',  name: 'Centros educativos (DENUE 2025)',        url: `${BASE_FS}/1`,  attributes: ['nombre_act'], operation: 'categorizar', group: 'Servicios urbanos', symbolUrl: `${SYM}/Escuela.png`,     wfsTypeName: 'DENUE_INEGI_2025' },
-    { id: 'salud',       name: 'Establecimientos de Salud (DENUE 2025)', url: `${BASE_FS}/2`,  attributes: ['nombre_act'], operation: 'categorizar', group: 'Servicios urbanos', symbolUrl: `${SYM}/Salud.png`,       wfsTypeName: 'DENUE_INEGI_2025' },
-    { id: 'hoteles',     name: 'Hoteles (DENUE 2025)',                   url: `${BASE_FS}/3`,  attributes: ['nombre_act'], operation: 'categorizar', group: 'Servicios urbanos', symbolUrl: `${SYM}/Hotel.png`,       wfsTypeName: 'DENUE_INEGI_2025' },
-    { id: 'bancos',      name: 'Bancos (DENUE 2025)',                    url: `${BASE_FS}/4`,  attributes: ['nombre_act'], operation: 'categorizar', group: 'Servicios urbanos', symbolUrl: `${SYM}/Banco.png`,       wfsTypeName: 'DENUE_INEGI_2025' },
-    { id: 'gasolineras', name: 'Estaciones de servicio (DENUE 2025)',    url: `${BASE_FS}/5`,  attributes: ['nombre_act'], operation: 'categorizar', group: 'Servicios urbanos', symbolUrl: `${SYM}/Combustible.png`, wfsTypeName: 'DENUE_INEGI_2025' },
-    // ── Riesgos geológicos ────────────────────────────────────────────────────
-    { id: 'minas',          name: 'Minas',                          url: `${BASE_FS}/7`,  attributes: ['TAXONOMIA'],  operation: 'categorizar', group: 'Riesgos geológicos', symbolUrl: `${SYM}/Mina.png`,          wfsTypeName: 'SPC_MINAS_ITRF' },
-    { id: 'sismos',         name: 'Sismos',                         url: `${BASE_FS}/8`,  attributes: ['MAGNITUD'],   operation: 'categorizar', group: 'Riesgos geológicos', symbolUrl: `${SYM}/Sismograma_2.png`, wfsTypeName: 'SSN_Sismos_CDMEX_2023' },
-    // ← antes 'total'; cambiado a 'categorizar' para mostrar valores de intensidad
-    { id: 'laderas',        name: 'Inestabilidad de Laderas',       url: `${BASE_FS}/9`,  attributes: ['intensidad'], operation: 'categorizar', group: 'Riesgos geológicos', legendColor: '#c8a97e', wfsTypeName: 'zona_susceptibles_Procesos_remocion_en_masa' },
-    { id: 'geotecnica',     name: 'Zonificación Geotécnica',        url: `${BASE_FS}/10`, attributes: ['intensidad'], operation: 'categorizar', group: 'Riesgos geológicos', legendColor: '#b0c4de', wfsTypeName: 'SGIRPC_Zonificacion_Geotecnica_2017' },
-    // ← antes 'total'; cambiado a 'categorizar' para mostrar valores de intensidad
-    { id: 'fracturamiento', name: 'Vulnerabilidad al Fracturamiento', url: `${BASE_FS}/11`, attributes: ['intensidad'], operation: 'categorizar', group: 'Riesgos geológicos', legendColor: '#f5c97a', wfsTypeName: 'CENAPRED_Vulnerabilidad_Social_Fracturamiento_Nivel_AGEB' },
-    // ── Infraestructura hídrica ───────────────────────────────────────────────
-    { id: 'presas',     name: 'Presas',             url: `${BASE_FS}/12`, attributes: ['NOMBRE'],    operation: 'categorizar', group: 'Infraestructura hídrica', symbolUrl: `${SYM}/Presas.png`, wfsTypeName: 'PRESAS_CENAPRED_2017' },
-    { id: 'corrientes', name: 'Corrientes de Agua', url: `${BASE_FS}/13`, attributes: ['CONDICION'], operation: 'categorizar', group: 'Infraestructura hídrica', legendColor: '#4da6ff', wfsTypeName: 'HIDROGRAFIAL_INEGI_2018' },
-    // ── Peligros ──────────────────────────────────────────────────────────────
-    { id: 'incendios_forestales', name: 'Incendios Forestales', url: `${BASE_FS}/15`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'Peligros', symbolUrl: `${SYM}/Incendios.png`, where: "TAXONOMIA='INCENDIO FORESTAL'", wfsTypeName: 'PELIGRO_AGEBS' },
-    { id: 'peligro_general',      name: 'Peligro General',      url: `${BASE_FS}/14`, attributes: ['peligro2'], operation: 'categorizar', group: 'Peligros', legendColor: '#ff7f7f', wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
-    // ── REUSE ─────────────────────────────────────────────────────────────────
-    { id: 'reuse_derrames',        name: 'REUSE - Derrames',                                                    url: `${BASE_FS}/16`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_Derrames.png`,              wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
-    { id: 'reuse_explosiones',     name: 'REUSE - Explosiones',                                                 url: `${BASE_FS}/17`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_Explosiones.png`,            wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
-    { id: 'reuse_incendios_urb',   name: 'REUSE - Incendios Urbanos',                                           url: `${BASE_FS}/18`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_IncendiosUrbanos.png`,       wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
-    { id: 'reuse_plaga',           name: 'REUSE - Plaga',                                                       url: `${BASE_FS}/20`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_Plaga.png`,                  wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
-    { id: 'reuse_accidentes',      name: 'REUSE - Accidentes',                                                  url: `${BASE_FS}/21`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_Accidentes.png`,             wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
-    { id: 'reuse_sabotaje',        name: 'REUSE - Actos de Sabotaje o Terrorismo',                              url: `${BASE_FS}/22`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_ActosSabotaje.png`,          wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
-    { id: 'reuse_interrupcion',    name: 'REUSE - Interrupción de servicios vitales y sistemas estratégicos',   url: `${BASE_FS}/23`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_InterrupcionServicios.png`, wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
-    { id: 'reuse_inundacion',      name: 'REUSE - Inundación',                                                  url: `${BASE_FS}/24`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_Inundacion.png`,             wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
-    { id: 'reuse_concentraciones', name: 'REUSE - Concentraciones Masivas de Población',                        url: `${BASE_FS}/25`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_Concentraciones.png`,        wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
-    { id: 'reuse_granizo',         name: 'REUSE - Granizo',                                                     url: `${BASE_FS}/26`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_Granizo.png`,                wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
-    { id: 'reuse_socavones',       name: 'REUSE - Socavones',                                                   url: `${BASE_FS}/27`, attributes: ['ATENDIO'], operation: 'categorizar', group: 'REUSE', symbolUrl: `${SYM}/REUSE_Socavones.png`,              wfsTypeName: 'SGIRPC_REUSE_2018_2019_V1' },
-];
-
-// Grupos que van con fondo verde en la tabla (igual que en el original)
-const GREEN_GROUPS = new Set(['Asentamientos', 'REUSE']);
-
 const UNIT_LABELS: Record<DistUnit, string> = {
     kilometers: 'Kilómetros',
-    meters: 'Metros',
-    miles: 'Millas',
+    meters:     'Metros',
+    miles:      'Millas',
 };
-
-const SKIP_FIELDS = new Set([
-    'bbox', 'geometry', 'the_geom', 'geom', 'shape',
-    'objectid', 'objectid_1', 'OBJECTID', 'FID', 'fid',
-]);
-
-const NAME_CANDIDATES = [
-    'NOMBRE', 'nombre', 'name', 'NAME',
-    'Estado', 'estado', 'Municipio', 'municipio',
-    'Localidad', 'localidad', 'descripcion', 'DESCRIPCION',
-    'tipo', 'TIPO', 'cve_geo',
-];
 
 const MAX_FEATURES_LIMIT = 100;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function pickName(props: Record<string, any>): string {
-    for (const k of NAME_CANDIDATES) {
-        if (props[k] != null && props[k] !== '') return String(props[k]);
-    }
-    const keys = Object.keys(props).filter(k => !SKIP_FIELDS.has(k));
-    return keys.length ? String(props[keys[0]]) : 'Sin nombre';
-}
+// ─── Helpers locales ──────────────────────────────────────────────────────────
 
 function toMeters(dist: number, unit: DistUnit): number {
     switch (unit) {
         case 'kilometers': return dist * 1000;
         case 'meters':     return dist;
         case 'miles':      return dist * 1609.34;
-    }
-}
-
-/**
- * Genera 64 vértices que aproximan un círculo en WGS84.
- * Devuelve un anillo cerrado en formato [lng, lat][] para ArcGIS REST.
- */
-function buildCircleRing(center: L.LatLng, radiusMeters: number, steps = 32): number[][] {
-    const latRad = center.lat * (Math.PI / 180);
-    const dLat   = radiusMeters / 111_320;
-    const dLng   = radiusMeters / (111_320 * Math.cos(latRad));
-    const ring: number[][] = [];
-    for (let i = 0; i <= steps; i++) {
-        const angle = (i / steps) * 2 * Math.PI;
-        ring.push([
-            Math.round((center.lng + dLng * Math.cos(angle)) * 1e6) / 1e6,
-            Math.round((center.lat + dLat * Math.sin(angle)) * 1e6) / 1e6,
-        ]);
-    }
-    return ring;
-}
-
-/**
- * Devuelve la geometría ArcGIS REST y su tipo para la consulta espacial.
- *
- * - Punto  → círculo poligonal de 64 segmentos  (esriGeometryPolygon)
- * - Línea  → envelope expandido por el buffer   (esriGeometryEnvelope) *
- * - Polígono → el polígono dibujado exacto      (esriGeometryPolygon)
- *
- * * Para líneas se usa envelope como aproximación; un buffer real
- *   requeriría turf.js que no está importado directamente aquí.
- */
-function getArcGISGeometry(
-    mode:        DrawMode,
-    pts:         L.LatLng[],
-    distMeters:  number,
-): { geometry: string; geometryType: string } {
-
-    // ── Punto: círculo exacto ──────────────────────────────────────────────
-    if (mode === 'point' && pts.length >= 1) {
-        const ring = buildCircleRing(pts[0], distMeters);
-        return {
-            geometry:     JSON.stringify({ rings: [ring], spatialReference: { wkid: 4326 } }),
-            geometryType: 'esriGeometryPolygon',
-        };
-    }
-
-    // ── Polígono: el polígono dibujado ─────────────────────────────────────
-    if (mode === 'polygon' && pts.length >= 3) {
-        const ring = pts.map(p => [p.lng, p.lat]);
-        ring.push(ring[0]); // cerrar anillo
-        return {
-            geometry:     JSON.stringify({ rings: [ring], spatialReference: { wkid: 4326 } }),
-            geometryType: 'esriGeometryPolygon',
-        };
-    }
-
-    // ── Línea: envelope expandido por el buffer (aproximación) ────────────
-    const lats   = pts.map(p => p.lat);
-    const lngs   = pts.map(p => p.lng);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLng = Math.min(...lngs);
-    const maxLng = Math.max(...lngs);
-    const midLat = ((minLat + maxLat) / 2) * (Math.PI / 180);
-    const dLat   = distMeters / 111_320;
-    const dLng   = distMeters / (111_320 * Math.cos(midLat));
-    return {
-        geometry:     `${minLng - dLng},${minLat - dLat},${maxLng + dLng},${maxLat + dLat}`,
-        geometryType: 'esriGeometryEnvelope',
-    };
-}
-
-/**
- * Consulta un ArcGIS FeatureServer/MapServer con la geometría real del área.
- * Para puntos recibe un polígono circular exacto; para polígonos, el polígono
- * dibujado; para líneas, el envelope expandido.
- */
-async function queryArcGISLayer(
-    layer:        AnalysisLayerDef,
-    geometry:     string,
-    geometryType: string,
-    signal:       AbortSignal,
-): Promise<{ count: number; categorias: string[]; demoData: DemoData | null }> {
-    const where = layer.where ?? '1=1';
-
-    /** Hace POST al endpoint /query de ArcGIS REST con form-urlencoded.
-     *  Usar POST evita el límite de longitud de URL para geometrías grandes. */
-    const arcgisPost = async (params: Record<string, string>) => {
-        const body = new URLSearchParams({
-            geometry,
-            geometryType,
-            inSR:       '4326',
-            spatialRel: 'esriSpatialRelIntersects',
-            where,
-            ...params,
-        });
-        const res = await fetch(`${layer.url}/query`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body:    body.toString(),
-            signal,
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-    };
-
-    // ── Total: solo el conteo exacto ──────────────────────────────────────
-    if (layer.operation === 'total') {
-        const data = await arcgisPost({ f: 'json', returnCountOnly: 'true' });
-        return { count: data.count ?? 0, categorias: [], demoData: null };
-    }
-
-    // ── Categorizar: extraer valores únicos del atributo ──────────────────
-    if (layer.operation === 'categorizar') {
-        const data = await arcgisPost({
-            f:                 'geojson',
-            outFields:         layer.attributes[0],
-            returnGeometry:    'false',
-            resultRecordCount: '2000',
-        });
-        const features = (data.features ?? []) as Array<{ properties: Record<string, any> }>;
-        const attr     = layer.attributes[0];
-        const unique   = [
-            ...new Set(
-                features
-                    .map(f => {
-                        const v = f.properties?.[attr] ?? f.properties?.[attr.toLowerCase()] ?? f.properties?.[attr.toUpperCase()];
-                        return v != null && v !== '' ? String(v) : null;
-                    })
-                    .filter((v): v is string => v !== null),
-            ),
-        ];
-        // count = número real de features devueltos (correcto aunque unique esté vacío)
-        return { count: features.length, categorias: unique, demoData: null };
-    }
-
-    // ── Suma: acumular campos numéricos (demografía INEGI) ────────────────
-    if (layer.operation === 'suma') {
-        const data = await arcgisPost({
-            f:                 'geojson',
-            outFields:         layer.attributes.join(','),
-            returnGeometry:    'false',
-            resultRecordCount: '5000',
-        });
-        const features = (data.features ?? []) as Array<{ properties: Record<string, any> }>;
-        let hasReserved = false;
-        const sums: Record<string, number> = {};
-        layer.attributes.forEach(a => (sums[a] = 0));
-        features.forEach(f => {
-            layer.attributes.forEach(attr => {
-                const val = f.properties?.[attr];
-                if (val == null) { hasReserved = true; }
-                else             { sums[attr] = (sums[attr] ?? 0) + Number(val); }
-            });
-        });
-        return {
-            count: features.length,
-            categorias: [],
-            demoData: {
-                pobtot:     sums['pobtot']     ?? 0,
-                p_60ymas:   sums['p_60ymas']   ?? 0,
-                tvivhab:    sums['tvivhab']    ?? 0,
-                pcon_disc:  sums['pcon_disc']  ?? 0,
-                vph_nodren: sums['vph_nodren'] ?? 0,
-                hasReserved,
-            },
-        };
-    }
-
-    return { count: 0, categorias: [], demoData: null };
-}
-
-/** Determina el texto y si la fila tiene datos, para la columna "Total".
- *
- * Regla (igual que el sistema original):
- *  - operation = 'total'                         → conteo de features
- *  - operation = 'categorizar' con symbolUrl     → conteo de features (capas puntuales)
- *  - operation = 'categorizar' sin symbolUrl     → valores únicos del atributo (capas poligonales/lineales)
- *
- * ⚠️ IMPORTANTE: el check de symbolUrl debe ir ANTES del check de categorias.
- *    Para capas puntuales (Sismos, DENUE, REUSE…) `hasData` depende de `count`,
- *    NO de `categorias`. Si el campo del atributo devuelve nulos, categorias
- *    estaría vacío aunque haya features reales → "No presenta" incorrecto.
- */
-function getDisplayValue(lr: LayerResult): { text: string; hasData: boolean } {
-    if (lr.count === null) return { text: '…', hasData: false };
-
-    // ── operation = 'total' ───────────────────────────────────────────────
-    if (lr.operation === 'total') {
-        if (lr.count === 0) return { text: 'No presenta', hasData: false };
-        return { text: lr.count.toLocaleString(), hasData: true };
-    }
-
-    // ── operation = 'categorizar' ─────────────────────────────────────────
-    if (lr.symbolUrl) {
-        // Capa PUNTUAL: usa conteo de features, independiente de categorias
-        if (lr.count === 0) return { text: 'No presenta', hasData: false };
-        return { text: lr.count.toLocaleString(), hasData: true };
-    } else {
-        // Capa POLIGONAL / LINEAL: usa los valores únicos del atributo
-        if (!lr.categorias || lr.categorias.length === 0)
-            return { text: 'No presenta', hasData: false };
-        return { text: lr.categorias.join(', '), hasData: true };
     }
 }
 
@@ -424,6 +117,52 @@ function downloadAsGeoJSON(results: LayerResult[], filename: string) {
     URL.revokeObjectURL(url);
 }
 
+// ─── Buffer visual para líneas ────────────────────────────────────────────────
+
+/**
+ * Genera un polígono de buffer (cápsula redondeada) alrededor de una polilínea.
+ *
+ * Trabaja en un espacio cartesiano local (metros) para evitar todos los
+ * problemas de normalización de ángulos en coordenadas geográficas, luego
+ * convierte de vuelta a LatLng.
+ */
+
+function drawLineBuffer(
+    map: L.Map,
+    pts: L.LatLng[],
+    radiusMeters: number,
+    bufferLayerRef: React.MutableRefObject<L.Polygon | null>,
+): void {
+    if (pts.length < 2 || radiusMeters <= 0) return;
+
+    const line = turf.lineString(
+        pts.map(p => [p.lng, p.lat])
+    );
+
+    const buffer = turf.buffer(
+        line,
+        radiusMeters / 1000,
+        { units: 'kilometers' }
+    );
+
+    if (!buffer?.geometry || buffer.geometry.type !== 'Polygon') return;
+
+    const coords = buffer.geometry.coordinates[0];
+
+    bufferLayerRef.current?.remove();
+
+    bufferLayerRef.current = L.polygon(
+        coords.map(([lng, lat]) => [lat, lng] as [number, number]),
+        {
+            color: '#2563eb',
+            fillColor: '#2563eb',
+            fillOpacity: 0.15,
+            weight: 2,
+            dashArray: '6,4'
+        }
+    ).addTo(map);
+}
+
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClose }) => {
@@ -434,14 +173,15 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
     const [tab, setTab]           = useState<'dibujar' | 'resultados' | 'estadisticas'>('dibujar');
     const [mode, setMode]         = useState<DrawMode>('point');
     const [drawing, setDrawing]   = useState(false);
-    const [dist, setDist]         = useState<string>('1');
-    const [unit, setUnit]         = useState<DistUnit>('kilometers');
+    const [dist, setDist]         = useState<string>('500');
+    const [unit, setUnit]         = useState<DistUnit>('meters');
     const [error, setError]       = useState<string | null>(null);
     const [loading, setLoading]   = useState(false);
     const [results, setResults]   = useState<LayerResult[]>([]);
     const [detailLayerId, setDetailLayerId] = useState<string | null>(null);
     const [measurements, setMeasurements]  = useState<{ area?: number; length?: number; buffer?: number }>({});
     const [featuresLayerGroup, setFeaturesLayerGroup] = useState<L.LayerGroup | null>(null);
+    const [activeMapLayerId, setActiveMapLayerId]     = useState<string | null>(null);
     const [confirmResetOpen, setConfirmResetOpen]     = useState(false);
 
     const drawnPtsRef  = useRef<L.LatLng[]>([]);
@@ -451,6 +191,7 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
     const markerRef    = useRef<L.CircleMarker | null>(null);
     const previewRef   = useRef<L.Polyline | null>(null);
     const markersRef   = useRef<L.CircleMarker[]>([]);
+    const bufferLayerRef = useRef<L.Polygon | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
     const drawClickRef = useRef<((e: L.LeafletMouseEvent) => void) | null>(null);
     const drawMoveRef  = useRef<((e: L.LeafletMouseEvent) => void) | null>(null);
@@ -463,6 +204,7 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
         circleRef.current?.remove();   circleRef.current   = null;
         markerRef.current?.remove();   markerRef.current   = null;
         previewRef.current?.remove();  previewRef.current  = null;
+        bufferLayerRef.current?.remove(); bufferLayerRef.current = null;
         markersRef.current.forEach(m => m.remove());
         markersRef.current = [];
         drawnPtsRef.current = [];
@@ -483,6 +225,7 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
         setDetailLayerId(null);
         setMeasurements({});
         setLoading(false);
+        setActiveMapLayerId(null);
     }, [clearMapLayers]);
 
     const handleReset = useCallback(() => {
@@ -602,7 +345,16 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
         previewRef.current = null;
         setDrawing(false);
         updateMeasurements();
-    }, [mapInstance, updateMeasurements]);
+
+        // ── Dibujar buffer visual para línea ──────────────────────────────────
+        if (mode === 'line' && drawnPtsRef.current.length >= 2) {
+            const dv = parseFloat(dist) || 0;
+            if (dv > 0) {
+                const radiusMeters = toMeters(dv, unit);
+                drawLineBuffer(mapInstance, drawnPtsRef.current, radiusMeters, bufferLayerRef);
+            }
+        }
+    }, [mapInstance, updateMeasurements, mode, dist, unit]);
 
     // ── Ejecutar análisis ─────────────────────────────────────────────────────
     const runAnalysis = useCallback(async () => {
@@ -630,23 +382,16 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
 
         const pts        = drawnPtsRef.current;
         const distMeters = toMeters(distVal, unit);
+
+        // ── Buffer visual para línea (si aún no está dibujado) ────────────────
+        if (mode === 'line' && pts.length >= 2 && !bufferLayerRef.current) {
+            drawLineBuffer(mapInstance, pts, distMeters, bufferLayerRef);
+        }
+
         const { geometry, geometryType } = getArcGISGeometry(mode, pts, distMeters);
 
         // Inicializar resultados con todas las capas en estado "cargando"
-        const initialResults: LayerResult[] = ANALYSIS_LAYERS.map(layer => ({
-            layerId:      layer.id,
-            layerName:    layer.name,
-            url:          layer.url,
-            operation:    layer.operation,
-            group:        layer.group,
-            symbolUrl:    layer.symbolUrl,
-            legendColor:  layer.legendColor,
-            count:        null,
-            categorias:   null,
-            demoData:     null,
-            features:     null,
-            loadingDetails: false,
-        }));
+        const initialResults = buildInitialResults();
         setResults(initialResults);
 
         // Consultar todas las capas en paralelo
@@ -744,14 +489,34 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
     // ── Visualizar features en el mapa ────────────────────────────────────────
     const showFeaturesOnMap = useCallback((lr: LayerResult) => {
         if (!mapInstance || !lr.features) return;
+
+        // Toggle: si la capa ya está visible, ocultarla
+        if (activeMapLayerId === lr.layerId) {
+            featuresLayerGroup?.clearLayers();
+            setFeaturesLayerGroup(null);
+            setActiveMapLayerId(null);
+            return;
+        }
+
         featuresLayerGroup?.clearLayers();
         const group = L.layerGroup().addTo(mapInstance);
         let bounds: L.LatLngBounds | null = null;
 
-        // Color base de la capa (para polígonos/líneas)
         const fillColor = lr.legendColor ?? '#2563eb';
 
-        // Ícono PNG para capas puntuales con symbolUrl
+        // Borde contrastante según luminancia del color de relleno
+        const hexLum = (hex: string): number => {
+            const c = hex.replace('#', '');
+            const r = parseInt(c.substring(0,2), 16) / 255;
+            const g = parseInt(c.substring(2,4), 16) / 255;
+            const b = parseInt(c.substring(4,6), 16) / 255;
+            const lin = (v: number) => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+            return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+        };
+        let strokeColor = '#ffffff';
+        try { strokeColor = hexLum(fillColor.length === 7 ? fillColor : '#2563eb') > 0.35 ? '#1a1a1a' : '#ffffff'; }
+        catch { strokeColor = '#ffffff'; }
+
         const pointIcon = lr.symbolUrl
             ? L.icon({
                 iconUrl:    lr.symbolUrl,
@@ -767,24 +532,22 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
             const isPoint  = geomType === 'Point' || geomType === 'MultiPoint';
 
             const layer = L.geoJSON(feature as any, {
-                // Estilo para polígonos y líneas — usa legendColor de la capa
                 style: {
-                    color:       fillColor,
-                    weight:      2,
+                    color:       strokeColor,
+                    weight:      2.5,
                     fillColor,
-                    fillOpacity: 0.35,
-                    opacity:     0.9,
+                    fillOpacity: 0.5,
+                    opacity:     1,
                 },
-                // Marcador para puntos — PNG si hay symbolUrl, círculo con legendColor si no
                 pointToLayer: (_pt, latlng) =>
                     pointIcon
                         ? L.marker(latlng, { icon: pointIcon })
                         : L.circleMarker(latlng, {
-                            radius:      7,
-                            color:       fillColor,
+                            radius:      8,
+                            color:       strokeColor,
                             fillColor,
-                            fillOpacity: 0.85,
-                            weight:      2,
+                            fillOpacity: 0.9,
+                            weight:      2.5,
                         }),
             });
 
@@ -803,9 +566,10 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
         });
 
         setFeaturesLayerGroup(group);
+        setActiveMapLayerId(lr.layerId);
         if (bounds && (bounds as L.LatLngBounds).isValid())
             mapInstance.fitBounds(bounds as L.LatLngBounds, { padding: [50, 50] });
-    }, [mapInstance, featuresLayerGroup]);
+    }, [mapInstance, featuresLayerGroup, activeMapLayerId]);
 
     // ── Exportar ──────────────────────────────────────────────────────────────
     const handleExportCSV = useCallback(() => {
@@ -969,20 +733,32 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
                                 <p className="at-hint">⌨️ <strong>ESC</strong> cancelar · <strong>Enter</strong> finalizar · <strong>Ctrl+Z</strong> deshacer</p>
                             )}
 
-                            <div>
+                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                                 {!drawing && drawnPtsRef.current.length === 0 ? (
                                     <button className="at-action-btn" onClick={handleStartDrawing} disabled={!mapInstance}>
                                         ✏ Dibujar en el mapa
                                     </button>
                                 ) : drawing && (mode === 'line' || mode === 'polygon') ? (
-                                    <button className="at-action-btn at-action-btn--drawing" onClick={handleFinishDrawing}
-                                        disabled={(mode === 'line' && drawnPtsRef.current.length < 2) || (mode === 'polygon' && drawnPtsRef.current.length < 3)}>
-                                        ✔ Finalizar ({drawnPtsRef.current.length} pts)
-                                    </button>
+                                    <>
+                                        <button className="at-action-btn at-action-btn--drawing" onClick={handleFinishDrawing}
+                                            disabled={(mode === 'line' && drawnPtsRef.current.length < 2) || (mode === 'polygon' && drawnPtsRef.current.length < 3)}>
+                                            ✔ Finalizar ({drawnPtsRef.current.length} pts)
+                                        </button>
+                                        <button className="at-action-btn at-action-btn--clear" onClick={() => { clearMapLayers(); setDrawing(false); setError(null); setMeasurements({}); }}
+                                            title="Borrar geometría y comenzar de nuevo">
+                                            🗑 Borrar
+                                        </button>
+                                    </>
                                 ) : (
-                                    <button className="at-action-btn" onClick={runAnalysis} disabled={loading}>
-                                        {loading ? '⏳ Analizando…' : '🔍 Ejecutar Análisis'}
-                                    </button>
+                                    <>
+                                        <button className="at-action-btn" onClick={runAnalysis} disabled={loading}>
+                                            {loading ? '⏳ Analizando…' : '🔍 Ejecutar Análisis'}
+                                        </button>
+                                        <button className="at-action-btn at-action-btn--clear" onClick={() => { clearMapLayers(); setDrawing(false); setError(null); setMeasurements({}); setResults([]); }}
+                                            title="Borrar geometría y comenzar de nuevo">
+                                            🗑 Borrar
+                                        </button>
+                                    </>
                                 )}
                             </div>
                         </div>
@@ -1132,10 +908,10 @@ const AnalysisTool: React.FC<AnalysisToolProps> = ({ mapInstance, isOpen, onClos
                                                                             {lr.loadingDetails ? '…' : detailLayerId === lr.layerId ? 'Ocultar' : 'Detalles'}
                                                                         </button>
                                                                         {lr.features && lr.features.length > 0 && (
-                                                                            <button className="at-details-btn"
+                                                                            <button className={`at-details-btn${activeMapLayerId === lr.layerId ? ' at-details-btn--active-map' : ''}`}
                                                                                 onClick={() => showFeaturesOnMap(lr)}
-                                                                                title="Ver en mapa">
-                                                                                🗺️
+                                                                                title={activeMapLayerId === lr.layerId ? 'Ocultar del mapa' : 'Ver en mapa'}>
+                                                                                {activeMapLayerId === lr.layerId ? '🗺️ ✕' : '🗺️'}
                                                                             </button>
                                                                         )}
                                                                     </div>

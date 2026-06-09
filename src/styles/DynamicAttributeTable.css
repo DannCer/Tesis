@@ -302,3 +302,13 @@
 
   .dat-tab-label { max-width: 120px; }
 }
+
+
+/* ── Control de opacidad en barra de tabs ────────────────────────────────── */
+/* Reutiliza .attr-opacity-* de AttributeTable.css; solo ajustes de posición */
+
+.attr-opacity-control--tabs {
+    margin-left: 0;
+    margin-right: 4px;
+    /* La barra de tabs ya tiene el mismo fondo oscuro: sin cambios de color */
+}

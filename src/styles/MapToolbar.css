@@ -131,9 +131,10 @@
     transform: translateX(-50%);
     white-space: nowrap;
     font-size: 0.62rem;
-    font-weight: 500;
+    font-weight: 600;
     letter-spacing: 0.02em;
-    color: rgba(255, 255, 255, 0.82);
+    color: #ffffff;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.8);
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.15s ease;

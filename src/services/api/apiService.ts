@@ -14,6 +14,7 @@
  */
 
 import { config, logger } from '@config/env';
+import { getToken } from '@utils/tokenCache';
 import type {
     GrupoResponse, GrupoCreate,
     SubgrupoResponse, SubgrupoCreate,
@@ -37,7 +38,7 @@ export const API_V1       = `${API_BASE_URL}/api/v1`;
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const url = `${API_V1}${endpoint}`;
     try {
-        const token = localStorage.getItem('access_token');
+        const token = await getToken('access');
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',
             ...(options.headers as Record<string, string>),
@@ -78,7 +79,7 @@ export const apiService = {
                 body: JSON.stringify({ username, password }),
             }),
 
-        /** Devuelve el usuario autenticado a partir del token en localStorage */
+        /** Devuelve el usuario autenticado a partir del token en caché */
         me: (): Promise<CurrentUser> =>
             request('/auth/me'),
 

@@ -81,6 +81,10 @@ interface LayerMenuProps {
     isCollapsed?:           boolean;
     /** Callback para que MapToolbar notifique el toggle */
     onCollapseToggle?:      () => void;
+    /** Abre el bottom sheet móvil desde el toolbar (botón de capas en móvil) */
+    mobileMenuOpen?:        boolean;
+    /** Callback para sincronizar cierre con MapToolbar */
+    onMobileMenuClose?:     () => void;
 }
 
 // ─── URL helpers ──────────────────────────────────────────────────────────────
@@ -752,12 +756,52 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({
     toolbarSlot,
     isCollapsed,
     onCollapseToggle,
+    mobileMenuOpen,
+    onMobileMenuClose,
 }) => {
     const { availableLayers: AVAILABLE_LAYERS, grupos } = useLayersData();
     const { loading: apiLoading, error: apiError } = useLayersMeta();
 
-    const [menuOpen,             setMenuOpen]             = useState(false);
     const [collapsed,            setCollapsed]            = useState(false);
+
+    // En móvil: la visibilidad del sheet la controla el padre (mobileMenuOpen).
+    // En escritorio: no se usa. Se mantiene un alias para compatibilidad interna.
+    const menuOpen = mobileMenuOpen ?? false;
+    const closeMenu = useCallback(() => { onMobileMenuClose?.(); }, [onMobileMenuClose]);
+
+    // ── Drag-to-close para el bottom sheet móvil ──────────────────────────────
+    const sheetRef       = useRef<HTMLDivElement>(null);
+    const dragStartY     = useRef<number>(0);
+    const dragCurrentY   = useRef<number>(0);
+    const isDragging     = useRef<boolean>(false);
+
+    const onSheetTouchStart = useCallback((e: React.TouchEvent) => {
+        dragStartY.current   = e.touches[0].clientY;
+        dragCurrentY.current = 0;
+        isDragging.current   = true;
+        if (sheetRef.current) sheetRef.current.style.transition = 'none';
+    }, []);
+
+    const onSheetTouchMove = useCallback((e: React.TouchEvent) => {
+        if (!isDragging.current) return;
+        const delta = e.touches[0].clientY - dragStartY.current;
+        dragCurrentY.current = delta;
+        if (delta > 0 && sheetRef.current) {
+            sheetRef.current.style.transform = `translateY(${delta}px)`;
+        }
+    }, []);
+
+    const onSheetTouchEnd = useCallback(() => {
+        isDragging.current = false;
+        const shouldClose = dragCurrentY.current > 100;
+        if (sheetRef.current) {
+            // Restaurar la transición CSS antes de soltar el inline transform,
+            // así el sheet regresa suavemente (o desaparece si closeMenu remueve .open).
+            sheetRef.current.style.transition = '';
+            sheetRef.current.style.transform  = '';
+        }
+        if (shouldClose) closeMenu();
+    }, [closeMenu]);
     // Control externo: si MapToolbar pasa isCollapsed, ese valor manda
     const effectiveCollapsed  = isCollapsed ?? collapsed;
     const handleCollapseToggle = onCollapseToggle ?? (() => setCollapsed(c => !c));
@@ -1074,15 +1118,8 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({
 
     return (
         <>
-            {/* FAB móvil */}
-            <button className="layer-menu-fab" onClick={() => setMenuOpen(o => !o)} aria-label="Abrir menú de capas">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16" aria-hidden="true">
-                    <path d="M8.235 1.559a.5.5 0 0 0-.47 0l-7.5 4a.5.5 0 0 0 0 .882L3.188 8 .264 9.559a.5.5 0 0 0 0 .882l7.5 4a.5.5 0 0 0 .47 0l7.5-4a.5.5 0 0 0 0-.882L12.813 8l2.922-1.559a.5.5 0 0 0 0-.882l-7.5-4z" />
-                </svg>
-                {activeCount > 0 && <span className="fab-badge">{activeCount}</span>}
-            </button>
-
-            {menuOpen && <div className="layer-menu-overlay" onClick={() => setMenuOpen(false)} aria-hidden="true" />}
+            {/* Overlay oscuro */}
+            {menuOpen && <div className="layer-menu-overlay" onClick={() => { closeMenu(); }} aria-hidden="true" />}
 
             {/* Panel escritorio */}
             <div className={`layer-menu desktop-menu ${effectiveCollapsed ? 'collapsed' : ''}`}>
@@ -1106,8 +1143,14 @@ const LayerMenu: React.FC<LayerMenuProps> = memo(({
             )}
 
             {/* Bottom sheet móvil */}
-            <div className={`layer-menu mobile-menu ${menuOpen ? 'open' : ''}`}>
-                <div className="mobile-menu-handle" onClick={() => setMenuOpen(false)}>
+            <div
+                ref={sheetRef}
+                className={`layer-menu mobile-menu ${menuOpen ? 'open' : ''}`}
+                onTouchStart={onSheetTouchStart}
+                onTouchMove={onSheetTouchMove}
+                onTouchEnd={onSheetTouchEnd}
+            >
+                <div className="mobile-menu-handle" onClick={() => { closeMenu(); }}>
                     <span className="handle-bar" aria-hidden="true" />
                     <div className="header-content">
                         <h3>Capas</h3>

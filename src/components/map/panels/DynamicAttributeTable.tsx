@@ -217,8 +217,8 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
 
     // ── Capas visibles disponibles ──────────────────────────────────────────
     const visibleLayerIds = useMemo(() =>
-        Object.entries(vectorLayers)
-            .filter(([, l]) => l.data && l.data.features.length > 0)
+        Object.entries(vectorLayers ?? {})
+            .filter(([, l]) => l?.data && Array.isArray(l.data.features) && l.data.features.length > 0)
             .map(([id]) => id),
         [vectorLayers],
     );
@@ -241,10 +241,12 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
     const [sortDirection,   setSortDirection]   = useState<'asc' | 'desc'>('asc');
     const [currentPage,     setCurrentPage]     = useState(1);
     const [columnWidths,    setColumnWidths]    = useState<Record<string, number>>({});
+    const [tableOpacity,    setTableOpacity]    = useState(100);
 
     const resizingRef = useRef<{ col: string; startX: number; startW: number } | null>(null);
     const sortColRef  = useRef<string | null>(null);
     const sortDirRef  = useRef<'asc' | 'desc'>('asc');
+    const tbodyRef    = useRef<HTMLTableSectionElement>(null);
 
     // La capa de resaltado es gestionada por MapView y se recibe via `highlightLayerRef`
 
@@ -318,8 +320,11 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
     }, [searchTerm]);
 
     // ── Features de la capa activa ──────────────────────────────────────────
-    const activeLayer   = vectorLayers[activeTab];
-    const allFeatures   = useMemo(() => activeLayer?.data?.features ?? [], [activeLayer]);
+    const activeLayer   = vectorLayers?.[activeTab];
+    const allFeatures   = useMemo(() =>
+        Array.isArray(activeLayer?.data?.features) ? activeLayer!.data!.features : [],
+        [activeLayer],
+    );
 
     const extentFeatures = useMemo(() => {
         if (!filterByExtent || !mapBounds) return allFeatures as GeoJSON.Feature[];
@@ -330,7 +335,7 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
         const keys = new Set<string>();
         allFeatures.forEach(f => {
             const feat = f as GeoJSON.Feature;
-            if (feat.properties) Object.keys(feat.properties).forEach(k => keys.add(k));
+            if (feat?.properties) Object.keys(feat.properties).forEach(k => keys.add(k));
         });
         return Array.from(keys);
     }, [allFeatures]);
@@ -423,19 +428,12 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
 
         // 1. Cambiar a la pestaña de la capa correspondiente (si está visible)
         if (visibleLayerIds.includes(layerId) && activeTab !== layerId) {
-            // handleTabChange limpia selección, así que actualizamos el tab primero
-            setActiveTab(layerId);
-            setCurrentPage(1);
-            setSqlInput(''); setSqlApplied(''); setSqlError('');
-            setSearchTerm(''); setDebouncedSearch('');
-            setSortColumn(null); sortColRef.current = null;
-            lastClickedFi.current = null;
+            handleTabChange(layerId); // limpia selección, SQL, búsqueda y sort
         }
 
         // 2. Buscar el índice de la feature en las features de esa capa
-        //    Usamos comparación por referencia (mismo objeto GeoJSON)
-        const layerFeatures = vectorLayers[layerId]?.data?.features ?? [];
-        const fi = layerFeatures.indexOf(feature as GeoJSON.GeoJsonObject);
+        const layerFeatures = vectorLayers?.[layerId]?.data?.features ?? [];
+        const fi = (layerFeatures as GeoJSON.Feature[]).indexOf(feature as GeoJSON.Feature);
 
         if (fi !== -1) {
             setSelectedFiSet(new Set([fi]));
@@ -446,8 +444,23 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
         }
 
         onMapFeatureConsumed?.();
+    // handleTabChange y vectorLayers son estables o se actualizan antes de este efecto
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapSelectedFeature]);
+
+    // ── Scroll al primer renglón seleccionado (tras selección desde mapa) ────
+    useEffect(() => {
+        if (selectedFiSet.size !== 1 || !tbodyRef.current) return;
+        const [fi] = selectedFiSet;
+        // Buscar el tr cuyo key coincide con el fi en la página actual
+        const rows = tbodyRef.current.querySelectorAll('tr');
+        const idx = paginatedEntries.findIndex(e => e.fi === fi);
+        if (idx !== -1 && rows[idx]) {
+            rows[idx].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    // Solo cuando cambia selectedFiSet; paginatedEntries se deriva del mismo render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedFiSet]);
 
     // ── Zoom a seleccionados ────────────────────────────────────────────────
     const zoomToSelected = useCallback(() => {
@@ -507,7 +520,7 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${(activeLayer?.name ?? activeTab).replace(/[/\\:*?"<>|]/g, '_')}_atributos.csv`;
+        a.download = `${(activeLayer?.name ?? activeTab ?? 'tabla').replace(/[/\\:*?"<>|]/g, '_')}_atributos.csv`;
         a.click();
         URL.revokeObjectURL(url);
     }, [columns, processedEntries, activeLayer, activeTab]);
@@ -522,7 +535,7 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
     if (visibleLayerIds.length === 0) {
         return (
             <div className="dat-overlay">
-                <div className="dat-modal">
+                <div className="dat-modal" style={{ opacity: tableOpacity / 100 }}>
                     <div className="dat-tabs">
                         <span style={{ padding: '0.6rem 1rem', color: 'rgba(255,255,255,0.7)', fontSize: '0.85rem' }}>
                             Tabla de Atributos
@@ -543,7 +556,7 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
 
     return (
         <div className="dat-overlay">
-            <div className="dat-modal">
+            <div className="dat-modal" style={{ opacity: tableOpacity / 100 }}>
 
                 {/* ══ PESTAÑAS ══════════════════════════════════════════════ */}
                 <div className="dat-tabs" role="tablist">
@@ -561,6 +574,23 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
                         </button>
                     ))}
                     <div style={{ flex: 1 }} />
+                    {/* ── Control de opacidad ── */}
+                    <div className="attr-opacity-control attr-opacity-control--tabs" title={`Opacidad: ${tableOpacity}%`}>
+                        <svg className="attr-opacity-icon" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                            <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1v12A6 6 0 0 1 8 2z"/>
+                        </svg>
+                        <input
+                            className="attr-opacity-slider"
+                            type="range"
+                            min={20}
+                            max={100}
+                            step={1}
+                            value={tableOpacity}
+                            onChange={e => setTableOpacity(Number(e.target.value))}
+                            aria-label="Opacidad de la tabla"
+                        />
+                        <span className="attr-opacity-value">{tableOpacity}%</span>
+                    </div>
                     <button className="dat-tab-close" onClick={handleClose} title="Cerrar tabla">✕</button>
                 </div>
 
@@ -724,7 +754,7 @@ const DynamicAttributeTable: React.FC<DynamicAttributeTableProps> = memo(({
                                     ))}
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody ref={tbodyRef}>
                                 {paginatedEntries.map(({ row, fi }, pageIdx) => {
                                     const globalNum  = (currentPage - 1) * ROWS_PER_PAGE + pageIdx + 1;
                                     const isSelected = selectedFiSet.has(fi);

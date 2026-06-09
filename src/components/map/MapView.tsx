@@ -243,6 +243,18 @@ const MapView: React.FC = () => {
 
     const [wmsError, setWmsError] = useState<string | null>(null);
 
+    /** Estado del bottom sheet de capas en móvil.
+     *  Inicia abierto en dispositivos móviles (≤ 768 px) para que el menú
+     *  de capas esté desplegado desde el primer momento, igual que en escritorio. */
+    const [mobileLayerMenuOpen, setMobileLayerMenuOpen] = useState(() => window.innerWidth <= 768);
+    const handleToggleMobileLayerMenu = useCallback(() => setMobileLayerMenuOpen(v => !v), []);
+    const handleMobileLayerMenuClose  = useCallback(() => setMobileLayerMenuOpen(false), []);
+
+    /** Estado compartido para el modo captura de punto (⌖ → CoordinatesTool) */
+    const [captureMode, setCaptureMode] = useState(false);
+    const handleCaptureToggle  = useCallback(() => setCaptureMode(v => !v), []);
+    const handleCaptureDone    = useCallback(() => setCaptureMode(false),   []);
+
     // ─── Handlers swipe ── movidos a useSwipeState() ──────────────────────────
 
     // ─── Capas combinadas ─────────────────────────────────────────────────────
@@ -464,6 +476,8 @@ const MapView: React.FC = () => {
                 toolbarSlot={null}
                 isCollapsed={layerMenuCollapsed}
                 onCollapseToggle={handleCollapseToggle}
+                mobileMenuOpen={mobileLayerMenuOpen}
+                onMobileMenuClose={handleMobileLayerMenuClose}
             />
 
             {/* ── Barra de herramientas flotante (estilo ATLAS CDMX) ─────────
@@ -477,6 +491,10 @@ const MapView: React.FC = () => {
                 onToggleLegend={handleToggleLegend}
                 hasActiveLayers={hasActiveLayers}
                 onAddLayer={handleAddExternalLayer}
+                externalCaptureMode={captureMode}
+                onCaptureDone={handleCaptureDone}
+                mobileLayerMenuOpen={mobileLayerMenuOpen}
+                onToggleMobileLayerMenu={handleToggleMobileLayerMenu}
             />
 
             <PixelInfoPanel
@@ -523,7 +541,10 @@ const MapView: React.FC = () => {
                 />
 
                 {/* Recuadro de coordenadas del cursor — control Leaflet bottomleft */}
-                <CursorCoordinates />
+                <CursorCoordinates
+                    onCaptureClick={handleCaptureToggle}
+                    captureActive={captureMode}
+                />
 
                 <MapClickHandler onMapClick={handleMapClick} swipeActive={swipeActive} />
 
