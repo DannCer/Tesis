@@ -39,6 +39,41 @@
     pointer-events: none;
 }
 
+/* ── Botón del ícono ⌖ ───────────────────────────────────────────────────── */
+
+.cc-icon-btn {
+    display:         flex;
+    align-items:     center;
+    justify-content: center;
+    background:      none;
+    border:          none;
+    padding:         1px 3px;
+    margin-right:    1px;
+    border-radius:   3px;
+    cursor:          pointer;
+    line-height:     1;
+    transition:      background 0.15s, transform 0.1s;
+}
+
+.cc-icon-btn:hover {
+    background: rgba(105, 27, 49, 0.1);
+}
+
+.cc-icon-btn--active {
+    background: rgba(105, 27, 49, 0.15);
+    animation: cc-capture-pulse 1.4s ease-in-out infinite;
+}
+
+.cc-icon-btn--active .cc-icon {
+    color: var(--color-primary-dark, #691B31);
+    transform: scale(1.15);
+}
+
+@keyframes cc-capture-pulse {
+    0%, 100% { background: rgba(105, 27, 49, 0.12); }
+    50%       { background: rgba(105, 27, 49, 0.25); }
+}
+
 /* ── Ícono de retícula ───────────────────────────────────────────────────── */
 
 .cc-icon {

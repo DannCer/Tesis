@@ -1,5 +1,6 @@
 import React, { createContext, useReducer, useEffect, ReactNode } from 'react';
 import { apiService } from '@services/api/apiService';
+import { getToken, setToken, clearTokens } from '@utils/tokenCache';
 
 export interface AuthState {
     isAuthenticated: boolean;
@@ -47,7 +48,7 @@ export const authReducer = (state: AuthState, action: AuthAction): AuthState => 
         case 'LOGIN_START':
             return { ...state, loading: true, error: null };
         case 'LOGIN_SUCCESS':
-            // Reducer puro: la persistencia en localStorage la maneja
+            // Reducer puro: la persistencia en caché la maneja
             // la función login() del provider, que ya escribió los tokens
             // antes de despachar esta acción.
             return {
@@ -58,7 +59,7 @@ export const authReducer = (state: AuthState, action: AuthAction): AuthState => 
                 error: null,
             };
         case 'LOGIN_ERROR':
-            // El provider limpia localStorage en el catch de login() si es necesario.
+            // El provider limpia el caché en el catch de login() si es necesario.
             // El reducer solo actualiza el estado de React.
             return {
                 ...state,
@@ -68,7 +69,7 @@ export const authReducer = (state: AuthState, action: AuthAction): AuthState => 
                 error: action.payload,
             };
         case 'LOGOUT':
-            // La limpieza de localStorage ocurre en logout() del provider,
+            // La limpieza del caché ocurre en logout() del provider,
             // que llama apiService.auth.logout() antes de despachar esta acción.
             return { ...authInitialState, loading: false };
         case 'SET_LOADING':
@@ -101,15 +102,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         dispatch({ type: 'LOGIN_START' });
         try {
             const tokens = await apiService.auth.login(username, password);
-            // Única escritura de tokens — el reducer no toca localStorage.
-            localStorage.setItem('access_token',  tokens.access_token);
-            localStorage.setItem('refresh_token', tokens.refresh_token);
+            // Única escritura de tokens — el reducer no toca el caché.
+            await setToken('access',  tokens.access_token);
+            await setToken('refresh', tokens.refresh_token);
             const user = await apiService.auth.me();
             dispatch({ type: 'LOGIN_SUCCESS', payload: { user } });
         } catch (error: unknown) {
             // Limpiar tokens si el login falló después de recibirlos
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('refresh_token');
+            await clearTokens();
             const message = error instanceof Error ? error.message : 'Error de login';
             dispatch({ type: 'LOGIN_ERROR', payload: message });
             throw error;
@@ -118,20 +118,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const logout = async () => {
         try {
-            const token = localStorage.getItem('access_token');
+            const token = await getToken('access');
             if (token) await apiService.auth.logout();
         } catch (error) {
             console.error('Error en logout:', error);
         } finally {
             // Limpieza explícita aquí — el reducer LOGOUT es ahora puro.
-            localStorage.removeItem('access_token');
-            localStorage.removeItem('refresh_token');
+            await clearTokens();
             dispatch({ type: 'LOGOUT' });
         }
     };
 
     const checkAuth = async () => {
-        const token = localStorage.getItem('access_token');
+        const token = await getToken('access');
         if (!token) {
             dispatch({ type: 'SET_LOADING', payload: false });
             return;
@@ -142,6 +141,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             dispatch({ type: 'SET_USER', payload: user });
         } catch (error) {
             console.error('Error al verificar auth:', error);
+            await clearTokens();
             dispatch({ type: 'LOGOUT' });
         } finally {
             dispatch({ type: 'SET_LOADING', payload: false });
@@ -149,13 +149,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     const refreshToken = async () => {
-        const refresh = localStorage.getItem('refresh_token');
+        const refresh = await getToken('refresh');
         if (!refresh) throw new Error('No refresh token');
 
         try {
             const tokens = await apiService.auth.refresh(refresh);
-            localStorage.setItem('access_token', tokens.access_token);
+            await setToken('access', tokens.access_token);
         } catch (error) {
+            await clearTokens();
             dispatch({ type: 'LOGOUT' });
             throw error;
         }

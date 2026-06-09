@@ -22,6 +22,13 @@ import '@styles/CursorCoordinates.css';
 
 interface Coords { lat: number; lng: number }
 
+interface CursorCoordinatesProps {
+    /** Llamado al hacer clic en el ícono ⌖ para activar/desactivar captura de punto */
+    onCaptureClick?: () => void;
+    /** true cuando el modo captura está activo (resalta el ícono) */
+    captureActive?: boolean;
+}
+
 // ─── Formatos de coordenadas ──────────────────────────────────────────────────
 
 type CoordFormat = 'dd' | 'dms';
@@ -38,7 +45,10 @@ function toDMS(deg: number, isLat: boolean): string {
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
-const CursorCoordinates: React.FC = () => {
+const CursorCoordinates: React.FC<CursorCoordinatesProps> = ({
+    onCaptureClick,
+    captureActive = false,
+}) => {
     const map          = useMap();
     const [coords,     setCoords]     = useState<Coords | null>(null);
     const [onMap,      setOnMap]      = useState(false);
@@ -116,7 +126,15 @@ const CursorCoordinates: React.FC = () => {
         >
             {coords && (
                 <>
-                    <span className="cc-icon" aria-hidden="true">⌖</span>
+                    <button
+                        className={`cc-icon-btn${captureActive ? ' cc-icon-btn--active' : ''}`}
+                        onClick={onCaptureClick}
+                        title={captureActive ? 'Cancelar captura de punto' : 'Clic para capturar un punto del mapa'}
+                        aria-label={captureActive ? 'Cancelar captura' : 'Capturar punto del mapa'}
+                        aria-pressed={captureActive}
+                    >
+                        <span className="cc-icon" aria-hidden="true">⌖</span>
+                    </button>
                     <button
                         className="cc-coords"
                         onClick={() => setFormat(f => f === 'dd' ? 'dms' : 'dd')}
@@ -130,7 +148,7 @@ const CursorCoordinates: React.FC = () => {
                                 : <><span className="cc-val cc-val--dms">{lat}</span><span className="cc-sep"> </span><span className="cc-val cc-val--dms">{lng}</span></>;
                         })()}
                     </button>
-                    <span className="cc-format-hint">{format.toUpperCase()}</span>
+                    <span className="cc-format-hint">{format === 'dms' ? 'GMS' : format.toUpperCase()}</span>
                 </>
             )}
         </div>,

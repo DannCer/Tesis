@@ -173,6 +173,7 @@ const AttributeTable: React.FC<AttributeTableProps> = memo(({ layerName, feature
     const [sortColumn,    setSortColumn]    = useState<string | null>(null);
     const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
     const [currentPage,   setCurrentPage]   = useState(1);
+    const [tableOpacity,  setTableOpacity]  = useState(100);
 
     // ✅ Estado para redimensionamiento de columnas
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
@@ -329,7 +330,7 @@ const AttributeTable: React.FC<AttributeTableProps> = memo(({ layerName, feature
 
     return (
         <div className="attr-table-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-            <div className="attr-table-modal">
+            <div className="attr-table-modal" style={{ opacity: tableOpacity / 100 }}>
 
                 {/* ── Header ─────────────────────────────────────── */}
                 <div className="attr-table-header">
@@ -345,6 +346,23 @@ const AttributeTable: React.FC<AttributeTableProps> = memo(({ layerName, feature
                             )}{' '}registros
                             {hasSqlFilter && <span className="attr-sql-badge">SQL</span>}
                         </span>
+                        {/* ── Control de opacidad ── */}
+                        <div className="attr-opacity-control" title={`Opacidad: ${tableOpacity}%`}>
+                            <svg className="attr-opacity-icon" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1v12A6 6 0 0 1 8 2z"/>
+                            </svg>
+                            <input
+                                className="attr-opacity-slider"
+                                type="range"
+                                min={20}
+                                max={100}
+                                step={1}
+                                value={tableOpacity}
+                                onChange={e => setTableOpacity(Number(e.target.value))}
+                                aria-label="Opacidad de la tabla"
+                            />
+                            <span className="attr-opacity-value">{tableOpacity}%</span>
+                        </div>
                     </div>
                     <div className="attr-table-controls">
                         <input
